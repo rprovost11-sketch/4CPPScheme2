@@ -1,0 +1,4 @@
+D:/SWDEV/C++/cekscheme/build3/CMakeFiles/cekscheme_core.dir
+D:/SWDEV/C++/cekscheme/build3/CMakeFiles/cekscheme.dir
+D:/SWDEV/C++/cekscheme/build3/CMakeFiles/ALL_BUILD.dir
+D:/SWDEV/C++/cekscheme/build3/CMakeFiles/ZERO_CHECK.dir
