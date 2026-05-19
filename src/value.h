@@ -322,6 +322,10 @@ struct SchemeSyntaxTransformer
       };
    std::vector<Rule> rules;
    Environment*      def_env;
+   // Hygiene maps (Option B alpha-rename at expansion time):
+   std::unordered_map<std::string,std::string> free_id_map;       // free_id -> gensym alias
+   std::vector<std::string>                    intro_names;       // non-def-env free ids
+   std::vector<std::string>                    binding_intro_names; // intro names at binding sites
 
    SchemeSyntaxTransformer() : ellipsis(0), def_env(nullptr) {}
    };
