@@ -78,3 +78,11 @@ public:
       : SchemeError("read error: " + message)
       {}
    };
+
+class SCHEME_API SchemeAnalysisError : public SchemeError
+   {
+public:
+   explicit SchemeAnalysisError(const std::string& message)
+      : SchemeError("analysis error: " + message)
+      {}
+   };

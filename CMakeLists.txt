@@ -14,6 +14,7 @@ add_library(cekscheme_core SHARED
     src/parser.cpp
     src/expander.cpp
     src/syntax_rules.cpp
+    src/analyzer.cpp
     src/evaluator_stubs.cpp
 )
 
