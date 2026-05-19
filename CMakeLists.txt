@@ -11,6 +11,7 @@ add_library(cekscheme_core SHARED
     src/value.cpp
     src/gc_gen.cpp
     src/environment.cpp
+    src/parser.cpp
     src/evaluator_stubs.cpp
 )
 
