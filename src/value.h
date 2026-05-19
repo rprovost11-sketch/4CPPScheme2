@@ -108,8 +108,14 @@ struct Value;
 struct Builtin;
 
 // Sentinel types for immediate values
-struct Unspecified {};
-struct EofTag {};
+struct Unspecified {
+   bool operator==(const Unspecified&) const { return true; }
+   bool operator!=(const Unspecified&) const { return false; }
+   };
+struct EofTag {
+   bool operator==(const EofTag&) const { return true; }
+   bool operator!=(const EofTag&) const { return false; }
+   };
 
 // ── Symbol immediate ──────────────────────────────────────────────────────────
 // Wraps a uint32_t intern-pool ID as a distinct variant arm.
@@ -117,6 +123,8 @@ struct SymbolId
    {
    uint32_t id;
    explicit SymbolId(uint32_t symbol_id) : id(symbol_id) {}
+   bool operator==(const SymbolId& o) const { return id == o.id; }
+   bool operator!=(const SymbolId& o) const { return id != o.id; }
    };
 
 // ── THE Value type ───────────────────────────────────────────────────────────
@@ -156,6 +164,9 @@ struct Value
 
    Value()                    : repr(std::monostate{}) {}
    explicit Value(Repr inner) : repr(std::move(inner)) {}
+
+   bool operator==(const Value& o) const { return repr == o.repr; }
+   bool operator!=(const Value& o) const { return repr != o.repr; }
    };
 
 
