@@ -15,7 +15,7 @@ add_library(cekscheme_core SHARED
     src/expander.cpp
     src/syntax_rules.cpp
     src/analyzer.cpp
-    src/evaluator_stubs.cpp
+    src/evaluator.cpp
 )
 
 target_compile_definitions(cekscheme_core PRIVATE CEKSCHEME_CORE_EXPORTS)
