@@ -10,6 +10,8 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <ostream>
+#include <charconv>
+#include <array>
 
 
 // ── Type predicates ──────────────────────────────────────────────────────────
@@ -428,12 +430,13 @@ static void format_double(std::ostream& out, double d)
    {
    if (std::isinf(d)) { out << (d > 0 ? "+inf.0" : "-inf.0"); return; }
    if (std::isnan(d)) { out << "+nan.0"; return; }
-   std::ostringstream buf;
-   buf.precision(std::numeric_limits<double>::max_digits10);
-   buf << d;
-   std::string s = buf.str();
+   std::array<char, 32> buf;
+   auto [ptr, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), d,
+                                   std::chars_format::general);
+   if (ec != std::errc{}) { out << d; return; }
+   std::string s(buf.data(), ptr);
    if (s.find('.') == std::string::npos && s.find('e') == std::string::npos &&
-       s.find('E') == std::string::npos && s.find('n') == std::string::npos)
+       s.find('E') == std::string::npos)
       s += ".0";
    out << s;
    }
@@ -523,7 +526,7 @@ static void value_to_stream(std::ostream& out, Value val, bool display_mode)
       out << name;
       return;
       }
-   if (is_unspecified(val)){ out << "#<unspecified>"; return; }
+   if (is_unspecified(val)){ out << "#<void>"; return; }
    if (is_string(val))
       {
       const std::string& text = std::get<SchemeString*>(val.repr)->data;
@@ -531,17 +534,9 @@ static void value_to_stream(std::ostream& out, Value val, bool display_mode)
       else write_string_escaped(out, text);
       return;
       }
-   if (is_builtin(val))   { out << "#<procedure:" << std::get<Builtin*>(val.repr)->name << ">"; return; }
-   if (is_closure(val))
-      {
-      auto* cl = std::get<SchemeClosure*>(val.repr);
-      out << "#<procedure"; if (!cl->name.empty()) out << ":" << cl->name; out << ">"; return;
-      }
-   if (is_case_closure(val))
-      {
-      auto* cc = std::get<SchemeCaseClosure*>(val.repr);
-      out << "#<procedure"; if (!cc->name.empty()) out << ":" << cc->name; out << ">"; return;
-      }
+   if (is_builtin(val))   { out << "#<primitive " << std::get<Builtin*>(val.repr)->name << ">"; return; }
+   if (is_closure(val))      { out << "#<procedure>"; return; }
+   if (is_case_closure(val)) { out << "#<procedure>"; return; }
    if (is_macro(val))
       {
       auto* m = std::get<SchemeMacro*>(val.repr);
@@ -602,7 +597,24 @@ static void value_to_stream(std::ostream& out, Value val, bool display_mode)
    if (is_error_object(val))
       {
       auto* eo = std::get<SchemeErrorObject*>(val.repr);
-      out << "#<error-object:" << eo->message << ">"; return;
+      out << "#<error-object \"";
+      write_string_escaped(out, eo->message);
+      out << "\"";
+      if (!is_nil(eo->irritants))
+         {
+         out << " (";
+         Value cur = eo->irritants;
+         bool first = true;
+         while (is_cons(cur))
+            {
+            if (!first) out << " ";
+            first = false;
+            value_to_stream(out, car(cur), display_mode);
+            cur = cdr(cur);
+            }
+         out << ")";
+         }
+      out << ">"; return;
       }
    if (is_cons(val))
       {
