@@ -1,0 +1,19 @@
+pyscheme Overview
+=================
+
+pyscheme is an R7RS-style Scheme interpreter implemented as a CEK
+abstract machine in Python.
+
+The pipeline is:
+
+  source -> Parser -> Expander -> Analyzer -> simplify -> cek_eval
+
+Each stage has a single responsibility: the Parser is a pure reader, the
+Expander rewrites surface sugar, the Analyzer produces a tagged AST and
+runs static checks (arity, shape), simplify narrows the AST to what the
+evaluator accepts, and cek_eval is a small abstract machine.
+
+Help sections:
+  (help "basics")    a short tutorial
+  (help "syntax")    the complete special-form reference
+  (help)             list all primitives and special forms

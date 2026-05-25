@@ -1,837 +1,789 @@
+// syntax_rules.cpp -- R7RS syntax-rules pattern matcher and template instantiator.
+// Direct port of pyscheme/syntax_rules.py.
 #include "syntax_rules.h"
-#include "expander.h"
-#include "gc.h"
-#include <algorithm>
-#include <cassert>
+#include "Parser.h"         // SchemeSyntaxError
+#include "PrettyPrinter.h"  // scheme_pretty_print
+#include <atomic>
+#include <string>
+#include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
-// ── Syntactic keywords that are never renamed in templates ───────────────────
+// ── Module-private globals ─────────────────────────────────────────────────
+// Port of syntax_rules.py _SYNTACTIC_KEYWORDS, _GENSYM_COUNTER, _GENSYM_PREFIX.
 
-static bool is_syntactic_keyword(const std::string& s)
-   {
-   static const std::unordered_set<std::string> KEYWORDS = {
-      "if","lambda","begin","define","set!","quote",
-      "let","let*","letrec","letrec*",
-      "and","or","case","cond","when","unless","do","guard",
-      "parameterize","define-syntax","let-syntax","letrec-syntax",
-      "define-record-type","syntax-rules","define-library",
-      "import","export","case-lambda",
-      "quasiquote","unquote","unquote-splicing",
-      "define-values","let-values","let*-values",
-      "include","include-ci","cond-expand",
-      "delay","delay-force",
-      "else","=>","library",
-      "_","...",
-   };
-   return KEYWORDS.count(s) > 0;
-   }
+static const std::unordered_set<std::string> SYNTACTIC_KEYWORDS = {
+    "if", "lambda", "begin", "define", "set!", "quote",
+    "let", "let*", "letrec", "letrec*",
+    "and", "or", "case", "cond", "when", "unless", "do", "guard",
+    "parameterize", "define-syntax", "let-syntax", "letrec-syntax",
+    "define-record-type", "syntax-rules", "define-library",
+    "import", "export", "case-lambda",
+    "quasiquote", "unquote", "unquote-splicing",
+    "define-values", "let-values", "let*-values",
+    "include", "include-ci", "cond-expand",
+    "delay", "delay-force",
+    "else", "=>", "library",
+    "_", "...",
+};
 
-// ── SyntaxMatch ───────────────────────────────────────────────────────────────
+static const std::string GENSYM_PREFIX = "\x01h.";
+static std::atomic<int>  s_gensym_counter{0};
 
-struct SyntaxMatch
-   {
-   std::unordered_map<std::string,Value>              scalars;
-   std::unordered_map<std::string,std::vector<Value>> ell;    // depth >= 1
-   std::unordered_map<std::string,int>                ell_depth;
-   };
+// ── hygiene_gensym ─────────────────────────────────────────────────────────
 
-static bool is_ellipsis_sym(Value v, uint32_t ell_sid)
-   {
-   return is_symbol(v) && as_symbol_id(v) == ell_sid;
-   }
+std::string hygiene_gensym(const std::string& base) {
+    if (base.rfind(GENSYM_PREFIX, 0) == 0)
+        return base;
+    int n = ++s_gensym_counter;
+    return GENSYM_PREFIX + base + '.' + std::to_string(n);
+}
 
-// ── Pattern-variable collectors ───────────────────────────────────────────────
+// ── SyntaxMatch ────────────────────────────────────────────────────────────
+// Port of syntax_rules.py _SyntaxMatch.
+// ellipsis values: at depth 1, plain Values; at depth 2+, SchemeVector* Values
+// wrapping the next level (mirrors Python's nested-list approach).
 
-static void collect_pvars(Value pat,
+struct SyntaxMatch {
+    std::unordered_map<uint32_t, Value>              scalars;   // depth-0 pvars
+    std::unordered_map<uint32_t, std::vector<Value>> ellipsis;  // depth>=1 pvars
+    std::unordered_map<uint32_t, int>                ell_depth; // pvar -> depth
+};
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+static bool is_ellipsis_sym(const Value& form, uint32_t ellipsis_id) {
+    return is_symbol(form) && as_symbol_id(form) == ellipsis_id;
+}
+
+// Sentinel ellipsis id that disables ellipsis expansion inside (... inner).
+static uint32_t get_no_ellipsis_id() {
+    static const uint32_t id = []() {
+        std::string s;
+        s += '\x00';
+        s += "no-ellipsis";
+        s += '\x00';
+        return intern_symbol(s);
+    }();
+    return id;
+}
+
+// ── Pattern variable collectors ────────────────────────────────────────────
+// Port of syntax_rules.py collect_pvars.
+
+static void collect_pvars(const Value& pat,
                            const std::vector<uint32_t>& literals,
-                           uint32_t ell_sid,
-                           std::unordered_set<std::string>& out)
-   {
-   if (is_symbol(pat))
-      {
-      uint32_t sid = as_symbol_id(pat);
-      if (sid == ell_sid) return;
-      std::string s = symbol_name(sid);
-      if (s == "_") return;
-      for (auto lit : literals)
-         if (lit == sid) return;
-      out.insert(s);
-      return;
-      }
-   if (is_cons(pat))
-      {
-      collect_pvars(car(pat), literals, ell_sid, out);
-      collect_pvars(cdr(pat), literals, ell_sid, out);
-      return;
-      }
-   if (is_vector(pat))
-      {
-      for (auto& item : as_vector(pat)->elements)
-         collect_pvars(item, literals, ell_sid, out);
-      }
-   }
+                           uint32_t ellipsis_id,
+                           std::unordered_set<uint32_t>& out) {
+    static const uint32_t US = intern_symbol("_");
+    if (is_symbol(pat)) {
+        uint32_t sid = as_symbol_id(pat);
+        if (sid == US || sid == ellipsis_id) return;
+        for (uint32_t lit : literals)
+            if (sid == lit) return;
+        out.insert(sid);
+        return;
+    }
+    if (is_cons(pat)) {
+        collect_pvars(car(pat), literals, ellipsis_id, out);
+        collect_pvars(cdr(pat), literals, ellipsis_id, out);
+    }
+    if (is_vector(pat))
+        for (const Value& item : as_vector_items_const(pat))
+            collect_pvars(item, literals, ellipsis_id, out);
+}
 
-static void collect_pvars_with_depth(Value pat,
+// Port of syntax_rules.py collect_pvars_with_depth.
+static void collect_pvars_with_depth(const Value& pat,
                                       const std::vector<uint32_t>& literals,
-                                      uint32_t ell_sid,
-                                      std::unordered_map<std::string,int>& out,
-                                      int depth)
-   {
-   if (is_symbol(pat))
-      {
-      uint32_t sid = as_symbol_id(pat);
-      if (sid == ell_sid) return;
-      std::string s = symbol_name(sid);
-      if (s == "_") return;
-      for (auto lit : literals)
-         if (lit == sid) return;
-      out[s] = depth;
-      return;
-      }
-   if (is_cons(pat))
-      {
-      Value cur = pat;
-      while (is_cons(cur))
-         {
-         Value elem = car(cur);
-         Value rest = cdr(cur);
-         bool has_ell = is_cons(rest) && is_ellipsis_sym(car(rest), ell_sid);
-         if (has_ell)
-            {
-            collect_pvars_with_depth(elem, literals, ell_sid, out, depth + 1);
-            cur = cdr(rest);
+                                      uint32_t ellipsis_id,
+                                      std::unordered_map<uint32_t, int>& out,
+                                      int depth) {
+    static const uint32_t US = intern_symbol("_");
+    if (is_symbol(pat)) {
+        uint32_t sid = as_symbol_id(pat);
+        if (sid == US || sid == ellipsis_id) return;
+        for (uint32_t lit : literals)
+            if (sid == lit) return;
+        out[sid] = depth;
+        return;
+    }
+    if (is_cons(pat)) {
+        Value cur = pat;
+        while (is_cons(cur)) {
+            Value elem = car(cur);
+            Value rest = cdr(cur);
+            bool has_ell = is_cons(rest) && is_ellipsis_sym(car(rest), ellipsis_id);
+            if (has_ell) {
+                collect_pvars_with_depth(elem, literals, ellipsis_id, out, depth + 1);
+                cur = cdr(rest);
+            } else {
+                collect_pvars_with_depth(elem, literals, ellipsis_id, out, depth);
+                cur = rest;
             }
-         else
-            {
-            collect_pvars_with_depth(elem, literals, ell_sid, out, depth);
-            cur = rest;
+        }
+        if (!is_nil(cur))
+            collect_pvars_with_depth(cur, literals, ellipsis_id, out, depth);
+    }
+    if (is_vector(pat)) {
+        const auto& items = as_vector_items_const(pat);
+        int n = (int)items.size();
+        int i = 0;
+        while (i < n) {
+            bool has_ell = (i + 1 < n && is_ellipsis_sym(items[i + 1], ellipsis_id));
+            if (has_ell) {
+                collect_pvars_with_depth(items[i], literals, ellipsis_id, out, depth + 1);
+                i += 2;
+            } else {
+                collect_pvars_with_depth(items[i], literals, ellipsis_id, out, depth);
+                i += 1;
             }
-         }
-      if (!is_nil(cur))
-         collect_pvars_with_depth(cur, literals, ell_sid, out, depth);
-      return;
-      }
-   if (is_vector(pat))
-      {
-      const auto& items = as_vector(pat)->elements;
-      size_t n = items.size();
-      for (size_t i = 0; i < n; ++i)
-         {
-         bool has_ell = (i + 1 < n && is_symbol(items[i+1]) &&
-                         as_symbol_id(items[i+1]) == ell_sid);
-         if (has_ell)
-            {
-            collect_pvars_with_depth(items[i], literals, ell_sid, out, depth + 1);
-            ++i;
-            }
-         else
-            collect_pvars_with_depth(items[i], literals, ell_sid, out, depth);
-         }
-      }
-   }
+        }
+    }
+}
 
-// ── Free-identifier collector ─────────────────────────────────────────────────
+// ── Free-identifier collector ──────────────────────────────────────────────
+// Port of syntax_rules.py collect_free_ids.
 
-static void collect_free_ids(Value tmpl,
-                              const std::unordered_set<std::string>& pvars,
+static void collect_free_ids(const Value& tmpl,
+                              const std::unordered_set<uint32_t>& pvars,
                               const std::vector<uint32_t>& literals,
-                              uint32_t ell_sid,
-                              std::unordered_set<std::string>& out)
-   {
-   if (is_symbol(tmpl))
-      {
-      uint32_t sid = as_symbol_id(tmpl);
-      std::string s = symbol_name(sid);
-      if (sid == ell_sid || s == "_") return;
-      if (pvars.count(s)) return;
-      for (auto lit : literals)
-         if (lit == sid) return;
-      if (is_syntactic_keyword(s)) return;
-      out.insert(s);
-      return;
-      }
-   if (is_cons(tmpl))
-      {
-      if (is_symbol(car(tmpl)) &&
-          symbol_name(as_symbol_id(car(tmpl))) == "quote")
-         return;
-      collect_free_ids(car(tmpl), pvars, literals, ell_sid, out);
-      collect_free_ids(cdr(tmpl), pvars, literals, ell_sid, out);
-      return;
-      }
-   if (is_vector(tmpl))
-      for (auto& item : as_vector(tmpl)->elements)
-         collect_free_ids(item, pvars, literals, ell_sid, out);
-   }
+                              uint32_t ellipsis_id,
+                              std::unordered_set<uint32_t>& out) {
+    static const uint32_t US        = intern_symbol("_");
+    static const uint32_t QUOTE_SID = intern_symbol("quote");
+    if (is_symbol(tmpl)) {
+        uint32_t sid = as_symbol_id(tmpl);
+        if (sid == ellipsis_id || sid == US) return;
+        if (pvars.count(sid)) return;
+        for (uint32_t lit : literals)
+            if (sid == lit) return;
+        if (SYNTACTIC_KEYWORDS.count(symbol_name(sid))) return;
+        out.insert(sid);
+        return;
+    }
+    if (is_cons(tmpl)) {
+        if (is_symbol(car(tmpl)) && as_symbol_id(car(tmpl)) == QUOTE_SID)
+            return;
+        collect_free_ids(car(tmpl), pvars, literals, ellipsis_id, out);
+        collect_free_ids(cdr(tmpl), pvars, literals, ellipsis_id, out);
+    }
+    if (is_vector(tmpl))
+        for (const Value& item : as_vector_items_const(tmpl))
+            collect_free_ids(item, pvars, literals, ellipsis_id, out);
+}
 
-// ── Binding-site intro-name collector ─────────────────────────────────────────
+// ── Binding-site intro-name collector ─────────────────────────────────────
+// Port of syntax_rules.py _cbi_formals, _cbi_let_bindings, collect_binding_intros.
 
-static void cbi_formals(Value formals,
-                        const std::unordered_set<std::string>& pvars,
-                        std::unordered_set<std::string>& out)
-   {
-   Value cur = formals;
-   while (is_cons(cur))
-      {
-      if (is_symbol(car(cur)))
-         {
-         std::string n = symbol_name(as_symbol_id(car(cur)));
-         if (!pvars.count(n)) out.insert(n);
-         }
-      cur = cdr(cur);
-      }
-   if (is_symbol(cur))
-      {
-      std::string n = symbol_name(as_symbol_id(cur));
-      if (!pvars.count(n)) out.insert(n);
-      }
-   }
+static void cbi_formals(const Value& formals,
+                         const std::unordered_set<uint32_t>& pvars,
+                         std::unordered_set<uint32_t>& out) {
+    Value cur = formals;
+    while (is_cons(cur)) {
+        if (is_symbol(car(cur))) {
+            uint32_t n_sid = as_symbol_id(car(cur));
+            if (!pvars.count(n_sid)) out.insert(n_sid);
+        }
+        cur = cdr(cur);
+    }
+    if (is_symbol(cur)) {
+        uint32_t n_sid = as_symbol_id(cur);
+        if (!pvars.count(n_sid)) out.insert(n_sid);
+    }
+}
 
-static void cbi_let_bindings(Value bindings,
-                              const std::unordered_set<std::string>& pvars,
-                              std::unordered_set<std::string>& out)
-   {
-   Value cur = bindings;
-   while (is_cons(cur))
-      {
-      Value b = car(cur);
-      if (is_cons(b) && is_symbol(car(b)))
-         {
-         std::string n = symbol_name(as_symbol_id(car(b)));
-         if (!pvars.count(n)) out.insert(n);
-         }
-      cur = cdr(cur);
-      }
-   }
+static void cbi_let_bindings(const Value& bindings,
+                              const std::unordered_set<uint32_t>& pvars,
+                              std::unordered_set<uint32_t>& out) {
+    Value cur = bindings;
+    while (is_cons(cur)) {
+        Value b = car(cur);
+        if (is_cons(b) && is_symbol(car(b))) {
+            uint32_t n_sid = as_symbol_id(car(b));
+            if (!pvars.count(n_sid)) out.insert(n_sid);
+        }
+        cur = cdr(cur);
+    }
+}
 
-static void collect_binding_intros(Value tmpl,
-                                    const std::unordered_set<std::string>& pvars,
-                                    std::unordered_set<std::string>& out)
-   {
-   if (!is_cons(tmpl)) return;
-   if (is_symbol(car(tmpl)) && symbol_name(as_symbol_id(car(tmpl))) == "quote") return;
-   if (is_symbol(car(tmpl)))
-      {
-      std::string hname = symbol_name(as_symbol_id(car(tmpl)));
-      if (hname == "lambda")
-         {
-         if (is_cons(cdr(tmpl)))
-            {
-            cbi_formals(car(cdr(tmpl)), pvars, out);
-            collect_binding_intros(cdr(cdr(tmpl)), pvars, out);
-            }
-         return;
-         }
-      if (hname == "let" || hname == "let*" ||
-          hname == "letrec" || hname == "letrec*")
-         {
-         if (is_cons(cdr(tmpl)))
-            {
-            Value second     = car(cdr(tmpl));
-            Value body_start = cdr(cdr(tmpl));
+static void collect_binding_intros(const Value& tmpl,
+                                    const std::unordered_set<uint32_t>& pvars,
+                                    std::unordered_set<uint32_t>& out) {
+    if (!is_cons(tmpl)) return;
+    Value h = car(tmpl);
+    if (!is_symbol(h)) {
+        collect_binding_intros(h, pvars, out);
+        collect_binding_intros(cdr(tmpl), pvars, out);
+        return;
+    }
+    uint32_t head_sid = as_symbol_id(h);
+    static const uint32_t QUOTE_SID      = intern_symbol("quote");
+    static const uint32_t LAMBDA_SID     = intern_symbol("lambda");
+    static const uint32_t LET_SID        = intern_symbol("let");
+    static const uint32_t LETSTAR_SID    = intern_symbol("let*");
+    static const uint32_t LETREC_SID     = intern_symbol("letrec");
+    static const uint32_t LETRECSTAR_SID = intern_symbol("letrec*");
+    static const uint32_t DEFINE_SID     = intern_symbol("define");
+    if (head_sid == QUOTE_SID) return;
+    Value tmpl_cdr = cdr(tmpl);
+    if (head_sid == LAMBDA_SID) {
+        if (is_cons(tmpl_cdr)) {
+            cbi_formals(car(tmpl_cdr), pvars, out);
+            collect_binding_intros(cdr(tmpl_cdr), pvars, out);
+        }
+        return;
+    }
+    if (head_sid == LET_SID   || head_sid == LETSTAR_SID ||
+        head_sid == LETREC_SID || head_sid == LETRECSTAR_SID) {
+        if (is_cons(tmpl_cdr)) {
+            Value second     = car(tmpl_cdr);
+            Value body_start = cdr(tmpl_cdr);
             Value bindings   = second;
-            if (hname == "let" && is_symbol(second))
-               {
-               std::string n = symbol_name(as_symbol_id(second));
-               if (!pvars.count(n)) out.insert(n);
-               if (is_cons(body_start))
-                  {
-                  bindings   = car(body_start);
-                  body_start = cdr(body_start);
-                  }
-               else return;
-               }
+            if (head_sid == LET_SID && is_symbol(second)) {
+                uint32_t name_sid = as_symbol_id(second);
+                if (!pvars.count(name_sid)) out.insert(name_sid);
+                if (is_cons(body_start)) {
+                    bindings   = car(body_start);
+                    body_start = cdr(body_start);
+                } else {
+                    return;
+                }
+            }
             cbi_let_bindings(bindings, pvars, out);
             collect_binding_intros(body_start, pvars, out);
+        }
+        return;
+    }
+    if (head_sid == DEFINE_SID) {
+        if (is_cons(tmpl_cdr)) {
+            Value nameform = car(tmpl_cdr);
+            if (is_symbol(nameform)) {
+                uint32_t n_sid = as_symbol_id(nameform);
+                if (!pvars.count(n_sid)) out.insert(n_sid);
+            } else if (is_cons(nameform) && is_symbol(car(nameform))) {
+                uint32_t n_sid = as_symbol_id(car(nameform));
+                if (!pvars.count(n_sid)) out.insert(n_sid);
+                cbi_formals(cdr(nameform), pvars, out);
             }
-         return;
-         }
-      if (hname == "define")
-         {
-         if (is_cons(cdr(tmpl)))
-            {
-            Value nameform = car(cdr(tmpl));
-            if (is_symbol(nameform))
-               {
-               std::string n = symbol_name(as_symbol_id(nameform));
-               if (!pvars.count(n)) out.insert(n);
-               }
-            else if (is_cons(nameform) && is_symbol(car(nameform)))
-               {
-               std::string n = symbol_name(as_symbol_id(car(nameform)));
-               if (!pvars.count(n)) out.insert(n);
-               cbi_formals(cdr(nameform), pvars, out);
-               }
-            collect_binding_intros(cdr(cdr(tmpl)), pvars, out);
-            }
-         return;
-         }
-      }
-   collect_binding_intros(car(tmpl), pvars, out);
-   collect_binding_intros(cdr(tmpl), pvars, out);
-   }
+            collect_binding_intros(cdr(tmpl_cdr), pvars, out);
+        }
+        return;
+    }
+    collect_binding_intros(car(tmpl), pvars, out);
+    collect_binding_intros(cdr(tmpl), pvars, out);
+}
 
-// ── Datum equality (for literal matching in patterns) ─────────────────────────
+// ── Pattern matching ────────────────────────────────────────────────────────
+// Port of syntax_rules.py _list_length_approx, _datum_equal, _match_pattern,
+// _match_list_pattern, _match_vector_pattern.
 
-static bool datum_equal(Value a, Value b)
-   {
-   if (values_eqv(a, b)) return true;
-   if (is_string(a) && is_string(b))
-      return as_string(a)->data == as_string(b)->data;
-   if (is_cons(a) && is_cons(b))
-      return datum_equal(car(a), car(b)) && datum_equal(cdr(a), cdr(b));
-   if (is_nil(a) && is_nil(b)) return true;
-   if (is_vector(a) && is_vector(b))
-      {
-      auto& va = as_vector(a)->elements;
-      auto& vb = as_vector(b)->elements;
-      if (va.size() != vb.size()) return false;
-      for (size_t i = 0; i < va.size(); ++i)
-         if (!datum_equal(va[i], vb[i])) return false;
-      return true;
-      }
-   return false;
-   }
+static int list_length_approx(const Value& lst) {
+    int n = 0;
+    Value cur = lst;
+    while (is_cons(cur)) { ++n; cur = cdr(cur); }
+    return n;
+}
 
-// ── Pattern matching ──────────────────────────────────────────────────────────
+static bool datum_equal(const Value& a, const Value& b) {
+    if (eqv_atom(a, b)) return true;
+    if (is_string(a) && is_string(b))
+        return as_string(a) == as_string(b);
+    if (is_cons(a) && is_cons(b))
+        return datum_equal(car(a), car(b)) && datum_equal(cdr(a), cdr(b));
+    if (is_nil(a) && is_nil(b)) return true;
+    if (is_vector(a) && is_vector(b)) {
+        const auto& ia = as_vector_items_const(a);
+        const auto& ib = as_vector_items_const(b);
+        if (ia.size() != ib.size()) return false;
+        for (size_t i = 0; i < ia.size(); ++i)
+            if (!datum_equal(ia[i], ib[i])) return false;
+        return true;
+    }
+    return false;
+}
 
-static bool match_pattern(Value pat, Value form,
+// Forward declarations (match_pattern ↔ match_list_pattern are mutually recursive).
+static bool match_pattern(const Value& pat, const Value& form,
                            const std::vector<uint32_t>& literals,
-                           uint32_t ell_sid, SyntaxMatch& out);
+                           uint32_t ellipsis_id, SyntaxMatch& out);
+static bool match_list_pattern(Value pat_list, Value form_list,
+                                const std::vector<uint32_t>& literals,
+                                uint32_t ellipsis_id, SyntaxMatch& out);
+static bool match_vector_pattern(const std::vector<Value>& pat_items,
+                                  const std::vector<Value>& form_items,
+                                  const std::vector<uint32_t>& literals,
+                                  uint32_t ellipsis_id, SyntaxMatch& out);
+
+static bool match_pattern(const Value& pat, const Value& form,
+                           const std::vector<uint32_t>& literals,
+                           uint32_t ellipsis_id, SyntaxMatch& out) {
+    static const uint32_t US = intern_symbol("_");
+    if (is_symbol(pat)) {
+        uint32_t sid = as_symbol_id(pat);
+        if (sid == US) return true;
+        for (uint32_t lit : literals) {
+            if (sid == lit)
+                return is_symbol(form) && as_symbol_id(form) == sid;
+        }
+        out.scalars[sid] = form;
+        return true;
+    }
+    if (is_cons(pat))
+        return match_list_pattern(pat, form, literals, ellipsis_id, out);
+    if (is_vector(pat)) {
+        if (!is_vector(form)) return false;
+        return match_vector_pattern(as_vector_items_const(pat),
+                                    as_vector_items_const(form),
+                                    literals, ellipsis_id, out);
+    }
+    if (is_nil(pat)) return is_nil(form);
+    return datum_equal(pat, form);
+}
 
 static bool match_list_pattern(Value pat_list, Value form_list,
                                 const std::vector<uint32_t>& literals,
-                                uint32_t ell_sid, SyntaxMatch& out)
-   {
-   while (is_cons(pat_list))
-      {
-      Value pat_elem = car(pat_list);
-      Value pat_rest = cdr(pat_list);
-      bool  has_ell  = is_cons(pat_rest) &&
-                       is_ellipsis_sym(car(pat_rest), ell_sid);
-      if (has_ell)
-         {
-         Value suffix_pat = cdr(pat_rest);
-         // Count suffix length
-         int suffix_need = 0;
-         { Value c = suffix_pat; while (is_cons(c)){ ++suffix_need; c = cdr(c); } }
-         // Collect form elements into vector
-         std::vector<Value> form_vec;
-         { Value t = form_list;
-           while (is_cons(t)){ form_vec.push_back(car(t)); t = cdr(t); } }
-         int total = (int)form_vec.size();
-         if (total < suffix_need) return false;
-         int n_ell = total - suffix_need;
-         // Collect pvar depths within pat_elem
-         std::unordered_map<std::string,int> pvar_depths;
-         collect_pvars_with_depth(pat_elem, literals, ell_sid, pvar_depths, 0);
-         for (auto& [pv, _] : pvar_depths)
+                                uint32_t ellipsis_id, SyntaxMatch& out) {
+    while (is_cons(pat_list)) {
+        Value pat_elem = car(pat_list);
+        Value pat_rest = cdr(pat_list);
+        bool has_ell = is_cons(pat_rest) && is_ellipsis_sym(car(pat_rest), ellipsis_id);
+        if (has_ell) {
+            Value suffix_pat = cdr(pat_rest);
+            int   suffix_need = list_length_approx(suffix_pat);
+            std::vector<Value> form_vec;
             {
-            out.ell[pv] = {};
-            out.ell_depth[pv] = pvar_depths[pv] + 1;
+                Value tmp = form_list;
+                while (is_cons(tmp)) { form_vec.push_back(car(tmp)); tmp = cdr(tmp); }
             }
-         // Match each form element against pat_elem
-         for (int i = 0; i < n_ell; ++i)
-            {
-            SyntaxMatch sub;
-            if (!match_pattern(pat_elem, form_vec[i], literals, ell_sid, sub))
-               return false;
-            for (auto& [k, v] : sub.scalars)
-               out.ell[k].push_back(v);
-            for (auto& [k, sv] : sub.ell)
-               {
-               // Convert sub.ell[k] (vector<Value>) to a Scheme cons list
-               Value sublist = make_nil();
-               for (int j = (int)sv.size() - 1; j >= 0; --j)
-                  {
-                  auto* cell = gc_alloc_cons();
-                  cell->car = sv[j];
-                  cell->cdr = sublist;
-                  sublist = make_cons(cell);
-                  }
-               out.ell[k].push_back(sublist);
-               }
+            int total = (int)form_vec.size();
+            if (total < suffix_need) return false;
+            int n_ellipsis = total - suffix_need;
+            std::unordered_map<uint32_t, int> pvar_depths;
+            collect_pvars_with_depth(pat_elem, literals, ellipsis_id, pvar_depths, 0);
+            for (auto& [pv, d] : pvar_depths) {
+                out.ellipsis[pv] = {};
+                out.ell_depth[pv] = d + 1;
             }
-         // Build suffix form list for remaining elements
-         Value suffix_form = make_nil();
-         for (int j = total - 1; j >= n_ell; --j)
-            {
-            auto* cell = gc_alloc_cons();
-            cell->car = form_vec[j];
-            cell->cdr = suffix_form;
-            suffix_form = make_cons(cell);
+            for (int i = 0; i < n_ellipsis; ++i) {
+                SyntaxMatch sub;
+                if (!match_pattern(pat_elem, form_vec[i], literals, ellipsis_id, sub))
+                    return false;
+                for (auto& [k, v] : sub.scalars)
+                    out.ellipsis[k].push_back(v);
+                for (auto& [k, vlist] : sub.ellipsis)
+                    out.ellipsis[k].push_back(make_vector(vlist));
             }
-         return match_list_pattern(suffix_pat, suffix_form, literals, ell_sid, out);
-         }
-      // No ellipsis
-      if (!is_cons(form_list)) return false;
-      if (!match_pattern(pat_elem, car(form_list), literals, ell_sid, out))
-         return false;
-      pat_list  = pat_rest;
-      form_list = cdr(form_list);
-      }
-   if (is_nil(pat_list))
-      return is_nil(form_list);
-   if (is_symbol(pat_list))
-      {
-      uint32_t sid = as_symbol_id(pat_list);
-      for (auto lit : literals)
-         if (lit == sid) return false;
-      out.scalars[symbol_name(sid)] = form_list;
-      return true;
-      }
-   return false;
-   }
+            Value suffix_form = NIL_VALUE;
+            for (int j = total - 1; j >= n_ellipsis; --j)
+                suffix_form = alloc_cons(form_vec[j], suffix_form);
+            return match_list_pattern(suffix_pat, suffix_form, literals, ellipsis_id, out);
+        }
+        if (!is_cons(form_list)) return false;
+        if (!match_pattern(pat_elem, car(form_list), literals, ellipsis_id, out))
+            return false;
+        pat_list  = pat_rest;
+        form_list = cdr(form_list);
+    }
+    if (is_nil(pat_list))  return is_nil(form_list);
+    if (is_symbol(pat_list)) {
+        uint32_t sid = as_symbol_id(pat_list);
+        for (uint32_t lit : literals)
+            if (sid == lit) return false;
+        out.scalars[sid] = form_list;
+        return true;
+    }
+    return false;
+}
 
 static bool match_vector_pattern(const std::vector<Value>& pat_items,
                                   const std::vector<Value>& form_items,
                                   const std::vector<uint32_t>& literals,
-                                  uint32_t ell_sid, SyntaxMatch& out)
-   {
-   size_t i = 0, j = 0;
-   size_t n_pat  = pat_items.size();
-   size_t n_form = form_items.size();
-   while (i < n_pat)
-      {
-      bool has_ell = (i + 1 < n_pat &&
-                      is_symbol(pat_items[i+1]) &&
-                      as_symbol_id(pat_items[i+1]) == ell_sid);
-      if (has_ell)
-         {
-         size_t suffix_count = n_pat - (i + 2);
-         size_t available    = n_form - j;
-         if (available < suffix_count) return false;
-         size_t n_ell = available - suffix_count;
-         std::unordered_map<std::string,int> pvar_depths;
-         collect_pvars_with_depth(pat_items[i], literals, ell_sid, pvar_depths, 0);
-         for (auto& [pv, _] : pvar_depths)
-            {
-            out.ell[pv] = {};
-            out.ell_depth[pv] = pvar_depths[pv] + 1;
+                                  uint32_t ellipsis_id, SyntaxMatch& out) {
+    int i = 0, j = 0;
+    int n_pat  = (int)pat_items.size();
+    int n_form = (int)form_items.size();
+    while (i < n_pat) {
+        const Value& pat_elem = pat_items[i];
+        bool has_ell = (i + 1 < n_pat && is_ellipsis_sym(pat_items[i + 1], ellipsis_id));
+        if (has_ell) {
+            int suffix_count = n_pat - (i + 2);
+            int available    = n_form - j;
+            if (available < suffix_count) return false;
+            int n_ellipsis = available - suffix_count;
+            std::unordered_map<uint32_t, int> pvar_depths;
+            collect_pvars_with_depth(pat_elem, literals, ellipsis_id, pvar_depths, 0);
+            for (auto& [pv, d] : pvar_depths) {
+                out.ellipsis[pv]  = {};
+                out.ell_depth[pv] = d + 1;
             }
-         for (size_t k = 0; k < n_ell; ++k)
-            {
-            SyntaxMatch sub;
-            if (!match_pattern(pat_items[i], form_items[j+k], literals, ell_sid, sub))
-               return false;
-            for (auto& [key, v] : sub.scalars)
-               out.ell[key].push_back(v);
-            for (auto& [key, sv] : sub.ell)
-               {
-               Value sublist = make_nil();
-               for (int q = (int)sv.size() - 1; q >= 0; --q)
-                  {
-                  auto* cell = gc_alloc_cons();
-                  cell->car = sv[q];
-                  cell->cdr = sublist;
-                  sublist = make_cons(cell);
-                  }
-               out.ell[key].push_back(sublist);
-               }
+            for (int k = 0; k < n_ellipsis; ++k) {
+                SyntaxMatch sub;
+                if (!match_pattern(pat_elem, form_items[j + k], literals, ellipsis_id, sub))
+                    return false;
+                for (auto& [key, v] : sub.scalars)
+                    out.ellipsis[key].push_back(v);
+                for (auto& [key, vlist] : sub.ellipsis)
+                    out.ellipsis[key].push_back(make_vector(vlist));
             }
-         j += n_ell;
-         i += 2;
-         continue;
-         }
-      if (j >= n_form) return false;
-      if (!match_pattern(pat_items[i], form_items[j], literals, ell_sid, out))
-         return false;
-      ++i; ++j;
-      }
-   return j == n_form;
-   }
+            j += n_ellipsis;
+            i += 2;
+            continue;
+        }
+        if (j >= n_form) return false;
+        if (!match_pattern(pat_elem, form_items[j], literals, ellipsis_id, out))
+            return false;
+        ++i; ++j;
+    }
+    return j == n_form;
+}
 
-static bool match_pattern(Value pat, Value form,
-                           const std::vector<uint32_t>& literals,
-                           uint32_t ell_sid, SyntaxMatch& out)
-   {
-   if (is_symbol(pat))
-      {
-      uint32_t sid = as_symbol_id(pat);
-      std::string s = symbol_name(sid);
-      if (s == "_") return true;
-      for (auto lit : literals)
-         {
-         if (lit == sid)
-            return is_symbol(form) && as_symbol_id(form) == sid;
-         }
-      out.scalars[s] = form;
-      return true;
-      }
-   if (is_cons(pat))
-      return match_list_pattern(pat, form, literals, ell_sid, out);
-   if (is_vector(pat))
-      {
-      if (!is_vector(form)) return false;
-      return match_vector_pattern(as_vector(pat)->elements,
-                                  as_vector(form)->elements,
-                                  literals, ell_sid, out);
-      }
-   if (is_nil(pat))
-      return is_nil(form);
-   return datum_equal(pat, form);
-   }
+// ── Template instantiation ──────────────────────────────────────────────────
+// Port of syntax_rules.py _collect_ell_refs, _raise_syntax_error,
+// _instantiate_vector, _instantiate_list, _instantiate.
 
-// ── Template instantiation ────────────────────────────────────────────────────
+static void collect_ell_refs(const Value& tmpl, const SyntaxMatch& match,
+                              std::vector<uint32_t>& out) {
+    if (is_symbol(tmpl)) {
+        uint32_t sid = as_symbol_id(tmpl);
+        if (match.ellipsis.count(sid)) out.push_back(sid);
+        return;
+    }
+    if (is_cons(tmpl)) {
+        collect_ell_refs(car(tmpl), match, out);
+        collect_ell_refs(cdr(tmpl), match, out);
+    }
+    if (is_vector(tmpl))
+        for (const Value& item : as_vector_items_const(tmpl))
+            collect_ell_refs(item, match, out);
+}
 
-// Convert a scheme cons list back to vector<Value> (for peel at depth > 1)
-static std::vector<Value> cons_to_vec(Value list)
-   {
-   std::vector<Value> v;
-   while (is_cons(list))
-      {
-      v.push_back(car(list));
-      list = cdr(list);
-      }
-   return v;
-   }
+// Forward declarations (instantiate ↔ instantiate_list are mutually recursive).
+static Value instantiate(const Value& tmpl, const SyntaxMatch& match,
+                          uint32_t ellipsis_id, SourceInfo* use_src,
+                          const std::unordered_map<uint32_t, uint32_t>& free_id_map);
+static Value instantiate_list(Value tmpl_list, const SyntaxMatch& match,
+                               uint32_t ellipsis_id, SourceInfo* use_src,
+                               const std::unordered_map<uint32_t, uint32_t>& free_id_map);
 
-static void collect_ell_refs(Value tmpl, const SyntaxMatch& m,
-                              std::vector<std::string>& out)
-   {
-   if (is_symbol(tmpl))
-      {
-      std::string s = symbol_name(as_symbol_id(tmpl));
-      if (m.ell.count(s)) out.push_back(s);
-      return;
-      }
-   if (is_cons(tmpl))
-      {
-      collect_ell_refs(car(tmpl), m, out);
-      collect_ell_refs(cdr(tmpl), m, out);
-      return;
-      }
-   if (is_vector(tmpl))
-      for (auto& item : as_vector(tmpl)->elements)
-         collect_ell_refs(item, m, out);
-   }
-
-static Value instantiate(Value tmpl, const SyntaxMatch& match,
-                          uint32_t ell_sid,
-                          const std::unordered_map<std::string,std::string>& free_id_map);
-
-static void raise_syntax_error_tmpl(Value args_tail, const SyntaxMatch& match,
-                                     uint32_t ell_sid,
-                                     const std::unordered_map<std::string,std::string>& free_id_map)
-   {
-   std::vector<Value> args;
-   Value cur = args_tail;
-   while (is_cons(cur))
-      {
-      args.push_back(instantiate(car(cur), match, ell_sid, free_id_map));
-      cur = cdr(cur);
-      }
-   std::string msg = "syntax-error";
-   size_t start = 0;
-   if (!args.empty() && is_string(args[0]))
-      {
-      msg = as_string(args[0])->data;
-      start = 1;
-      }
-   for (size_t i = start; i < args.size(); ++i)
-      msg += ": " + value_to_string(args[i]);
-   throw SchemeSyntaxError(msg);
-   }
+[[noreturn]] static void raise_syntax_error(
+    const Value& args_tail, const SyntaxMatch& match,
+    uint32_t ellipsis_id, SourceInfo* use_src,
+    const std::unordered_map<uint32_t, uint32_t>& free_id_map) {
+    std::vector<Value> args;
+    Value cur = args_tail;
+    while (is_cons(cur)) {
+        args.push_back(instantiate(car(cur), match, ellipsis_id, use_src, free_id_map));
+        cur = cdr(cur);
+    }
+    std::string msg;
+    size_t di;
+    if (!args.empty() && is_string(args[0])) {
+        msg = as_string(args[0]);
+        di  = 1;
+    } else {
+        msg = "syntax-error";
+        di  = 0;
+    }
+    if (di < args.size()) {
+        std::string extras;
+        while (di < args.size()) {
+            if (!extras.empty()) extras += ' ';
+            extras += scheme_pretty_print(args[di++]);
+        }
+        msg += ": " + extras;
+    }
+    throw SchemeSyntaxError(msg, use_src ? new SourceInfo(*use_src) : nullptr);
+}
 
 static Value instantiate_vector(const std::vector<Value>& tmpl_items,
-                                  const SyntaxMatch& match, uint32_t ell_sid,
-                                  const std::unordered_map<std::string,std::string>& free_id_map)
-   {
-   std::vector<Value> output;
-   size_t n = tmpl_items.size();
-   for (size_t i = 0; i < n; ++i)
-      {
-      bool has_ell = (i + 1 < n &&
-                      is_symbol(tmpl_items[i+1]) &&
-                      as_symbol_id(tmpl_items[i+1]) == ell_sid);
-      if (has_ell)
-         {
-         std::vector<std::string> ell_syms;
-         collect_ell_refs(tmpl_items[i], match, ell_syms);
-         if (!ell_syms.empty())
-            {
-            size_t count = match.ell.at(ell_syms[0]).size();
-            for (size_t k = 0; k < count; ++k)
-               {
-               SyntaxMatch sub;
-               sub.scalars   = match.scalars;
-               sub.ell       = match.ell;
-               sub.ell_depth = match.ell_depth;
-               for (auto& sv : ell_syms)
-                  {
-                  int d = match.ell_depth.at(sv);
-                  Value peeled = match.ell.at(sv)[k];
-                  if (d == 1)
-                     {
-                     sub.scalars[sv] = peeled;
-                     sub.ell.erase(sv);
-                     sub.ell_depth.erase(sv);
-                     }
-                  else
-                     {
-                     sub.ell[sv] = cons_to_vec(peeled);
-                     sub.ell_depth[sv] = d - 1;
-                     }
-                  }
-               output.push_back(instantiate(tmpl_items[i], sub, ell_sid, free_id_map));
-               }
+                                  const SyntaxMatch& match,
+                                  uint32_t ellipsis_id,
+                                  SourceInfo* use_src,
+                                  const std::unordered_map<uint32_t, uint32_t>& free_id_map) {
+    std::vector<Value> output;
+    int i = 0;
+    int n = (int)tmpl_items.size();
+    while (i < n) {
+        const Value& elem = tmpl_items[i];
+        bool has_ell = (i + 1 < n && is_ellipsis_sym(tmpl_items[i + 1], ellipsis_id));
+        if (has_ell) {
+            std::vector<uint32_t> ell_syms;
+            collect_ell_refs(elem, match, ell_syms);
+            if (!ell_syms.empty()) {
+                int count = (int)match.ellipsis.at(ell_syms[0]).size();
+                for (int k = 0; k < count; ++k) {
+                    SyntaxMatch sub;
+                    sub.scalars   = match.scalars;
+                    sub.ellipsis  = match.ellipsis;
+                    sub.ell_depth = match.ell_depth;
+                    for (uint32_t sv : ell_syms) {
+                        int d = match.ell_depth.count(sv) ? match.ell_depth.at(sv) : 0;
+                        const Value& peeled = match.ellipsis.at(sv)[k];
+                        if (d == 1) {
+                            sub.scalars[sv] = peeled;
+                            sub.ellipsis.erase(sv);
+                            sub.ell_depth.erase(sv);
+                        } else {
+                            sub.ellipsis[sv]  = as_vector_items_const(peeled);
+                            sub.ell_depth[sv] = d - 1;
+                        }
+                    }
+                    output.push_back(instantiate(elem, sub, ellipsis_id, use_src, free_id_map));
+                }
             }
-         ++i;
-         continue;
-         }
-      output.push_back(instantiate(tmpl_items[i], match, ell_sid, free_id_map));
-      }
-   auto* vec = gc_alloc_vector(output.size());
-   for (size_t i = 0; i < output.size(); ++i)
-      vec->elements[i] = output[i];
-   return make_vector(vec);
-   }
+            i += 2;
+            continue;
+        }
+        output.push_back(instantiate(elem, match, ellipsis_id, use_src, free_id_map));
+        ++i;
+    }
+    return make_vector(std::move(output));
+}
 
 static Value instantiate_list(Value tmpl_list, const SyntaxMatch& match,
-                               uint32_t ell_sid,
-                               const std::unordered_map<std::string,std::string>& free_id_map)
-   {
-   std::vector<Value> output;
-   Value cur = tmpl_list;
-   while (is_cons(cur))
-      {
-      Value elem = car(cur);
-      Value rest = cdr(cur);
-      bool has_ell = is_cons(rest) && is_ellipsis_sym(car(rest), ell_sid);
-      if (has_ell)
-         {
-         std::vector<std::string> ell_syms;
-         collect_ell_refs(elem, match, ell_syms);
-         if (!ell_syms.empty())
-            {
-            size_t n = match.ell.at(ell_syms[0]).size();
-            for (size_t i = 0; i < n; ++i)
-               {
-               SyntaxMatch sub;
-               sub.scalars   = match.scalars;
-               sub.ell       = match.ell;
-               sub.ell_depth = match.ell_depth;
-               for (auto& sv : ell_syms)
-                  {
-                  int d = match.ell_depth.at(sv);
-                  Value peeled = match.ell.at(sv)[i];
-                  if (d == 1)
-                     {
-                     sub.scalars[sv] = peeled;
-                     sub.ell.erase(sv);
-                     sub.ell_depth.erase(sv);
-                     }
-                  else
-                     {
-                     sub.ell[sv] = cons_to_vec(peeled);
-                     sub.ell_depth[sv] = d - 1;
-                     }
-                  }
-               output.push_back(instantiate(elem, sub, ell_sid, free_id_map));
-               }
+                               uint32_t ellipsis_id, SourceInfo* use_src,
+                               const std::unordered_map<uint32_t, uint32_t>& free_id_map) {
+    std::vector<Value> output;
+    Value cur = tmpl_list;
+    while (is_cons(cur)) {
+        Value elem = car(cur);
+        Value rest = cdr(cur);
+        bool has_ell = is_cons(rest) && is_ellipsis_sym(car(rest), ellipsis_id);
+        if (has_ell) {
+            std::vector<uint32_t> ell_syms;
+            collect_ell_refs(elem, match, ell_syms);
+            if (!ell_syms.empty()) {
+                int n = (int)match.ellipsis.at(ell_syms[0]).size();
+                for (int idx = 0; idx < n; ++idx) {
+                    SyntaxMatch sub;
+                    sub.scalars   = match.scalars;
+                    sub.ellipsis  = match.ellipsis;
+                    sub.ell_depth = match.ell_depth;
+                    for (uint32_t sv : ell_syms) {
+                        int d = match.ell_depth.count(sv) ? match.ell_depth.at(sv) : 0;
+                        const Value& peeled = match.ellipsis.at(sv)[idx];
+                        if (d == 1) {
+                            sub.scalars[sv] = peeled;
+                            sub.ellipsis.erase(sv);
+                            sub.ell_depth.erase(sv);
+                        } else {
+                            sub.ellipsis[sv]  = as_vector_items_const(peeled);
+                            sub.ell_depth[sv] = d - 1;
+                        }
+                    }
+                    output.push_back(instantiate(elem, sub, ellipsis_id, use_src, free_id_map));
+                }
             }
-         cur = cdr(rest);
-         continue;
-         }
-      output.push_back(instantiate(elem, match, ell_sid, free_id_map));
-      cur = rest;
-      }
-   // Build result cons list
-   Value tail = is_nil(cur) ? make_nil()
-                            : instantiate(cur, match, ell_sid, free_id_map);
-   Value result = tail;
-   for (int i = (int)output.size() - 1; i >= 0; --i)
-      {
-      auto* cell = gc_alloc_cons();
-      cell->car = output[i];
-      cell->cdr = result;
-      result = make_cons(cell);
-      }
-   return result;
-   }
+            cur = cdr(rest);
+            continue;
+        }
+        output.push_back(instantiate(elem, match, ellipsis_id, use_src, free_id_map));
+        cur = rest;
+    }
+    Value tail = is_nil(cur) ? NIL_VALUE
+                             : instantiate(cur, match, ellipsis_id, use_src, free_id_map);
+    Value result = tail;
+    for (int i = (int)output.size() - 1; i >= 0; --i)
+        result = alloc_cons(output[i], result,
+                            use_src ? new SourceInfo(*use_src) : nullptr);
+    return result;
+}
 
-static Value instantiate(Value tmpl, const SyntaxMatch& match,
-                          uint32_t ell_sid,
-                          const std::unordered_map<std::string,std::string>& free_id_map)
-   {
-   if (is_symbol(tmpl))
-      {
-      std::string s = symbol_name(as_symbol_id(tmpl));
-      auto it = match.scalars.find(s);
-      if (it != match.scalars.end()) return it->second;
-      auto it2 = free_id_map.find(s);
-      if (it2 != free_id_map.end()) return make_symbol(it2->second);
-      return tmpl;
-      }
-   if (is_cons(tmpl))
-      {
-      // (ellipsis inner) — disable ellipsis inside inner
-      if (is_ellipsis_sym(car(tmpl), ell_sid) &&
-          is_cons(cdr(tmpl)) && is_nil(cdr(cdr(tmpl))))
-         {
-         static uint32_t NO_ELL = intern_symbol("\x00no-ellipsis\x00");
-         return instantiate(car(cdr(tmpl)), match, NO_ELL, free_id_map);
-         }
-      // (syntax-error msg datum...)
-      if (is_symbol(car(tmpl)) &&
-          symbol_name(as_symbol_id(car(tmpl))) == "syntax-error")
-         {
-         raise_syntax_error_tmpl(cdr(tmpl), match, ell_sid, free_id_map);
-         }
-      return instantiate_list(tmpl, match, ell_sid, free_id_map);
-      }
-   if (is_vector(tmpl))
-      return instantiate_vector(as_vector(tmpl)->elements, match, ell_sid, free_id_map);
-   return tmpl;
-   }
+static Value instantiate(const Value& tmpl, const SyntaxMatch& match,
+                          uint32_t ellipsis_id, SourceInfo* use_src,
+                          const std::unordered_map<uint32_t, uint32_t>& free_id_map) {
+    if (is_symbol(tmpl)) {
+        uint32_t sid = as_symbol_id(tmpl);
+        auto it = match.scalars.find(sid);
+        if (it != match.scalars.end()) return it->second;
+        auto it2 = free_id_map.find(sid);
+        if (it2 != free_id_map.end())
+            return make_symbol_id(it2->second, src_of(tmpl));
+        return tmpl;
+    }
+    if (is_cons(tmpl)) {
+        // R7RS §4.3.2: (ellipsis inner) disables ellipsis inside inner.
+        if (is_ellipsis_sym(car(tmpl), ellipsis_id) &&
+            is_cons(cdr(tmpl)) && is_nil(cdr(cdr(tmpl))))
+            return instantiate(car(cdr(tmpl)), match, get_no_ellipsis_id(),
+                               use_src, free_id_map);
+        static const uint32_t SYNTAX_ERROR_SID = intern_symbol("syntax-error");
+        if (is_symbol(car(tmpl)) && as_symbol_id(car(tmpl)) == SYNTAX_ERROR_SID)
+            raise_syntax_error(cdr(tmpl), match, ellipsis_id, use_src, free_id_map);
+        return instantiate_list(tmpl, match, ellipsis_id, use_src, free_id_map);
+    }
+    if (is_vector(tmpl))
+        return instantiate_vector(as_vector_items_const(tmpl), match,
+                                  ellipsis_id, use_src, free_id_map);
+    return tmpl;
+}
 
-// ── apply_syntax_transformer ──────────────────────────────────────────────────
+// ── apply_syntax_transformer ────────────────────────────────────────────────
+// Port of syntax_rules.py apply_syntax_transformer.
 
-Value apply_syntax_transformer(Value transformer, Value form)
-   {
-   if (!is_syntax_transformer(transformer))
-      throw SchemeSyntaxError("apply_syntax_transformer: not a transformer");
-   auto* t = as_syntax_transformer(transformer);
-   uint32_t ell_sid = t->ellipsis;
-   Value form_tail = is_cons(form) ? cdr(form) : make_nil();
-   // Per-application gensym for binding-intro-names
-   std::unordered_map<std::string,std::string> free_id_map = t->free_id_map;
-   for (auto& iname : t->binding_intro_names)
-      {
-      if (!free_id_map.count(iname))
-         free_id_map[iname] = hygiene_gensym(iname);
-      }
-   for (auto& rule : t->rules)
-      {
-      Value pattern = rule.pattern;
-      Value tmpl    = rule.tmpl;
-      if (is_cons(pattern))
-         {
-         SyntaxMatch match;
-         if (match_list_pattern(cdr(pattern), form_tail,
-                                t->literals, ell_sid, match))
-            return instantiate(tmpl, match, ell_sid, free_id_map);
-         }
-      }
-   throw SchemeSyntaxError("syntax-rules: no matching pattern for '" + t->name + "'");
-   }
+Value apply_syntax_transformer(const Value& t_val, const Value& form) {
+    const auto& literals       = as_syntax_transformer_literals(t_val);
+    uint32_t    ellipsis_id    = as_syntax_transformer_ellipsis(t_val);
+    const auto& binding_intros = as_syntax_transformer_binding_intro_names(t_val);
+    SourceInfo* use_src        = src_of(form);
 
-// ── parse_syntax_rules_val ────────────────────────────────────────────────────
+    // Copy base free_id_map; add per-application gensyms for binding-site intros.
+    std::unordered_map<uint32_t, uint32_t> free_id_map =
+        as_syntax_transformer_free_id_map(t_val);
+    for (uint32_t iname_id : binding_intros) {
+        if (!free_id_map.count(iname_id))
+            free_id_map[iname_id] = intern_symbol(hygiene_gensym(symbol_name(iname_id)));
+    }
 
-Value parse_syntax_rules_val(Value tail, Environment* def_env,
-                              std::string_view name)
-   {
-   if (!is_cons(tail))
-      throw SchemeSyntaxError("syntax-rules: malformed");
-   // Parse optional custom ellipsis symbol + literals list
-   std::string ell_str = "...";
-   Value first     = car(tail);
-   Value rest_tail = cdr(tail);
-   Value lit_list, rules_list;
-   if (is_symbol(first) && is_cons(rest_tail))
-      {
-      Value second = car(rest_tail);
-      if (is_nil(second) || is_cons(second))
-         {
-         ell_str     = symbol_name(as_symbol_id(first));
-         lit_list    = second;
-         rules_list  = cdr(rest_tail);
-         }
-      else
-         {
-         lit_list   = first;
-         rules_list = rest_tail;
-         }
-      }
-   else
-      {
-      lit_list   = first;
-      rules_list = rest_tail;
-      }
-   uint32_t ell_sid = intern_symbol(ell_str);
-   // Parse literals
-   std::vector<uint32_t> literals;
-   Value cur = lit_list;
-   while (is_cons(cur))
-      {
-      if (!is_symbol(car(cur)))
-         throw SchemeSyntaxError("syntax-rules: literal must be a symbol");
-      uint32_t sid = as_symbol_id(car(cur));
-      std::string s = symbol_name(sid);
-      if (s == "_" || s == ell_str)
-         throw SchemeSyntaxError("syntax-rules: '" + s + "' cannot appear in literals list");
-      literals.push_back(sid);
-      cur = cdr(cur);
-      }
-   // Parse rules
-   struct RuleRaw { Value pattern; Value tmpl; };
-   std::vector<RuleRaw> raw_rules;
-   std::unordered_set<std::string> pvars_union;
-   std::vector<std::pair<Value,std::unordered_set<std::string>>> templates;
-   cur = rules_list;
-   while (is_cons(cur))
-      {
-      Value rule = car(cur);
-      if (!is_cons(rule) || !is_cons(cdr(rule)))
-         throw SchemeSyntaxError("syntax-rules: each rule must be (pattern template)");
-      Value pattern  = car(rule);
-      Value tmpl_val = car(cdr(rule));
-      std::unordered_set<std::string> pvars;
-      if (is_cons(pattern))
-         collect_pvars(cdr(pattern), literals, ell_sid, pvars);
-      for (auto& s : pvars) pvars_union.insert(s);
-      raw_rules.push_back({pattern, tmpl_val});
-      templates.push_back({tmpl_val, pvars});
-      cur = cdr(cur);
-      }
-   // Collect free identifiers
-   std::unordered_set<std::string> free_ids;
-   for (auto& [tmpl_val, pvars] : templates)
-      collect_free_ids(tmpl_val, pvars, literals, ell_sid, free_ids);
-   // Collect binding-position intro names
-   std::unordered_set<std::string> binding_intros;
-   for (auto& [tmpl_val, pvars] : templates)
-      collect_binding_intros(tmpl_val, pvars, binding_intros);
-   // Build free_id_map and intro_names
-   std::unordered_map<std::string,std::string> free_id_map;
-   std::unordered_set<std::string> intro_names;
-   for (auto& fid : free_ids)
-      {
-      std::optional<Value> opt;
-      if (def_env)
-         {
-         uint32_t fid_sid = intern_symbol(fid);
-         opt = def_env->lookup_optional_id(fid_sid);
-         }
-      if (opt)
-         {
-         std::string gs = hygiene_gensym(fid);
-         free_id_map[fid] = gs;
-         // Bind alias in global env so it persists past temporary envs
-         if (def_env && def_env->global)
-            {
-            uint32_t gs_sid = intern_symbol(gs);
-            def_env->global->bind_id(gs_sid, *opt);
+    Value form_tail = is_cons(form) ? cdr(form) : NIL_VALUE;
+
+    const auto& rules = as_syntax_transformer_rules(t_val);
+    for (const auto& rule : rules) {
+        if (is_cons(rule.pattern)) {
+            SyntaxMatch match;
+            if (match_list_pattern(cdr(rule.pattern), form_tail,
+                                   literals, ellipsis_id, match))
+                return instantiate(rule.tmpl, match, ellipsis_id, use_src, free_id_map);
+        }
+    }
+    throw SchemeSyntaxError(
+        "syntax-rules: no matching pattern for '" +
+        as_syntax_transformer_name(t_val) + "'",
+        use_src ? new SourceInfo(*use_src) : nullptr);
+}
+
+// ── parse_syntax_rules ──────────────────────────────────────────────────────
+// Port of syntax_rules.py parse_syntax_rules.
+
+Value parse_syntax_rules(Value tail, Environment* def_env, const std::string& name) {
+    if (!is_cons(tail)) {
+        SourceInfo* s = src_of(tail);
+        throw SchemeSyntaxError("syntax-rules: malformed",
+                                s ? new SourceInfo(*s) : nullptr);
+    }
+
+    static const uint32_t DEFAULT_ELLIPSIS_ID = intern_symbol("...");
+    static const uint32_t US                  = intern_symbol("_");
+
+    uint32_t ellipsis_id = DEFAULT_ELLIPSIS_ID;
+    Value    lit_list;
+    Value    rules_list;
+
+    Value first = car(tail);
+    Value rest  = cdr(tail);
+    if (is_symbol(first) && is_cons(rest)) {
+        Value second = car(rest);
+        if (is_nil(second) || is_cons(second)) {
+            ellipsis_id = as_symbol_id(first);
+            lit_list    = second;
+            rules_list  = cdr(rest);
+        } else {
+            lit_list   = first;
+            rules_list = rest;
+        }
+    } else {
+        lit_list   = first;
+        rules_list = rest;
+    }
+
+    std::vector<uint32_t> literals;
+    {
+        Value cur = lit_list;
+        while (is_cons(cur)) {
+            Value elem = car(cur);
+            if (!is_symbol(elem)) {
+                SourceInfo* s = src_of(elem);
+                throw SchemeSyntaxError(
+                    "syntax-rules: literal must be a symbol",
+                    s ? new SourceInfo(*s) : nullptr);
             }
-         }
-      else
-         intro_names.insert(fid);
-      }
-   // binding_intro_names = intro_names ∩ binding_intros
-   std::vector<std::string> binding_intro_names;
-   for (auto& n : intro_names)
-      if (binding_intros.count(n))
-         binding_intro_names.push_back(n);
-   // Build the transformer
-   auto* t = gc_alloc_syntax_transformer();
-   t->name           = std::string(name);
-   t->literals       = literals;
-   t->ellipsis       = ell_sid;
-   t->def_env        = def_env;
-   t->free_id_map    = std::move(free_id_map);
-   for (auto& n : intro_names) t->intro_names.push_back(n);
-   t->binding_intro_names = std::move(binding_intro_names);
-   for (auto& r : raw_rules)
-      t->rules.push_back({r.pattern, r.tmpl});
-   return make_syntax_transformer(t);
-   }
+            uint32_t lit_sid = as_symbol_id(elem);
+            if (lit_sid == US || lit_sid == ellipsis_id) {
+                SourceInfo* s = src_of(elem);
+                throw SchemeSyntaxError(
+                    "syntax-rules: '" + symbol_name(lit_sid) + "' cannot appear in literals list",
+                    s ? new SourceInfo(*s) : nullptr);
+            }
+            literals.push_back(lit_sid);
+            cur = cdr(cur);
+        }
+    }
+
+    std::vector<SyntaxTransformer::Rule>                              rules;
+    std::unordered_set<uint32_t>                                      pvars_union;
+    std::vector<std::pair<Value, std::unordered_set<uint32_t>>>       templates;
+
+    {
+        Value cur = rules_list;
+        while (is_cons(cur)) {
+            Value rule = car(cur);
+            if (!is_cons(rule) || !is_cons(cdr(rule))) {
+                SourceInfo* s = src_of(rule);
+                throw SchemeSyntaxError(
+                    "syntax-rules: each rule must be (pattern template)",
+                    s ? new SourceInfo(*s) : nullptr);
+            }
+            Value pattern = car(rule);
+            Value tmpl    = car(cdr(rule));
+            std::unordered_set<uint32_t> pvars;
+            if (is_cons(pattern))
+                collect_pvars(cdr(pattern), literals, ellipsis_id, pvars);
+            for (uint32_t pv : pvars) pvars_union.insert(pv);
+            SyntaxTransformer::Rule r;
+            r.pattern = pattern;
+            r.tmpl    = tmpl;
+            rules.push_back(r);
+            templates.emplace_back(tmpl, pvars);
+            cur = cdr(cur);
+        }
+    }
+
+    // Collect all free identifiers across all templates.
+    std::unordered_set<uint32_t> free_ids;
+    for (auto& [tmpl, pvars] : templates)
+        collect_free_ids(tmpl, pvars, literals, ellipsis_id, free_ids);
+
+    // Collect binding-position intro names.
+    std::unordered_set<uint32_t> binding_intros;
+    for (auto& [tmpl, pvars] : templates)
+        collect_binding_intros(tmpl, pvars, binding_intros);
+
+    // Resolve free ids against definition environment.
+    std::unordered_map<uint32_t, uint32_t> free_id_map;
+    std::unordered_set<uint32_t>           intro_names;
+    if (def_env) {
+        for (uint32_t fid : free_ids) {
+            if (def_env->lookup_optional_id(fid).has_value()) {
+                uint32_t gs_id = intern_symbol(hygiene_gensym(symbol_name(fid)));
+                free_id_map[fid] = gs_id;
+            } else {
+                intro_names.insert(fid);
+            }
+        }
+    } else {
+        for (uint32_t fid : free_ids)
+            intro_names.insert(fid);
+    }
+
+    // binding_intro_names = intro_names that appear in binding positions.
+    std::unordered_set<uint32_t> binding_intro_names;
+    for (uint32_t n : intro_names)
+        if (binding_intros.count(n))
+            binding_intro_names.insert(n);
+
+    // Bind each free_id alias in the global env so it persists.
+    if (!free_id_map.empty() && def_env) {
+        Environment* global_env = def_env->getGlobalEnv();
+        for (auto& [fid, gs_id] : free_id_map)
+            global_env->bind_id(gs_id, def_env->lookup_id(fid));
+    }
+
+    return make_syntax_transformer(name,
+                                   std::move(literals),
+                                   ellipsis_id,
+                                   std::move(rules),
+                                   std::move(free_id_map),
+                                   std::move(intro_names),
+                                   std::move(binding_intro_names));
+}

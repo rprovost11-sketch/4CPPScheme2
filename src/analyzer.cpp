@@ -1,803 +1,749 @@
-#include "analyzer.h"
-#include "environment.h"
-#include "symbol.h"
+// Analyzer.cpp -- semantic validator.
+// Direct port of pyscheme/Analyzer.py.
+#include "Analyzer.h"
 #include <algorithm>
+#include <cctype>
+#include <functional>
 #include <mutex>
+#include <string>
 #include <unordered_set>
 #include <vector>
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Primitive arity registry
+// ── Primitive arities registry ────────────────────────────────────────────────
 
-static std::unordered_map<std::string, std::pair<int,int>> g_prim_arities;
+static StaticEnv g_primitive_arities;
 static std::mutex g_prim_mutex;
 
-void register_primitive_arity(const std::string& name, int min_args, int max_args)
-   {
-   std::lock_guard<std::mutex> lock(g_prim_mutex);
-   g_prim_arities[name] = {min_args, max_args};
-   }
+void register_primitive_arity(const std::string& name, int lo, int hi) {
+    std::lock_guard<std::mutex> lk(g_prim_mutex);
+    g_primitive_arities[name] = std::make_pair(lo, hi);
+}
 
-void seed_static_env(StaticEnv& senv)
-   {
-   std::lock_guard<std::mutex> lock(g_prim_mutex);
-   for (const auto& kv : g_prim_arities)
-      senv[kv.first] = kv.second;
-   }
+const StaticEnv& primitive_arities() { return g_primitive_arities; }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
+// ── Special-form dispatch ─────────────────────────────────────────────────────
 
-static bool sym_named(Value v, const char* name)
-   {
-   return is_symbol(v) && symbol_name(as_symbol_id(v)) == name;
-   }
+using AnalysisHandler = std::function<void(const Value&, const StaticEnv&)>;
+static std::once_flag s_init_flag;
+static std::unordered_map<std::string, AnalysisHandler> s_special_forms;
 
-static int list_length(Value cell)
-   {
-   if (is_nil(cell)) return 0;
-   int n = 0;
-   Value cur = cell;
-   while (is_cons(cur)) { ++n; cur = as_cons(cur)->cdr; }
-   return is_nil(cur) ? n : -1;
-   }
+// Forward declarations for all special-form handlers
+static void analyze_lambda(const Value& sexpr, const StaticEnv& senv);
+static void analyze_case_lambda(const Value& sexpr, const StaticEnv& senv);
+static void analyze_define(const Value& sexpr, const StaticEnv& senv);
+static void analyze_set(const Value& sexpr, const StaticEnv& senv);
+static void analyze_if(const Value& sexpr, const StaticEnv& senv);
+static void analyze_begin(const Value& sexpr, const StaticEnv& senv);
+static void analyze_let(const Value& sexpr, const StaticEnv& senv);
+static void analyze_let_star(const Value& sexpr, const StaticEnv& senv);
+static void analyze_letrec(const Value& sexpr, const StaticEnv& senv);
+static void analyze_letrec_star(const Value& sexpr, const StaticEnv& senv);
+static void analyze_cond(const Value& sexpr, const StaticEnv& senv);
+static void analyze_case(const Value& sexpr, const StaticEnv& senv);
+static void analyze_do(const Value& sexpr, const StaticEnv& senv);
+static void analyze_include(const Value& sexpr, const StaticEnv& senv);
+static void analyze_cond_expand(const Value& sexpr, const StaticEnv& senv);
+static void analyze_and(const Value& sexpr, const StaticEnv& senv);
+static void analyze_or(const Value& sexpr, const StaticEnv& senv);
+static void analyze_when(const Value& sexpr, const StaticEnv& senv);
+static void analyze_unless(const Value& sexpr, const StaticEnv& senv);
+static void analyze_quote(const Value& sexpr, const StaticEnv& senv);
+static void analyze_delay(const Value& sexpr, const StaticEnv& senv);
+static void analyze_library_form(const Value& sexpr, const StaticEnv& senv);
+static void analyze_unquote_outside(const Value& sexpr, const StaticEnv& senv);
 
-static std::vector<Value> list_to_vec(Value cell)
-   {
-   std::vector<Value> v;
-   Value cur = cell;
-   while (is_cons(cur)) { v.push_back(as_cons(cur)->car); cur = as_cons(cur)->cdr; }
-   return v;
-   }
+static void init_special_forms() {
+    s_special_forms["lambda"]       = analyze_lambda;
+    s_special_forms["case-lambda"]  = analyze_case_lambda;
+    s_special_forms["define"]       = analyze_define;
+    s_special_forms["set!"]         = analyze_set;
+    s_special_forms["if"]           = analyze_if;
+    s_special_forms["begin"]        = analyze_begin;
+    s_special_forms["let"]          = analyze_let;
+    s_special_forms["let*"]         = analyze_let_star;
+    s_special_forms["letrec"]       = analyze_letrec;
+    s_special_forms["letrec*"]      = analyze_letrec_star;
+    s_special_forms["cond"]         = analyze_cond;
+    s_special_forms["case"]         = analyze_case;
+    s_special_forms["do"]           = analyze_do;
+    s_special_forms["include"]      = analyze_include;
+    s_special_forms["include-ci"]   = analyze_include;
+    s_special_forms["cond-expand"]  = analyze_cond_expand;
+    s_special_forms["and"]          = analyze_and;
+    s_special_forms["or"]           = analyze_or;
+    s_special_forms["when"]         = analyze_when;
+    s_special_forms["unless"]       = analyze_unless;
+    s_special_forms["quote"]        = analyze_quote;
+    s_special_forms["unquote"]           = analyze_unquote_outside;
+    s_special_forms["unquote-splicing"]  = analyze_unquote_outside;
+    s_special_forms["delay"]        = analyze_delay;
+    s_special_forms["delay-force"]  = analyze_delay;
+    s_special_forms["define-library"]               = analyze_library_form;
+    s_special_forms["import"]                       = analyze_library_form;
+    s_special_forms["export"]                       = analyze_library_form;
+    s_special_forms["include-library-declarations"] = analyze_library_form;
+    s_special_forms["define-syntax"]    = analyze_library_form;
+    s_special_forms["let-syntax"]       = analyze_library_form;
+    s_special_forms["letrec-syntax"]    = analyze_library_form;
+    s_special_forms["syntax-rules"]     = analyze_library_form;
+}
 
-static constexpr const char GENSYM_PFX[] = "\x01h.";
-static constexpr size_t GENSYM_PFX_LEN   = 3;
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-static std::string strip_gensym(const std::string& name)
-   {
-   if (name.size() < GENSYM_PFX_LEN || name.compare(0, GENSYM_PFX_LEN, GENSYM_PFX) != 0)
-      return name;
-   std::string rest = name.substr(GENSYM_PFX_LEN);
-   size_t dot = rest.rfind('.');
-   if (dot != std::string::npos)
-      {
-      std::string sfx = rest.substr(dot + 1);
-      if (!sfx.empty() && std::all_of(sfx.begin(), sfx.end(), ::isdigit))
-         return rest.substr(0, dot);
-      }
-   return rest;
-   }
+static int proper_list_length(const Value& cell) {
+    if (is_nil(cell)) return 0;
+    int n = 0;
+    Value cur = cell;
+    while (is_cons(cur)) { n++; cur = cdr(cur); }
+    return is_nil(cur) ? n : -1;
+}
 
-static std::string render(Value v)
-   {
-   if (is_nil(v))    return "()";
-   if (is_bool(v))   return as_bool(v) ? "#t" : "#f";
-   if (is_fixnum(v)) return std::to_string(as_fixnum(v));
-   if (is_flonum(v)) return std::to_string(as_flonum(v));
-   if (is_symbol(v)) return strip_gensym(symbol_name(as_symbol_id(v)));
-   if (is_string(v)) return "\"" + as_string(v)->data + "\"";
-   if (is_char(v))
-      {
-      char32_t cp = as_char(v);
-      if (cp < 128) { std::string s = "#\\"; s += (char)cp; return s; }
-      return "#\\<char>";
-      }
-   if (is_rational(v))
-      {
-      auto* r = as_rational(v);
-      return std::to_string(r->num) + "/" + std::to_string(r->den);
-      }
-   if (is_cons(v))
-      {
-      std::string out = "(";
-      Value cur = v;
-      bool first = true;
-      while (is_cons(cur))
-         {
-         if (!first) out += " ";
-         first = false;
-         out += render(as_cons(cur)->car);
-         cur = as_cons(cur)->cdr;
-         }
-      if (!is_nil(cur)) { out += " . "; out += render(cur); }
-      out += ")";
-      return out;
-      }
-   return "<#value>";
-   }
+static std::vector<Value> cons_to_list(const Value& cell) {
+    std::vector<Value> items;
+    Value cur = cell;
+    while (is_cons(cur)) { items.push_back(car(cur)); cur = cdr(cur); }
+    return items;
+}
 
-static std::string require_sym(Value v, const std::string& ctx)
-   {
-   if (!is_symbol(v))
-      throw SchemeAnalysisError("expected an identifier in " + ctx + ", got " + render(v));
-   return symbol_name(as_symbol_id(v));
-   }
+static const std::string GENSYM_PFX = "\x01h.";
 
-static StaticEnv shadow_env(const StaticEnv& env, const std::vector<std::string>& names)
-   {
-   StaticEnv copy = env;
-   for (const auto& n : names) copy.erase(n);
-   return copy;
-   }
+static std::string display_name(const std::string& name) {
+    if (name.compare(0, GENSYM_PFX.size(), GENSYM_PFX) != 0) return name;
+    std::string rest = name.substr(GENSYM_PFX.size());
+    size_t dot = rest.rfind('.');
+    if (dot != std::string::npos) {
+        std::string suffix = rest.substr(dot + 1);
+        if (!suffix.empty() &&
+            std::all_of(suffix.begin(), suffix.end(),
+                        [](char c){ return std::isdigit((unsigned char)c); }))
+            return rest.substr(0, dot);
+    }
+    return rest;
+}
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Static arity
+static std::string render(const Value& sexpr) {
+    if (is_symbol(sexpr)) return display_name(as_symbol(sexpr));
+    if (is_nil(sexpr))    return "()";
+    if (is_cons(sexpr)) {
+        std::string result = "(";
+        Value cur = sexpr;
+        bool first = true;
+        while (is_cons(cur)) {
+            if (!first) result += " ";
+            result += render(car(cur));
+            cur = cdr(cur);
+            first = false;
+        }
+        if (!is_nil(cur)) { result += " . "; result += render(cur); }
+        return result + ")";
+    }
+    if (is_integer(sexpr))   return std::to_string(as_integer(sexpr));
+    if (is_real(sexpr))      return std::to_string(as_real(sexpr));
+    if (is_string(sexpr))    return "\"" + as_string(sexpr) + "\"";
+    if (is_boolean(sexpr))   return as_boolean(sexpr) ? "#t" : "#f";
+    if (is_rational(sexpr))
+        return std::to_string(as_rational_num(sexpr)) + "/" +
+               std::to_string(as_rational_den(sexpr));
+    return "<value>";
+}
 
-static std::pair<int,int> lambda_arity(Value lam)
-   {
-   Value params = as_cons(as_cons(lam)->cdr)->car;
-   if (is_symbol(params)) return {0, -1};
-   if (is_nil(params))    return {0,  0};
-   int n = 0;
-   Value cur = params;
-   while (is_cons(cur)) { ++n; cur = as_cons(cur)->cdr; }
-   return is_nil(cur) ? std::make_pair(n, n) : std::make_pair(n, -1);
-   }
+static StaticEnv shadow_env(const StaticEnv& env, const std::vector<std::string>& names) {
+    StaticEnv result = env;
+    for (const std::string& n : names) result[n] = std::nullopt;
+    return result;
+}
 
-static std::optional<std::pair<int,int>> peek_lambda_arity(Value v)
-   {
-   if (!is_cons(v) || !sym_named(as_cons(v)->car, "lambda")) return std::nullopt;
-   if (!is_cons(as_cons(v)->cdr))                             return std::nullopt;
-   if (list_length(v) < 3)                                    return std::nullopt;
-   return lambda_arity(v);
-   }
+static std::string require_symbol(const Value& sexpr, const std::string& ctx) {
+    if (!is_symbol(sexpr))
+        throw SchemeAnalysisError(
+            "expected an identifier in " + ctx + ", got " + render(sexpr),
+            src_of(sexpr));
+    return as_symbol(sexpr);
+}
 
-static void check_call_arity(Value fn, const std::vector<Value>& args,
-                               const StaticEnv& env)
-   {
-   std::string fn_name;
-   std::pair<int,int> arity{0, 0};
-   bool found = false;
+// ── Static arity helpers ──────────────────────────────────────────────────────
 
-   if (is_cons(fn) && sym_named(as_cons(fn)->car, "lambda"))
-      {
-      auto opt = peek_lambda_arity(fn);
-      if (!opt) return;
-      arity = *opt;
-      found = true;
-      }
-   else if (is_symbol(fn))
-      {
-      fn_name = symbol_name(as_symbol_id(fn));
-      auto it  = env.find(fn_name);
-      if (it == env.end()) return;
-      arity = it->second;
-      found = true;
-      }
-   if (!found) return;
+static std::pair<int,int> lambda_arity_from_cons(const Value& lam_cons) {
+    Value params = car(cdr(lam_cons));
+    if (is_symbol(params)) return {0, -1};
+    if (is_nil(params))    return {0, 0};
+    int n = 0;
+    Value cur = params;
+    while (is_cons(cur)) { n++; cur = cdr(cur); }
+    return is_nil(cur) ? std::make_pair(n, n) : std::make_pair(n, -1);
+}
 
-   int lo = arity.first;
-   int hi = arity.second;
-   int n  = (int)args.size();
-   if (n < lo || (hi >= 0 && n > hi))
-      throw SchemeArityError(arity_mismatch_msg(fn_name, lo, hi, n));
-   }
+static std::optional<std::pair<int,int>> peek_lambda_arity(const Value& sexpr) {
+    if (!is_cons(sexpr)) return std::nullopt;
+    if (!is_symbol(car(sexpr)) || as_symbol(car(sexpr)) != "lambda") return std::nullopt;
+    if (!is_cons(cdr(sexpr))) return std::nullopt;
+    if (proper_list_length(sexpr) < 3) return std::nullopt;
+    return lambda_arity_from_cons(sexpr);
+}
 
-void extend_static_env_with_define(StaticEnv& senv, Value sexpr)
-   {
-   if (!is_cons(sexpr) || !sym_named(as_cons(sexpr)->car, "define")) return;
-   Value r1 = as_cons(sexpr)->cdr;
-   if (!is_cons(r1)) return;
-   Value r2 = as_cons(r1)->cdr;
-   if (!is_cons(r2)) return;
-   Value name_v  = as_cons(r1)->car;
-   Value value_v = as_cons(r2)->car;
-   if (!is_symbol(name_v)) return;
-   std::string name = symbol_name(as_symbol_id(name_v));
+struct AppArity { std::string name; std::pair<int,int> arity; };
 
-   if (is_cons(value_v) && sym_named(as_cons(value_v)->car, "lambda"))
-      {
-      auto opt = peek_lambda_arity(value_v);
-      if (opt) senv[name] = *opt;
-      else     senv.erase(name);
-      }
-   else if (is_cons(value_v) && sym_named(as_cons(value_v)->car, "case-lambda"))
-      {
-      senv[name] = {0, -1};
-      }
-   else if (is_symbol(value_v))
-      {
-      std::string alias = symbol_name(as_symbol_id(value_v));
-      auto it = senv.find(alias);
-      if (it != senv.end()) senv[name] = it->second;
-      else                  senv.erase(name);
-      }
-   else
-      {
-      senv.erase(name);
-      }
-   }
+static std::optional<AppArity> app_operator_arity(const Value& fn, const StaticEnv& senv) {
+    if (is_cons(fn) && is_symbol(car(fn)) && as_symbol(car(fn)) == "lambda") {
+        auto a = peek_lambda_arity(fn);
+        if (!a) return std::nullopt;
+        return AppArity{"", *a};
+    }
+    if (is_symbol(fn)) {
+        std::string name = as_symbol(fn);
+        auto it = senv.find(name);
+        if (it == senv.end() || !it->second) return std::nullopt;
+        return AppArity{name, *it->second};
+    }
+    return std::nullopt;
+}
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Forward declaration
+static void check_app_arity(const Value& fn, const std::vector<Value>& args,
+                              const StaticEnv& senv, const Value& app) {
+    auto info = app_operator_arity(fn, senv);
+    if (!info) return;
+    int lo = info->arity.first;
+    int hi = info->arity.second;
+    int n  = (int)args.size();
+    if (n < lo || (hi >= 0 && n > hi))
+        throw SchemeArityError(arity_mismatch_msg(info->name, lo, hi, n), src_of(app));
+}
 
-static void analyze_impl(Value sexpr, const StaticEnv& env);
+// ── extend_static_env_with_define ─────────────────────────────────────────────
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Let-binding helpers
+void extend_static_env_with_define(StaticEnv& senv, const Value& sexpr) {
+    if (!is_cons(sexpr)) return;
+    if (!is_symbol(car(sexpr)) || as_symbol(car(sexpr)) != "define") return;
+    if (!is_cons(cdr(sexpr)) || !is_cons(cdr(cdr(sexpr)))) return;
+    Value name_sexpr = car(cdr(sexpr));
+    if (!is_symbol(name_sexpr)) return;
+    std::string name  = as_symbol(name_sexpr);
+    Value value       = car(cdr(cdr(sexpr)));
+    if (is_cons(value) && is_symbol(car(value)) && as_symbol(car(value)) == "lambda") {
+        auto a = peek_lambda_arity(value);
+        if (a) { senv[name] = a; return; }
+        senv.erase(name); return;
+    }
+    if (is_cons(value) && is_symbol(car(value)) && as_symbol(car(value)) == "case-lambda") {
+        senv[name] = std::make_pair(0, -1); return;
+    }
+    if (is_symbol(value)) {
+        auto it = senv.find(as_symbol(value));
+        if (it != senv.end() && it->second) { senv[name] = it->second; return; }
+        senv.erase(name); return;
+    }
+    senv.erase(name);
+}
 
-static std::vector<std::pair<std::string,Value>>
-parse_let_bindings(Value bindings, const std::string& form)
-   {
-   if (!is_cons(bindings) && !is_nil(bindings))
-      throw SchemeAnalysisError(
-         form + " bindings must be a list, got " + render(bindings));
-   if (list_length(bindings) < 0)
-      throw SchemeAnalysisError(form + " bindings must be a proper list");
-   std::vector<std::pair<std::string,Value>> pairs;
-   Value cur = bindings;
-   while (is_cons(cur))
-      {
-      Value b = as_cons(cur)->car;
-      if (list_length(b) != 2)
-         throw SchemeAnalysisError(
-            form + " binding must be (name value), got " + render(b));
-      std::string var = require_sym(as_cons(b)->car, form + " binding");
-      pairs.push_back({var, as_cons(as_cons(b)->cdr)->car});
-      cur = as_cons(cur)->cdr;
-      }
-   return pairs;
-   }
+// ── Lambda shape validator ────────────────────────────────────────────────────
 
-static void check_unique_names(
-   const std::vector<std::pair<std::string,Value>>& pairs,
-   const std::string& form)
-   {
-   std::unordered_set<std::string> seen;
-   for (const auto& kv : pairs)
-      if (!seen.insert(kv.first).second)
-         throw SchemeAnalysisError(
-            "duplicate variable name in " + form + " bindings: " + kv.first);
-   }
+static void analyze_lambda_shape(const Value& params_sexpr, const Value& body_cons,
+                                   const std::string& form_name, SourceInfo* outer_src,
+                                   const StaticEnv& senv) {
+    struct ParamEntry { std::string name; SourceInfo* src; };
+    std::vector<ParamEntry> fixed;
+    std::string rest_name;
+    SourceInfo* rest_src = nullptr;
+    bool has_rest = false;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Lambda shape validator (shared by lambda and case-lambda)
-
-static void check_lambda_shape(Value params, Value body_cons,
-                                const std::string& form, const StaticEnv& env)
-   {
-   std::vector<std::string> fixed;
-   std::string rest;
-   bool has_rest = false;
-
-   if (is_symbol(params))
-      {
-      rest = symbol_name(as_symbol_id(params));
-      has_rest = true;
-      }
-   else if (is_nil(params))
-      {
-      // no params
-      }
-   else if (is_cons(params))
-      {
-      Value cur = params;
-      while (is_cons(cur))
-         {
-         Value p = as_cons(cur)->car;
-         if (!is_symbol(p))
+    if (is_symbol(params_sexpr)) {
+        has_rest  = true;
+        rest_name = as_symbol(params_sexpr);
+        rest_src  = src_of(params_sexpr);
+    } else if (is_nil(params_sexpr)) {
+        // no params - fine
+    } else if (is_cons(params_sexpr)) {
+        Value cur = params_sexpr;
+        while (is_cons(cur)) {
+            Value p = car(cur);
+            if (!is_symbol(p))
+                throw SchemeAnalysisError(
+                    "expected an identifier in " + form_name +
+                    " parameter list, got " + render(p), src_of(p));
+            fixed.push_back({as_symbol(p), src_of(p)});
+            cur = cdr(cur);
+        }
+        if (is_nil(cur)) {
+            // proper list
+        } else if (is_symbol(cur)) {
+            has_rest  = true;
+            rest_name = as_symbol(cur);
+            rest_src  = src_of(cur);
+        } else {
             throw SchemeAnalysisError(
-               "expected an identifier in " + form + " parameter list, got " + render(p));
-         fixed.push_back(symbol_name(as_symbol_id(p)));
-         cur = as_cons(cur)->cdr;
-         }
-      if (!is_nil(cur))
-         {
-         if (!is_symbol(cur))
+                "expected an identifier in " + form_name +
+                " rest parameter, got " + render(cur), src_of(cur));
+        }
+    } else {
+        throw SchemeAnalysisError(
+            form_name + " parameter list must be a list or identifier, got " +
+            render(params_sexpr), src_of(params_sexpr));
+    }
+
+    std::unordered_set<std::string> seen;
+    for (const auto& pe : fixed) {
+        if (seen.count(pe.name))
             throw SchemeAnalysisError(
-               "expected an identifier in " + form + " rest parameter, got " + render(cur));
-         rest = symbol_name(as_symbol_id(cur));
-         has_rest = true;
-         }
-      }
-   else
-      {
-      throw SchemeAnalysisError(
-         form + " parameter list must be a list or identifier, got " + render(params));
-      }
+                "duplicate parameter name in " + form_name + ": " + pe.name, pe.src);
+        seen.insert(pe.name);
+    }
+    if (has_rest && seen.count(rest_name))
+        throw SchemeAnalysisError(
+            "rest parameter name conflicts with fixed parameter: " + rest_name, rest_src);
 
-   std::unordered_set<std::string> seen;
-   for (const auto& p : fixed)
-      if (!seen.insert(p).second)
-         throw SchemeAnalysisError("duplicate parameter name in " + form + ": " + p);
-   if (has_rest && seen.count(rest))
-      throw SchemeAnalysisError(
-         "rest parameter name conflicts with fixed parameter: " + rest);
+    std::vector<std::string> shadowed;
+    shadowed.reserve(fixed.size() + (has_rest ? 1 : 0));
+    for (const auto& pe : fixed) shadowed.push_back(pe.name);
+    if (has_rest) shadowed.push_back(rest_name);
+    StaticEnv body_env = shadow_env(senv, shadowed);
 
-   std::vector<std::string> all = fixed;
-   if (has_rest) all.push_back(rest);
-   StaticEnv benv = shadow_env(env, all);
+    if (proper_list_length(body_cons) <= 0)
+        throw SchemeAnalysisError(form_name + " body cannot be empty", outer_src);
 
-   if (list_length(body_cons) <= 0)
-      throw SchemeAnalysisError(form + " body cannot be empty");
-   Value cur = body_cons;
-   while (is_cons(cur))
-      {
-      analyze_impl(as_cons(cur)->car, benv);
-      cur = as_cons(cur)->cdr;
-      }
-   }
+    Value cur = body_cons;
+    while (is_cons(cur)) {
+        analyze(car(cur), body_env);
+        cur = cdr(cur);
+    }
+}
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Special-form handlers
+// ── Let-binding helper ────────────────────────────────────────────────────────
 
-static void h_lambda(Value sx, const StaticEnv& env)
-   {
-   if (list_length(sx) < 3)
-      throw SchemeAnalysisError(
-         "lambda requires a parameter list and at least one body expression");
-   Value cdr1 = as_cons(sx)->cdr;
-   check_lambda_shape(as_cons(cdr1)->car, as_cons(cdr1)->cdr, "lambda", env);
-   }
-
-static void h_define(Value sx, const StaticEnv& env)
-   {
-   int n = list_length(sx) - 1;
-   if (n != 2)
-      throw SchemeAnalysisError(
-         "define requires a name and a value (got " + std::to_string(n) + " arguments)");
-   Value r1 = as_cons(sx)->cdr;
-   Value name_v  = as_cons(r1)->car;
-   Value value_v = as_cons(as_cons(r1)->cdr)->car;
-   require_sym(name_v, "define");
-   std::string name = symbol_name(as_symbol_id(name_v));
-   StaticEnv venv = env;
-   auto opt = peek_lambda_arity(value_v);
-   if (opt) venv[name] = *opt;
-   analyze_impl(value_v, venv);
-   }
-
-static void h_set(Value sx, const StaticEnv& env)
-   {
-   int n = list_length(sx) - 1;
-   if (n != 2)
-      throw SchemeAnalysisError(
-         "set! requires a name and a value (got " + std::to_string(n) + " arguments)");
-   Value r1 = as_cons(sx)->cdr;
-   require_sym(as_cons(r1)->car, "set!");
-   analyze_impl(as_cons(as_cons(r1)->cdr)->car, env);
-   }
-
-static void h_if(Value sx, const StaticEnv& env)
-   {
-   int n = list_length(sx) - 1;
-   if (n != 2 && n != 3)
-      throw SchemeAnalysisError(
-         "if requires 2 or 3 arguments (test, then, optional else), got "
-         + std::to_string(n));
-   Value r1 = as_cons(sx)->cdr;
-   Value r2 = as_cons(r1)->cdr;
-   analyze_impl(as_cons(r1)->car, env);
-   analyze_impl(as_cons(r2)->car, env);
-   if (n == 3)
-      analyze_impl(as_cons(as_cons(r2)->cdr)->car, env);
-   }
-
-static void h_begin(Value sx, const StaticEnv& env)
-   {
-   if (list_length(sx) < 2)
-      throw SchemeAnalysisError("begin must have at least one body expression");
-   Value cur = as_cons(sx)->cdr;
-   while (is_cons(cur)) { analyze_impl(as_cons(cur)->car, env); cur = as_cons(cur)->cdr; }
-   }
-
-static void h_named_let(Value sx, const StaticEnv& env)
-   {
-   if (list_length(sx) < 4)
-      throw SchemeAnalysisError(
-         "named let requires a name, a binding list, and at least one body expression");
-   Value r1 = as_cons(sx)->cdr;
-   std::string loop_name = require_sym(as_cons(r1)->car, "named let");
-   Value r2 = as_cons(r1)->cdr;
-   auto pairs = parse_let_bindings(as_cons(r2)->car, "named let");
-
-   std::unordered_set<std::string> seen;
-   for (const auto& kv : pairs)
-      if (!seen.insert(kv.first).second)
-         throw SchemeAnalysisError(
-            "duplicate parameter name in named let: " + kv.first);
-
-   for (const auto& kv : pairs) analyze_impl(kv.second, env);
-
-   StaticEnv name_env = env;
-   name_env[loop_name] = {(int)pairs.size(), (int)pairs.size()};
-   std::vector<std::string> pnames;
-   for (const auto& kv : pairs) pnames.push_back(kv.first);
-   StaticEnv body_env = shadow_env(name_env, pnames);
-
-   Value body_cons = as_cons(r2)->cdr;
-   if (list_length(body_cons) <= 0)
-      throw SchemeAnalysisError("named let body cannot be empty");
-   Value cur = body_cons;
-   while (is_cons(cur)) { analyze_impl(as_cons(cur)->car, body_env); cur = as_cons(cur)->cdr; }
-   }
-
-static void h_let(Value sx, const StaticEnv& env)
-   {
-   if (list_length(sx) < 3)
-      throw SchemeAnalysisError(
-         "let requires a binding list and at least one body expression");
-   Value r1 = as_cons(sx)->cdr;
-   if (is_symbol(as_cons(r1)->car)) { h_named_let(sx, env); return; }
-
-   auto pairs = parse_let_bindings(as_cons(r1)->car, "let");
-   check_unique_names(pairs, "let");
-   for (const auto& kv : pairs) analyze_impl(kv.second, env);
-
-   std::vector<std::string> names;
-   for (const auto& kv : pairs) names.push_back(kv.first);
-   StaticEnv benv = shadow_env(env, names);
-
-   Value body_cons = as_cons(r1)->cdr;
-   if (list_length(body_cons) <= 0)
-      throw SchemeAnalysisError("let body cannot be empty");
-   Value cur = body_cons;
-   while (is_cons(cur)) { analyze_impl(as_cons(cur)->car, benv); cur = as_cons(cur)->cdr; }
-   }
-
-static void h_let_star(Value sx, const StaticEnv& env)
-   {
-   if (list_length(sx) < 3)
-      throw SchemeAnalysisError(
-         "let* requires a binding list and at least one body expression");
-   Value r1 = as_cons(sx)->cdr;
-   auto pairs = parse_let_bindings(as_cons(r1)->car, "let*");
-   StaticEnv cur_env = env;
-   for (const auto& kv : pairs)
-      {
-      analyze_impl(kv.second, cur_env);
-      cur_env = shadow_env(cur_env, {kv.first});
-      }
-   Value body_cons = as_cons(r1)->cdr;
-   if (list_length(body_cons) <= 0)
-      throw SchemeAnalysisError("let* body cannot be empty");
-   Value cur = body_cons;
-   while (is_cons(cur)) { analyze_impl(as_cons(cur)->car, cur_env); cur = as_cons(cur)->cdr; }
-   }
-
-static void h_letrec_family(Value sx, const StaticEnv& env, const std::string& form)
-   {
-   if (list_length(sx) < 3)
-      throw SchemeAnalysisError(
-         form + " requires a binding list and at least one body expression");
-   Value r1 = as_cons(sx)->cdr;
-   auto pairs = parse_let_bindings(as_cons(r1)->car, form);
-   check_unique_names(pairs, form);
-   std::vector<std::string> names;
-   for (const auto& kv : pairs) names.push_back(kv.first);
-   StaticEnv inner = shadow_env(env, names);
-   for (const auto& kv : pairs) analyze_impl(kv.second, inner);
-   Value body_cons = as_cons(r1)->cdr;
-   if (list_length(body_cons) <= 0)
-      throw SchemeAnalysisError(form + " body cannot be empty");
-   Value cur = body_cons;
-   while (is_cons(cur)) { analyze_impl(as_cons(cur)->car, inner); cur = as_cons(cur)->cdr; }
-   }
-
-static void h_letrec(Value sx, const StaticEnv& env)      { h_letrec_family(sx, env, "letrec");  }
-static void h_letrec_star(Value sx, const StaticEnv& env) { h_letrec_family(sx, env, "letrec*"); }
-
-static void h_cond(Value sx, const StaticEnv& env)
-   {
-   if (list_length(sx) < 2)
-      throw SchemeAnalysisError("cond must have at least one clause");
-   auto clauses = list_to_vec(as_cons(sx)->cdr);
-   size_t total = clauses.size();
-   for (size_t i = 0; i < total; ++i)
-      {
-      Value clause = clauses[i];
-      int clen = list_length(clause);
-      if (clen <= 0)
-         throw SchemeAnalysisError(
-            "cond clause must be a non-empty list, got " + render(clause));
-      Value head = as_cons(clause)->car;
-      bool head_else  = sym_named(head, "else") && env.find("else") == env.end();
-      bool head_arrow = (clen == 3
-                         && sym_named(as_cons(as_cons(clause)->cdr)->car, "=>")
-                         && env.find("=>") == env.end());
-      if (head_else)
-         {
-         if (i != total - 1)
-            throw SchemeAnalysisError("cond 'else' clause must be the last clause");
-         Value body = as_cons(clause)->cdr;
-         if (list_length(body) <= 0)
+static std::vector<std::pair<std::string, Value>>
+parse_let_bindings(const Value& bindings_sexpr, const std::string& form_name) {
+    if (!is_cons(bindings_sexpr) && !is_nil(bindings_sexpr))
+        throw SchemeAnalysisError(
+            form_name + " bindings must be a list, got " + render(bindings_sexpr),
+            src_of(bindings_sexpr));
+    if (proper_list_length(bindings_sexpr) < 0)
+        throw SchemeAnalysisError(
+            form_name + " bindings must be a proper list", src_of(bindings_sexpr));
+    std::vector<std::pair<std::string, Value>> pairs;
+    Value cur = bindings_sexpr;
+    while (is_cons(cur)) {
+        Value b = car(cur);
+        if (proper_list_length(b) != 2)
             throw SchemeAnalysisError(
-               "cond 'else' clause must have at least one expression");
-         Value cur = body;
-         while (is_cons(cur)) { analyze_impl(as_cons(cur)->car, env); cur = as_cons(cur)->cdr; }
-         }
-      else if (head_arrow)
-         {
-         analyze_impl(as_cons(clause)->car, env);
-         analyze_impl(as_cons(as_cons(as_cons(clause)->cdr)->cdr)->car, env);
-         }
-      else if (clen == 1)
-         {
-         analyze_impl(as_cons(clause)->car, env);
-         }
-      else
-         {
-         analyze_impl(as_cons(clause)->car, env);
-         Value cur = as_cons(clause)->cdr;
-         while (is_cons(cur)) { analyze_impl(as_cons(cur)->car, env); cur = as_cons(cur)->cdr; }
-         }
-      }
-   }
+                form_name + " binding must be (name value), got " + render(b), src_of(b));
+        std::string var = require_symbol(car(b), form_name + " binding");
+        pairs.push_back({var, car(cdr(b))});
+        cur = cdr(cur);
+    }
+    return pairs;
+}
 
-static void h_case(Value sx, const StaticEnv& env)
-   {
-   if (list_length(sx) < 3)
-      throw SchemeAnalysisError("case requires a key and at least one clause");
-   analyze_impl(as_cons(as_cons(sx)->cdr)->car, env);
-   auto clauses = list_to_vec(as_cons(as_cons(sx)->cdr)->cdr);
-   size_t total = clauses.size();
-   for (size_t i = 0; i < total; ++i)
-      {
-      Value clause = clauses[i];
-      int clen = list_length(clause);
-      if (clen < 2)
-         throw SchemeAnalysisError(
-            "case clause must be (<datum-list> <expr>...) or (else <expr>...), got "
-            + render(clause));
-      Value head    = as_cons(clause)->car;
-      Value body    = as_cons(clause)->cdr;
-      bool is_else  = sym_named(head, "else") && env.find("else") == env.end();
-      bool is_arrow = is_cons(body)
-                      && sym_named(as_cons(body)->car, "=>")
-                      && env.find("=>") == env.end();
-      if (is_else)
-         {
-         if (i != total - 1)
-            throw SchemeAnalysisError("case 'else' clause must be the last clause");
-         if (is_arrow)
-            {
-            if (!(is_cons(as_cons(body)->cdr) && is_nil(as_cons(as_cons(body)->cdr)->cdr)))
-               throw SchemeAnalysisError(
-                  "case 'else =>' clause must have exactly one expression");
-            analyze_impl(as_cons(as_cons(body)->cdr)->car, env);
-            }
-         else
-            {
-            Value cur = body;
-            while (is_cons(cur)) { analyze_impl(as_cons(cur)->car, env); cur = as_cons(cur)->cdr; }
-            }
-         }
-      else
-         {
-         if (!is_cons(head) && !is_nil(head))
+static void check_unique_let_names(const std::vector<std::pair<std::string,Value>>& pairs,
+                                    const std::string& form_name, const Value& sexpr) {
+    std::unordered_set<std::string> seen;
+    for (const auto& p : pairs) {
+        if (seen.count(p.first))
             throw SchemeAnalysisError(
-               "case clause head must be a list of datums, got " + render(head));
-         if (list_length(head) < 0)
-            throw SchemeAnalysisError("case datum list must be a proper list");
-         if (is_arrow)
-            {
-            if (!(is_cons(as_cons(body)->cdr) && is_nil(as_cons(as_cons(body)->cdr)->cdr)))
-               throw SchemeAnalysisError(
-                  "case '=>' clause must have exactly one expression");
-            analyze_impl(as_cons(as_cons(body)->cdr)->car, env);
+                "duplicate variable name in " + form_name + " bindings: " + p.first,
+                src_of(sexpr));
+        seen.insert(p.first);
+    }
+}
+
+// ── Special-form handler implementations ─────────────────────────────────────
+
+static void analyze_lambda(const Value& sexpr, const StaticEnv& senv) {
+    if (proper_list_length(sexpr) < 3)
+        throw SchemeAnalysisError(
+            "lambda requires a parameter list and at least one body expression",
+            src_of(sexpr));
+    analyze_lambda_shape(car(cdr(sexpr)), cdr(cdr(sexpr)), "lambda", src_of(sexpr), senv);
+}
+
+static void analyze_case_lambda(const Value& sexpr, const StaticEnv& senv) {
+    if (proper_list_length(sexpr) < 2)
+        throw SchemeAnalysisError("case-lambda requires at least one clause", src_of(sexpr));
+    Value cur = cdr(sexpr);
+    while (is_cons(cur)) {
+        Value clause = car(cur);
+        if (!is_cons(clause))
+            throw SchemeAnalysisError(
+                "case-lambda clause must be a list, got " + render(clause), src_of(clause));
+        if (proper_list_length(clause) < 2)
+            throw SchemeAnalysisError(
+                "case-lambda clause must have formals and a non-empty body, got " +
+                render(clause), src_of(clause));
+        analyze_lambda_shape(car(clause), cdr(clause), "case-lambda", src_of(clause), senv);
+        cur = cdr(cur);
+    }
+}
+
+static void analyze_define(const Value& sexpr, const StaticEnv& senv) {
+    int n = proper_list_length(sexpr) - 1;
+    if (n != 2)
+        throw SchemeAnalysisError(
+            "define requires a name and a value (got " + std::to_string(n) + " arguments)",
+            src_of(sexpr));
+    Value name_sexpr  = car(cdr(sexpr));
+    Value value_sexpr = car(cdr(cdr(sexpr)));
+    std::string name = require_symbol(name_sexpr, "define");
+    // Pre-bind name's arity so recursive references in lambda body can be checked.
+    auto arity = peek_lambda_arity(value_sexpr);
+    if (arity) {
+        StaticEnv value_env = senv;
+        value_env[name] = arity;
+        analyze(value_sexpr, value_env);
+    } else {
+        analyze(value_sexpr, senv);
+    }
+}
+
+static void analyze_set(const Value& sexpr, const StaticEnv& senv) {
+    int n = proper_list_length(sexpr) - 1;
+    if (n != 2)
+        throw SchemeAnalysisError(
+            "set! requires a name and a value (got " + std::to_string(n) + " arguments)",
+            src_of(sexpr));
+    require_symbol(car(cdr(sexpr)), "set!");
+    analyze(car(cdr(cdr(sexpr))), senv);
+}
+
+static void analyze_if(const Value& sexpr, const StaticEnv& senv) {
+    int n = proper_list_length(sexpr) - 1;
+    if (n != 2 && n != 3)
+        throw SchemeAnalysisError(
+            "if requires 2 or 3 arguments (test, then, optional else), got " + std::to_string(n),
+            src_of(sexpr));
+    analyze(car(cdr(sexpr)), senv);
+    analyze(car(cdr(cdr(sexpr))), senv);
+    if (n == 3)
+        analyze(car(cdr(cdr(cdr(sexpr)))), senv);
+}
+
+static void analyze_begin(const Value& sexpr, const StaticEnv& senv) {
+    if (proper_list_length(sexpr) < 2)
+        throw SchemeAnalysisError(
+            "begin must have at least one body expression", src_of(sexpr));
+    Value cur = cdr(sexpr);
+    while (is_cons(cur)) { analyze(car(cur), senv); cur = cdr(cur); }
+}
+
+static void analyze_named_let(const Value& sexpr, const StaticEnv& senv) {
+    if (proper_list_length(sexpr) < 4)
+        throw SchemeAnalysisError(
+            "named let requires a name, a binding list, and at least one body expression",
+            src_of(sexpr));
+    std::string name  = as_symbol(car(cdr(sexpr)));
+    auto pairs = parse_let_bindings(car(cdr(cdr(sexpr))), "named let");
+    std::vector<std::string> params;
+    for (const auto& p : pairs) params.push_back(p.first);
+    std::unordered_set<std::string> seen;
+    for (const auto& p : params) {
+        if (seen.count(p))
+            throw SchemeAnalysisError(
+                "duplicate parameter name in named let: " + p,
+                src_of(car(cdr(cdr(sexpr)))));
+        seen.insert(p);
+    }
+    // Inits evaluate in enclosing env.
+    for (const auto& p : pairs) analyze(p.second, senv);
+    // Body sees name with fixed arity and params shadowed.
+    StaticEnv name_env = senv;
+    name_env[name] = std::make_pair((int)params.size(), (int)params.size());
+    StaticEnv body_env = shadow_env(name_env, params);
+    Value body_cons = cdr(cdr(cdr(sexpr)));
+    if (proper_list_length(body_cons) <= 0)
+        throw SchemeAnalysisError("named let body cannot be empty", src_of(sexpr));
+    Value cur = body_cons;
+    while (is_cons(cur)) { analyze(car(cur), body_env); cur = cdr(cur); }
+}
+
+static void analyze_let(const Value& sexpr, const StaticEnv& senv) {
+    if (proper_list_length(sexpr) < 3)
+        throw SchemeAnalysisError(
+            "let requires a binding list and at least one body expression", src_of(sexpr));
+    if (is_symbol(car(cdr(sexpr)))) { analyze_named_let(sexpr, senv); return; }
+    auto pairs = parse_let_bindings(car(cdr(sexpr)), "let");
+    check_unique_let_names(pairs, "let", sexpr);
+    for (const auto& p : pairs) analyze(p.second, senv);
+    std::vector<std::string> names;
+    for (const auto& p : pairs) names.push_back(p.first);
+    StaticEnv body_env = shadow_env(senv, names);
+    Value body_cons = cdr(cdr(sexpr));
+    if (proper_list_length(body_cons) <= 0)
+        throw SchemeAnalysisError("let body cannot be empty", src_of(sexpr));
+    Value cur = body_cons;
+    while (is_cons(cur)) { analyze(car(cur), body_env); cur = cdr(cur); }
+}
+
+static void analyze_let_star(const Value& sexpr, const StaticEnv& senv) {
+    if (proper_list_length(sexpr) < 3)
+        throw SchemeAnalysisError(
+            "let* requires a binding list and at least one body expression", src_of(sexpr));
+    auto pairs = parse_let_bindings(car(cdr(sexpr)), "let*");
+    StaticEnv current_env = senv;
+    for (const auto& p : pairs) {
+        analyze(p.second, current_env);
+        current_env = shadow_env(current_env, {p.first});
+    }
+    Value body_cons = cdr(cdr(sexpr));
+    if (proper_list_length(body_cons) <= 0)
+        throw SchemeAnalysisError("let* body cannot be empty", src_of(sexpr));
+    Value cur = body_cons;
+    while (is_cons(cur)) { analyze(car(cur), current_env); cur = cdr(cur); }
+}
+
+static void analyze_letrec_family(const Value& sexpr, const StaticEnv& senv,
+                                   const std::string& name) {
+    if (proper_list_length(sexpr) < 3)
+        throw SchemeAnalysisError(
+            name + " requires a binding list and at least one body expression", src_of(sexpr));
+    auto pairs = parse_let_bindings(car(cdr(sexpr)), name);
+    check_unique_let_names(pairs, name, sexpr);
+    std::vector<std::string> names;
+    for (const auto& p : pairs) names.push_back(p.first);
+    StaticEnv inner_env = shadow_env(senv, names);
+    for (const auto& p : pairs) analyze(p.second, inner_env);
+    Value body_cons = cdr(cdr(sexpr));
+    if (proper_list_length(body_cons) <= 0)
+        throw SchemeAnalysisError(name + " body cannot be empty", src_of(sexpr));
+    Value cur = body_cons;
+    while (is_cons(cur)) { analyze(car(cur), inner_env); cur = cdr(cur); }
+}
+
+static void analyze_letrec(const Value& sexpr, const StaticEnv& senv) {
+    analyze_letrec_family(sexpr, senv, "letrec");
+}
+static void analyze_letrec_star(const Value& sexpr, const StaticEnv& senv) {
+    analyze_letrec_family(sexpr, senv, "letrec*");
+}
+
+static void analyze_cond(const Value& sexpr, const StaticEnv& senv) {
+    if (proper_list_length(sexpr) < 2)
+        throw SchemeAnalysisError("cond must have at least one clause", src_of(sexpr));
+    auto clauses = cons_to_list(cdr(sexpr));
+    int total = (int)clauses.size();
+    for (int i = 0; i < total; i++) {
+        Value clause = clauses[i];
+        int clen = proper_list_length(clause);
+        if (clen <= 0)
+            throw SchemeAnalysisError(
+                "cond clause must be a non-empty list, got " + render(clause), src_of(clause));
+        Value head = car(clause);
+        bool head_is_else = is_symbol(head) && as_symbol(head) == "else" &&
+                            senv.count("else") == 0;
+        bool head_is_arrow = clen == 3 && is_symbol(car(cdr(clause))) &&
+                             as_symbol(car(cdr(clause))) == "=>" &&
+                             senv.count("=>") == 0;
+        if (head_is_else) {
+            if (i != total - 1)
+                throw SchemeAnalysisError(
+                    "cond 'else' clause must be the last clause", src_of(clause));
+            Value body_cons = cdr(clause);
+            if (proper_list_length(body_cons) <= 0)
+                throw SchemeAnalysisError(
+                    "cond 'else' clause must have at least one expression", src_of(clause));
+            Value cur = body_cons;
+            while (is_cons(cur)) { analyze(car(cur), senv); cur = cdr(cur); }
+        } else if (head_is_arrow) {
+            analyze(car(clause), senv);          // test
+            analyze(car(cdr(cdr(clause))), senv); // proc
+        } else if (clen == 1) {
+            analyze(car(clause), senv);
+        } else {
+            analyze(car(clause), senv);
+            Value cur = cdr(clause);
+            while (is_cons(cur)) { analyze(car(cur), senv); cur = cdr(cur); }
+        }
+    }
+}
+
+static void analyze_case(const Value& sexpr, const StaticEnv& senv) {
+    if (proper_list_length(sexpr) < 3)
+        throw SchemeAnalysisError("case requires a key and at least one clause", src_of(sexpr));
+    analyze(car(cdr(sexpr)), senv);
+    auto clauses = cons_to_list(cdr(cdr(sexpr)));
+    int total = (int)clauses.size();
+    for (int i = 0; i < total; i++) {
+        Value clause = clauses[i];
+        int clen = proper_list_length(clause);
+        if (clen < 2)
+            throw SchemeAnalysisError(
+                "case clause must be (<datum-list> <expr>...) or (else <expr>...), got " +
+                render(clause), src_of(clause));
+        Value head = car(clause);
+        if (is_symbol(head) && as_symbol(head) == "else" && senv.count("else") == 0) {
+            if (i != total - 1)
+                throw SchemeAnalysisError(
+                    "case 'else' clause must be the last clause", src_of(clause));
+            Value body_cons = cdr(clause);
+            if (is_cons(body_cons) && is_symbol(car(body_cons)) &&
+                as_symbol(car(body_cons)) == "=>" && senv.count("=>") == 0) {
+                if (!is_cons(cdr(body_cons)) || !is_nil(cdr(cdr(body_cons))))
+                    throw SchemeAnalysisError(
+                        "case 'else =>' clause must have exactly one expression",
+                        src_of(clause));
+                analyze(car(cdr(body_cons)), senv);
+            } else {
+                Value cur = body_cons;
+                while (is_cons(cur)) { analyze(car(cur), senv); cur = cdr(cur); }
             }
-         else
-            {
-            Value cur = body;
-            while (is_cons(cur)) { analyze_impl(as_cons(cur)->car, env); cur = as_cons(cur)->cdr; }
+        } else {
+            if (!is_cons(head) && !is_nil(head))
+                throw SchemeAnalysisError(
+                    "case clause head must be a list of datums, got " + render(head), src_of(head));
+            if (proper_list_length(head) < 0)
+                throw SchemeAnalysisError("case datum list must be a proper list", src_of(head));
+            Value body_cons = cdr(clause);
+            if (is_cons(body_cons) && is_symbol(car(body_cons)) &&
+                as_symbol(car(body_cons)) == "=>") {
+                if (!is_cons(cdr(body_cons)) || !is_nil(cdr(cdr(body_cons))))
+                    throw SchemeAnalysisError(
+                        "case '=>' clause must have exactly one expression", src_of(clause));
+                analyze(car(cdr(body_cons)), senv);
+            } else {
+                Value cur = body_cons;
+                while (is_cons(cur)) { analyze(car(cur), senv); cur = cdr(cur); }
             }
-         }
-      }
-   }
+        }
+    }
+}
 
-static void h_case_lambda(Value sx, const StaticEnv& env)
-   {
-   if (list_length(sx) < 2)
-      throw SchemeAnalysisError("case-lambda requires at least one clause");
-   Value cur = as_cons(sx)->cdr;
-   while (is_cons(cur))
-      {
-      Value clause = as_cons(cur)->car;
-      if (!is_cons(clause))
-         throw SchemeAnalysisError(
-            "case-lambda clause must be a list, got " + render(clause));
-      if (list_length(clause) < 2)
-         throw SchemeAnalysisError(
-            "case-lambda clause must have formals and a non-empty body, got "
-            + render(clause));
-      check_lambda_shape(as_cons(clause)->car, as_cons(clause)->cdr, "case-lambda", env);
-      cur = as_cons(cur)->cdr;
-      }
-   }
+static void analyze_do(const Value& sexpr, const StaticEnv& /*senv*/) {
+    if (proper_list_length(sexpr) < 3)
+        throw SchemeAnalysisError("do requires a binding list and a test clause", src_of(sexpr));
+    Value bindings_sexpr = car(cdr(sexpr));
+    Value test_sexpr     = car(cdr(cdr(sexpr)));
+    if (proper_list_length(bindings_sexpr) < 0)
+        throw SchemeAnalysisError(
+            "do bindings must be a proper list, got " + render(bindings_sexpr),
+            src_of(bindings_sexpr));
+    std::unordered_set<std::string> seen;
+    Value cur = bindings_sexpr;
+    while (is_cons(cur)) {
+        Value b    = car(cur);
+        int   blen = proper_list_length(b);
+        if (blen != 2 && blen != 3)
+            throw SchemeAnalysisError(
+                "do binding must be (var init) or (var init step), got " + render(b), src_of(b));
+        std::string name = require_symbol(car(b), "do binding");
+        if (seen.count(name))
+            throw SchemeAnalysisError(
+                "duplicate variable name in do bindings: " + name, src_of(car(b)));
+        seen.insert(name);
+        cur = cdr(cur);
+    }
+    if (!is_cons(test_sexpr))
+        throw SchemeAnalysisError(
+            "do test clause must be a list starting with a test expression", src_of(test_sexpr));
+    if (proper_list_length(test_sexpr) < 1)
+        throw SchemeAnalysisError("do test clause must be a proper list", src_of(test_sexpr));
+}
 
-static void h_and(Value sx, const StaticEnv& env)
-   {
-   Value cur = as_cons(sx)->cdr;
-   while (is_cons(cur)) { analyze_impl(as_cons(cur)->car, env); cur = as_cons(cur)->cdr; }
-   }
+static void analyze_include(const Value& sexpr, const StaticEnv& /*senv*/) {
+    int n = proper_list_length(sexpr) - 1;
+    if (n < 1)
+        throw SchemeAnalysisError(
+            "include requires at least one filename string", src_of(sexpr));
+    Value cur = cdr(sexpr);
+    while (is_cons(cur)) {
+        Value arg = car(cur);
+        if (!is_string(arg))
+            throw SchemeAnalysisError(
+                "include arguments must be string literals, got " + render(arg), src_of(arg));
+        cur = cdr(cur);
+    }
+}
 
-static void h_or(Value sx, const StaticEnv& env)
-   {
-   Value cur = as_cons(sx)->cdr;
-   while (is_cons(cur)) { analyze_impl(as_cons(cur)->car, env); cur = as_cons(cur)->cdr; }
-   }
+static void analyze_cond_expand(const Value& sexpr, const StaticEnv& /*senv*/) {
+    if (proper_list_length(sexpr) < 2)
+        throw SchemeAnalysisError("cond-expand requires at least one clause", src_of(sexpr));
+    auto clauses = cons_to_list(cdr(sexpr));
+    for (const Value& clause : clauses)
+        if (proper_list_length(clause) < 1)
+            throw SchemeAnalysisError(
+                "cond-expand clause must be a non-empty list", src_of(clause));
+    throw SchemeAnalysisError("cond-expand: no clause matched", src_of(sexpr));
+}
 
-static void h_when_unless(Value sx, const StaticEnv& env, const std::string& form)
-   {
-   if (list_length(sx) < 3)
-      throw SchemeAnalysisError(
-         form + " requires a test and at least one body expression");
-   Value r1 = as_cons(sx)->cdr;
-   analyze_impl(as_cons(r1)->car, env);
-   Value cur = as_cons(r1)->cdr;
-   while (is_cons(cur)) { analyze_impl(as_cons(cur)->car, env); cur = as_cons(cur)->cdr; }
-   }
+static void analyze_and(const Value& sexpr, const StaticEnv& senv) {
+    Value cur = cdr(sexpr);
+    while (is_cons(cur)) { analyze(car(cur), senv); cur = cdr(cur); }
+}
 
-static void h_when(Value sx, const StaticEnv& env)   { h_when_unless(sx, env, "when");   }
-static void h_unless(Value sx, const StaticEnv& env) { h_when_unless(sx, env, "unless"); }
+static void analyze_or(const Value& sexpr, const StaticEnv& senv) {
+    Value cur = cdr(sexpr);
+    while (is_cons(cur)) { analyze(car(cur), senv); cur = cdr(cur); }
+}
 
-static void h_quote(Value sx, const StaticEnv&)
-   {
-   int n = list_length(sx) - 1;
-   if (n != 1)
-      throw SchemeAnalysisError(
-         "quote requires exactly 1 argument, got " + std::to_string(n));
-   }
+static void analyze_when_unless(const Value& sexpr, const StaticEnv& senv,
+                                  const std::string& name) {
+    if (proper_list_length(sexpr) < 3)
+        throw SchemeAnalysisError(
+            name + " requires a test and at least one body expression", src_of(sexpr));
+    analyze(car(cdr(sexpr)), senv);
+    Value cur = cdr(cdr(sexpr));
+    while (is_cons(cur)) { analyze(car(cur), senv); cur = cdr(cur); }
+}
 
-static void h_delay(Value sx, const StaticEnv& env)
-   {
-   std::string form = symbol_name(as_symbol_id(as_cons(sx)->car));
-   int n = list_length(sx) - 1;
-   if (n != 1)
-      throw SchemeAnalysisError(
-         form + " requires exactly 1 argument, got " + std::to_string(n));
-   analyze_impl(as_cons(as_cons(sx)->cdr)->car, env);
-   }
+static void analyze_when(const Value& sexpr, const StaticEnv& senv) {
+    analyze_when_unless(sexpr, senv, "when");
+}
+static void analyze_unless(const Value& sexpr, const StaticEnv& senv) {
+    analyze_when_unless(sexpr, senv, "unless");
+}
 
-static void h_include(Value sx, const StaticEnv&)
-   {
-   int n = list_length(sx) - 1;
-   if (n < 1)
-      throw SchemeAnalysisError("include requires at least one filename string");
-   Value cur = as_cons(sx)->cdr;
-   while (is_cons(cur))
-      {
-      Value arg = as_cons(cur)->car;
-      if (!is_string(arg))
-         throw SchemeAnalysisError(
-            "include arguments must be string literals, got " + render(arg));
-      cur = as_cons(cur)->cdr;
-      }
-   }
+static void analyze_quote(const Value& sexpr, const StaticEnv& /*senv*/) {
+    int n = proper_list_length(sexpr) - 1;
+    if (n != 1)
+        throw SchemeAnalysisError(
+            "quote requires exactly 1 argument, got " + std::to_string(n), src_of(sexpr));
+}
 
-static void h_do(Value sx, const StaticEnv&)
-   {
-   if (list_length(sx) < 3)
-      throw SchemeAnalysisError("do requires a binding list and a test clause");
-   Value bindings = as_cons(as_cons(sx)->cdr)->car;
-   Value test_sx  = as_cons(as_cons(as_cons(sx)->cdr)->cdr)->car;
-   if (list_length(bindings) < 0)
-      throw SchemeAnalysisError(
-         "do bindings must be a proper list, got " + render(bindings));
-   std::unordered_set<std::string> seen;
-   Value cur = bindings;
-   while (is_cons(cur))
-      {
-      Value b    = as_cons(cur)->car;
-      int   blen = list_length(b);
-      if (blen != 2 && blen != 3)
-         throw SchemeAnalysisError(
-            "do binding must be (var init) or (var init step), got " + render(b));
-      std::string nm = require_sym(as_cons(b)->car, "do binding");
-      if (!seen.insert(nm).second)
-         throw SchemeAnalysisError("duplicate variable name in do bindings: " + nm);
-      cur = as_cons(cur)->cdr;
-      }
-   if (!is_cons(test_sx))
-      throw SchemeAnalysisError(
-         "do test clause must be a list starting with a test expression");
-   if (list_length(test_sx) < 1)
-      throw SchemeAnalysisError("do test clause must be a proper list");
-   }
+static void analyze_delay(const Value& sexpr, const StaticEnv& senv) {
+    std::string name = as_symbol(car(sexpr));
+    int n = proper_list_length(sexpr) - 1;
+    if (n != 1)
+        throw SchemeAnalysisError(
+            name + " requires exactly 1 argument, got " + std::to_string(n), src_of(sexpr));
+    analyze(car(cdr(sexpr)), senv);
+}
 
-static void h_unquote_outside(Value sx, const StaticEnv&)
-   {
-   std::string head = symbol_name(as_symbol_id(as_cons(sx)->car));
-   throw SchemeAnalysisError(head + " is only valid inside a quasiquote template");
-   }
+static void analyze_library_form(const Value& /*sexpr*/, const StaticEnv& /*senv*/) {}
 
-static void h_cond_expand(Value sx, const StaticEnv&)
-   {
-   if (list_length(sx) < 2)
-      throw SchemeAnalysisError("cond-expand requires at least one clause");
-   for (const auto& cl : list_to_vec(as_cons(sx)->cdr))
-      if (list_length(cl) < 1)
-         throw SchemeAnalysisError("cond-expand clause must be a non-empty list");
-   throw SchemeAnalysisError("cond-expand: no clause matched");
-   }
+static void analyze_unquote_outside(const Value& sexpr, const StaticEnv& /*senv*/) {
+    std::string head_name = as_symbol(car(sexpr));
+    throw SchemeAnalysisError(
+        head_name + " is only valid inside a quasiquote template", src_of(sexpr));
+}
 
-static void h_passthrough(Value, const StaticEnv&) {}
+// ── Public analyze ────────────────────────────────────────────────────────────
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Dispatch table
+Value analyze(const Value& sexpr, const StaticEnv& senv) {
+    std::call_once(s_init_flag, init_special_forms);
 
-using Handler = void(*)(Value, const StaticEnv&);
+    if (is_nil(sexpr))
+        throw SchemeAnalysisError(
+            "empty list () is not a valid expression; use (quote ()) for the empty list",
+            src_of(sexpr));
+    if (!is_cons(sexpr)) return sexpr;
 
-static const std::unordered_map<std::string, Handler> SPECIAL_FORMS = {
-   {"lambda",                       h_lambda},
-   {"case-lambda",                  h_case_lambda},
-   {"define",                       h_define},
-   {"set!",                         h_set},
-   {"if",                           h_if},
-   {"begin",                        h_begin},
-   {"let",                          h_let},
-   {"let*",                         h_let_star},
-   {"letrec",                       h_letrec},
-   {"letrec*",                      h_letrec_star},
-   {"cond",                         h_cond},
-   {"case",                         h_case},
-   {"do",                           h_do},
-   {"include",                      h_include},
-   {"include-ci",                   h_include},
-   {"cond-expand",                  h_cond_expand},
-   {"and",                          h_and},
-   {"or",                           h_or},
-   {"when",                         h_when},
-   {"unless",                       h_unless},
-   {"quote",                        h_quote},
-   {"unquote",                      h_unquote_outside},
-   {"unquote-splicing",             h_unquote_outside},
-   {"delay",                        h_delay},
-   {"delay-force",                  h_delay},
-   {"define-library",               h_passthrough},
-   {"import",                       h_passthrough},
-   {"export",                       h_passthrough},
-   {"include-library-declarations", h_passthrough},
-   {"define-syntax",                h_passthrough},
-   {"let-syntax",                   h_passthrough},
-   {"letrec-syntax",                h_passthrough},
-   {"syntax-rules",                 h_passthrough},
-};
+    Value head = car(sexpr);
+    if (is_symbol(head)) {
+        auto it = s_special_forms.find(as_symbol(head));
+        if (it != s_special_forms.end()) {
+            it->second(sexpr, senv);
+            return sexpr;
+        }
+    }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Main dispatcher
+    // Application
+    if (proper_list_length(sexpr) < 0)
+        throw SchemeAnalysisError("application must be a proper list", src_of(sexpr));
+    Value fn_sexpr = car(sexpr);
+    std::vector<Value> args;
+    Value cur = cdr(sexpr);
+    while (is_cons(cur)) { args.push_back(car(cur)); cur = cdr(cur); }
+    analyze(fn_sexpr, senv);
+    for (const Value& arg : args) analyze(arg, senv);
+    check_app_arity(fn_sexpr, args, senv, sexpr);
+    return sexpr;
+}
 
-static void analyze_impl(Value sexpr, const StaticEnv& env)
-   {
-   if (is_nil(sexpr))
-      throw SchemeAnalysisError(
-         "empty list () is not a valid expression; use (quote ()) for the empty list");
-   if (!is_cons(sexpr)) return;   // atom / symbol leaf
-
-   Value head = as_cons(sexpr)->car;
-   if (is_symbol(head))
-      {
-      const std::string& hname = symbol_name(as_symbol_id(head));
-      auto it = SPECIAL_FORMS.find(hname);
-      if (it != SPECIAL_FORMS.end()) { it->second(sexpr, env); return; }
-      }
-
-   // Application
-   if (list_length(sexpr) < 0)
-      throw SchemeAnalysisError("application must be a proper list");
-   Value fn = as_cons(sexpr)->car;
-   std::vector<Value> args;
-   Value cur = as_cons(sexpr)->cdr;
-   while (is_cons(cur)) { args.push_back(as_cons(cur)->car); cur = as_cons(cur)->cdr; }
-   analyze_impl(fn, env);
-   for (const auto& a : args) analyze_impl(a, env);
-   check_call_arity(fn, args, env);
-   }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Public API
-
-Value analyze(Value val, StaticEnv* static_env)
-   {
-   if (static_env)
-      {
-      analyze_impl(val, *static_env);
-      }
-   else
-      {
-      StaticEnv fresh;
-      seed_static_env(fresh);
-      analyze_impl(val, fresh);
-      }
-   return val;
-   }
+Value analyze(const Value& sexpr) {
+    return analyze(sexpr, primitive_arities());
+}

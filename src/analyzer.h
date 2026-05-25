@@ -1,26 +1,50 @@
 #pragma once
-#include "value.h"
-#include "scheme_export.h"
-#include <unordered_map>
+// Analyzer.h -- semantic validator.
+// Direct port of pyscheme/Analyzer.py.
+#include "AST.h"
+#include "Environment.h"
+#include <optional>
 #include <string>
+#include <unordered_map>
 #include <utility>
 
-// Static arity environment: name -> (min, max).
-// max == -1 means variadic (at least min args).
-// Absent key means arity unknown -> no static check.
-using StaticEnv = std::unordered_map<std::string, std::pair<int,int>>;
+// Static arity environment: name -> optional(lo, hi).
+// hi == -1 means variadic (no upper bound).  nullopt means arity unknown
+// (suppresses static arity checking for that name).
+using StaticEnv = std::unordered_map<std::string, std::optional<std::pair<int,int>>>;
 
-// Validate a fully-expanded sexpr.  Returns val unchanged on success.
-// Raises SchemeAnalysisError / SchemeArityError on failure.
-// If static_env is nullptr a fresh env seeded with registered primitives is used.
-SCHEME_API Value analyze(Value val, StaticEnv* static_env = nullptr);
+// ── SchemeAnalysisError ───────────────────────────────────────────────────────
+// Port of Analyzer.py SchemeAnalysisError.
 
-// Mutate static_env from a top-level (define name value) form.
-SCHEME_API void extend_static_env_with_define(StaticEnv& static_env, Value sexpr);
+#ifdef _MSC_VER
+#  pragma warning(push)
+#  pragma warning(disable: 4275)
+#endif
 
-// Register a primitive arity so the default static_env includes it.
-// Called from the primitives module once it exists.
-SCHEME_API void register_primitive_arity(const std::string& name, int min_args, int max_args);
+class CEKSCHEME_API SchemeAnalysisError : public PositionedSchemeError {
+public:
+    using PositionedSchemeError::PositionedSchemeError;
+};
 
-// Copy all registered primitive arities into static_env.
-SCHEME_API void seed_static_env(StaticEnv& static_env);
+#ifdef _MSC_VER
+#  pragma warning(pop)
+#endif
+
+// ── Public API ────────────────────────────────────────────────────────────────
+// Port of Analyzer.py analyze() and extend_static_env_with_define().
+
+// Validate sexpr in place.  Returns sexpr unchanged on success;
+// throws SchemeAnalysisError or SchemeArityError on failure.
+// No-senv overload seeds from the registered primitive arities.
+CEKSCHEME_API Value analyze(const Value& sexpr);
+CEKSCHEME_API Value analyze(const Value& sexpr, const StaticEnv& senv);
+
+// Update senv from a top-level (define name value) form.
+CEKSCHEME_API void extend_static_env_with_define(StaticEnv& senv, const Value& sexpr);
+
+// Register a primitive arity (called from Phase 11 primitives).
+// hi == -1 means variadic.
+CEKSCHEME_API void register_primitive_arity(const std::string& name, int lo, int hi);
+
+// Access the currently registered primitive arities.
+CEKSCHEME_API const StaticEnv& primitive_arities();

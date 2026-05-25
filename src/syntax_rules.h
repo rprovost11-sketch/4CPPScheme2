@@ -1,18 +1,22 @@
 #pragma once
-#include "value.h"
-#include "environment.h"
-#include "scheme_export.h"
-#include <string_view>
+// syntax_rules.h -- R7RS syntax-rules pattern matcher and template instantiator.
+// Direct port of pyscheme/syntax_rules.py.
+#include "AST.h"
+#include "Environment.h"
+#include <string>
 
-// Parse a (syntax-rules ...) body into a SchemeSyntaxTransformer Value.
-// tail is everything after the "syntax-rules" keyword (ellipsis? literals rules...).
-// def_env is the environment at the define-syntax call site (may be nullptr).
-// name is the macro name for error messages.
-// Declared extern "C" linkage name so expander.cpp can find it without header cycle.
-SCHEME_API Value parse_syntax_rules_val(Value tail,
-                                         Environment* def_env,
-                                         std::string_view name);
+// Port of syntax_rules.py hygiene_gensym.
+// Returns base unchanged if already a gensym (starts with \x01h. prefix).
+CEKSCHEME_API std::string hygiene_gensym(const std::string& base);
 
-// Apply a SyntaxTransformer value to a form. Raises SchemeSyntaxError if no
-// pattern matches.
-SCHEME_API Value apply_syntax_transformer(Value transformer, Value form);
+// Port of syntax_rules.py parse_syntax_rules.
+// tail    - cdr of (syntax-rules ...) form
+// def_env - definition-time environment (free ids resolved here)
+// name    - transformer name for error messages
+CEKSCHEME_API Value parse_syntax_rules(Value tail, Environment* def_env,
+                                        const std::string& name);
+
+// Port of syntax_rules.py apply_syntax_transformer.
+// Tries each rule in order; returns expanded form.
+// Throws SchemeSyntaxError if no pattern matches.
+CEKSCHEME_API Value apply_syntax_transformer(const Value& t, const Value& form);

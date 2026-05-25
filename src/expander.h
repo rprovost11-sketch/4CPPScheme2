@@ -1,23 +1,25 @@
 #pragma once
-#include "value.h"
-#include "environment.h"
-#include "scheme_export.h"
+// Expander.h -- S-expression expander: rewrites sugar and user macros.
+// Direct port of pyscheme/Expander.py.
+#include "AST.h"
+#include "Environment.h"
 #include <string>
-#include <string_view>
-#include <unordered_map>
-#include <vector>
-#include <optional>
 
-// hygiene_gensym: generate a fresh symbol name with the \x01h. prefix.
-// If base already has the prefix, return it unchanged.
-SCHEME_API std::string hygiene_gensym(std::string_view base);
-SCHEME_API void        hygiene_gensym_reset();  // for tests
+// Install/retrieve the runtime environment for macro lookup and define-syntax.
+CEKSCHEME_API void         set_runtime_env(Environment* env);
+CEKSCHEME_API Environment* get_runtime_env();
 
-// Expand a single s-expression: desugar and alpha-rename.
-// env_ref must be the current runtime environment pointer; the expander
-// temporarily swaps it when processing let-syntax / letrec-syntax / define-syntax.
-SCHEME_API Value expand(Value sexpr, Environment*& env_ref);
+// Expand sugar and user macros in one S-expression.
+CEKSCHEME_API Value expand(const Value& sexpr);
 
-// apply_syntax_transformer: apply a SyntaxTransformer value to a form.
-// Defined in syntax_rules.cpp; declared here for the expander to call.
-SCHEME_API Value apply_syntax_transformer(Value transformer, Value form);
+// Set/get the fallback directory used to resolve relative include paths from REPL input.
+CEKSCHEME_API void        set_include_fallback_dir(const std::string& dir);
+CEKSCHEME_API std::string get_include_fallback_dir();
+
+// Resolve a cond-expand feature requirement against the platform feature set.
+// Port of Expander.py _feature_req_matches.
+CEKSCHEME_API bool feature_req_matches(const Value& req);
+
+// Return the base directory to use for relative include paths.
+// Port of Expander.py _include_base_dir.
+CEKSCHEME_API std::string include_base_dir(SourceInfo* src);

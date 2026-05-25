@@ -1,64 +1,125 @@
 #pragma once
-#include "value.h"
-#include "scheme_export.h"
-#include <unordered_map>
+// Environment.h -- lexical environment and Scheme runtime-error hierarchy.
+// Direct port of pyscheme/Environment.py.
+#include "gc.h"
 #include <optional>
-#include <string_view>
+#include <stdexcept>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Scheme runtime error hierarchy ───────────────────────────────────────────
+// Port of Environment.py _PositionedSchemeError and subclasses.
+// C++ try/catch corresponds to Python's exception hierarchy.
+// Every subclass carries an optional SourceInfo* for diagnostics.
 
-// Strip hygiene gensym prefix \x01h.BASE.N from a symbol name for error messages.
-SCHEME_API std::string display_name_of(uint32_t sid);
+#ifdef _MSC_VER
+#  pragma warning(push)
+#  pragma warning(disable: 4275)   // non-DLL-interface base (std::exception)
+#endif
 
-// Build "f: N argument(s) provided; M expected." style text.
-// hi < 0 means variadic (at least lo args).
-SCHEME_API std::string arity_mismatch_msg(std::string_view name, int lo, int hi, int n_provided);
+class CEKSCHEME_API PositionedSchemeError : public std::exception {
+public:
+    std::string  msg;
+    SourceInfo*  src;
+    void*        call_stack = nullptr;   // set by Evaluator (Phase 10)
+
+    explicit PositionedSchemeError(std::string message, SourceInfo* source = nullptr);
+    ~PositionedSchemeError() override;
+    PositionedSchemeError(const PositionedSchemeError& o);
+    PositionedSchemeError& operator=(const PositionedSchemeError& o);
+    PositionedSchemeError(PositionedSchemeError&& o) noexcept;
+    PositionedSchemeError& operator=(PositionedSchemeError&& o) noexcept;
+    const char* what() const noexcept override;
+    std::string str() const;   // format_with_caret(msg, src) -- user-facing display
+};
+
+class CEKSCHEME_API SchemeArityError : public PositionedSchemeError {
+public:
+    using PositionedSchemeError::PositionedSchemeError;
+};
+
+class CEKSCHEME_API SchemeUnboundError : public PositionedSchemeError {
+public:
+    using PositionedSchemeError::PositionedSchemeError;
+};
+
+class CEKSCHEME_API SchemeTypeError : public PositionedSchemeError {
+public:
+    using PositionedSchemeError::PositionedSchemeError;
+};
+
+class CEKSCHEME_API SchemeRaised : public PositionedSchemeError {
+public:
+    Value value;
+    bool  continuable;
+
+    SchemeRaised(Value val, SourceInfo* source = nullptr, bool cont = false);
+
+protected:
+    // For SchemeFileError / SchemeUserError: they build msg themselves and
+    // call PositionedSchemeError directly (port of Python's direct
+    // _PositionedSchemeError.__init__ bypass in those subclass __init__s).
+    SchemeRaised(std::string prebuilt_msg, Value val, SourceInfo* source, bool cont);
+};
+
+class CEKSCHEME_API SchemeRuntimeError : public PositionedSchemeError {
+public:
+    using PositionedSchemeError::PositionedSchemeError;
+};
+
+class CEKSCHEME_API SchemeFileError : public SchemeRaised {
+public:
+    explicit SchemeFileError(const std::string& message, SourceInfo* source = nullptr);
+};
+
+class CEKSCHEME_API SchemeUserError : public SchemeRaised {
+public:
+    SchemeUserError(const std::string& message,
+                    std::vector<Value> irritants,
+                    SourceInfo* source = nullptr);
+};
+
+#ifdef _MSC_VER
+#  pragma warning(pop)
+#endif
+
+// ── arity_mismatch_msg ────────────────────────────────────────────────────────
+// Port of Environment.py arity_mismatch_msg.
+// hi == -1  → at least lo expected (Python None)
+// hi == lo  → exactly lo expected
+// hi == lo+1 → lo or hi expected
+// else       → lo to hi expected
+CEKSCHEME_API std::string arity_mismatch_msg(const std::string& name,
+                                              int lo, int hi, int n_provided);
 
 // ── Environment ───────────────────────────────────────────────────────────────
-// Lexical environment frame.  GC-managed so closures can hold Environment*
-// across collections.  Bindings map symbol IDs (uint32_t) to Values.
-//
-// parent chain  — lookup and set! walk up through parent until root (nullptr).
-// global cache  — every frame caches a pointer to the chain root.
-// freeze        — marks the frame immutable; bind/set on a frozen frame raises
-//                 SchemeTypeError.
+// Port of Environment.py Environment class.
+// GC-managed heap object; GcHeader must remain the first field.
 
-struct Environment
-   {
-   GcHeader     header{GcType::Environment};
-   Environment* parent = nullptr;
-   Environment* global = nullptr;   // cached root of the parent chain
-   bool         is_frozen = false;
-   std::unordered_map<uint32_t, Value> bindings_;
+struct CEKSCHEME_API Environment {
+    GcHeader                            header{GcType::Environment};
+    std::unordered_map<uint32_t, Value> _bindings;
+    Environment*                        _parent;
+    Environment*                        _global_env;
+    bool                                _is_immutable;
 
-   explicit Environment(Environment* parent_env = nullptr);
-   ~Environment() = default;
+    explicit Environment(Environment* parent = nullptr,
+                         std::unordered_map<std::string, Value> initial_bindings = {});
 
-   Environment(const Environment&)            = delete;
-   Environment& operator=(const Environment&) = delete;
+    Value                bind(const std::string& key, Value value);
+    Value                bind_id(uint32_t sid, Value value);
+    void                 freeze();
+    Environment*         getGlobalEnv() const;
 
-   // Look up sid walking the parent chain. Raises SchemeUnboundError if not found.
-   SCHEME_API Value lookup_id(uint32_t sid) const;
+    Value                lookup(const std::string& key) const;
+    Value                lookup_id(uint32_t sid) const;
+    std::optional<Value> lookup_optional(const std::string& key) const;
+    std::optional<Value> lookup_optional_id(uint32_t sid) const;
 
-   // Look up sid walking the parent chain. Returns empty optional if not found.
-   SCHEME_API std::optional<Value> lookup_optional_id(uint32_t sid) const;
+    Value                set(const std::string& key, Value value);
+    Value                set_id(uint32_t sid, Value value);
 
-   // Bind (or rebind) sid in THIS frame. Raises SchemeTypeError if frozen.
-   SCHEME_API void bind_id(uint32_t sid, Value val);
-
-   // Update the nearest binding of sid in the chain.
-   // Raises SchemeUnboundError if not found; SchemeTypeError if owning frame is frozen.
-   SCHEME_API void set_id(uint32_t sid, Value val);
-
-   // Mark this frame immutable. Idempotent.
-   SCHEME_API void freeze();
-
-   // Return the chain root (global environment).
-   Environment* get_global() const { return global; }
-
-   // String-keyed wrappers (intern on each call; use _id variants on hot paths).
-   SCHEME_API Value                lookup(std::string_view name) const;
-   SCHEME_API std::optional<Value> lookup_optional(std::string_view name) const;
-   SCHEME_API void                 bind(std::string_view name, Value val);
-   SCHEME_API void                 set(std::string_view name, Value val);
-   };
+    Environment(const Environment&)            = delete;
+    Environment& operator=(const Environment&) = delete;
+};

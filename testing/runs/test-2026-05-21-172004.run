@@ -1,0 +1,4972 @@
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test000-parser.log
+-----------------------------------------------------------------------
+    1. PASS  1abc
+    2. PASS  #z
+    3. PASS  #\unknown
+    4. PASS  (.)
+    5. PASS  (a .)
+    6. PASS  (a . b c)
+    7. PASS  0
+    8. PASS  1
+    9. PASS  -1
+   10. PASS  -99
+   11. PASS  1000000
+   12. PASS  -2.5
+   13. PASS  0.0
+   14. PASS  1.5
+   15. PASS  1e10
+   16. PASS  +nan.0
+   17. PASS  -nan.0
+   18. PASS  #f
+   19. PASS  #\A
+   20. PASS  #\0
+   21. PASS  #\newline
+   22. PASS  #\tab
+   23. PASS  #\x41
+   24. PASS  #\x61
+   25. PASS  #\x0a
+   26. PASS  #\x20
+   27. PASS  ""
+   28. PASS  "hello world"
+   29. PASS  "with \"quotes\""
+   30. PASS  "line\nnewline"
+   31. PASS  'hello-world
+   32. PASS  'x
+   33. PASS  '+
+   34. PASS  '()
+   35. PASS  '(a b c)
+   36. PASS  '((1 2) (3 4))
+   37. PASS  '(1 . 2)
+   38. PASS  '(1 2 . 3)
+   39. PASS  '#(1 2 3)
+   40. PASS  '#()
+   41. PASS  #x0
+   42. PASS  #xFF
+   43. PASS  #x1234
+   44. PASS  #xDEAD
+   45. PASS  #x-10
+   46. PASS  #X1A
+   47. PASS  #b0
+   48. PASS  #b1
+   49. PASS  #b1111
+   50. PASS  #b-101
+   51. PASS  #b11111111
+   52. PASS  #o0
+   53. PASS  #o7
+   54. PASS  #o777
+   55. PASS  #o-10
+   56. PASS  #d0
+   57. PASS  #d-99
+   58. PASS  #e1.0
+   59. PASS  #e3.7
+   60. PASS  #e-2.9
+   61. PASS  #i0
+   62. PASS  #i5
+   63. PASS  #i-3
+   64. PASS  #i1.5
+   65. PASS  '(1 2 3)
+   66. PASS  `(a b c)
+   67. PASS  (char=? #\x61 #\a)
+   68. PASS  (char=? #\x0a #\newline)
+   69. PASS  (char=? #\x20 #\space)
+   70. PASS  (char->integer #\x7f)
+   71. PASS  (string-ref "\x61;" 0)
+   72. PASS  (string-ref "\x0a;" 0)
+   73. PASS  (string-length "\x41;\x42;\x43;")
+   74. PASS  (string=? "\x41;" "A")
+   75. PASS  (string=? "\x61;\x62;\x63;" "abc")
+   76. PASS  (string=? "ab\
+   77. PASS  (string-length "ab\
+   78. PASS  (string-ref "\|" 0)
+   79. PASS  (symbol? '|has (parens)|)
+   80. PASS  (symbol->string '|hello world|)
+   81. PASS  (symbol->string '||)
+   82. PASS  (symbol? '|123|)
+   83. PASS  (eq? '|foo| '|foo|)
+   84. PASS  (eq? '|foo| 'foo)
+   85. PASS  (symbol? '|has \| bar|)
+   86. PASS  (symbol? '|has "quotes"|)
+   87. PASS  (read (open-input-string "#u8(1 2 3)"))
+   88. PASS  (read (open-input-string "#u8()"))
+   89. PASS  (bytevector? (read (open-input-string "#u8(10 20 30)")))
+   90. PASS  (bytevector-u8-ref (read (open-input-string "#u8(5 10...
+   91. PASS  (+ #xFF 1)
+   92. PASS  (* #x10 #x10)
+   93. PASS  (exact? #e3.7)
+   94. PASS  (exact? #e0.0)
+   95. PASS  (inexact? #i42)
+   96. PASS  (inexact? #i0)
+   97. PASS  (= #b1111 #o17 #d15 #xF)
+   98. PASS  (= #b11111111 #o377 #d255 #xFF)
+   99. PASS  (list #xFF #b1010 #o17)
+  100. PASS  (let ((x 5)) `(a ,x c))
+  101. PASS  (let ((xs '(1 2 3))) `(a ,@xs b))
+  102. PASS  (read (open-input-string "#0=hello"))
+  103. PASS  (read (open-input-string "(#0=hello #0#)"))
+  104. PASS  (let* ((x (read (open-input-string "(#0=(a b) #0#)"))))
+  105. PASS  (let ((x (read (open-input-string "#0=(1 2 . #0#)"))))
+  106. PASS  (let ((x (read (open-input-string "#0=(1 . #0#)"))))
+  107. PASS  (read (open-input-string "(#10=foo #10#)"))
+  108. PASS  (let* ((p (cons 1 2))
+  109. PASS  (let* ((x (list 1 2 3))
+  110. PASS  (let* ((p (cons 'a 'b))
+  111. PASS  (let* ((s "(#0=(a . b) . #0#)")
+  112. PASS  (let* ((x (list 1 2))
+  113. PASS  '[1 2 3]
+  114. PASS  '[]
+  115. PASS  (let ([x 1]) x)
+  116. PASS  (let ([x 1] [y 2]) (+ x y))
+  117. PASS  '[[1 2] [3 4]]
+  118. PASS  '[1 . 2]
+  119. PASS  '[1 2 . 3]
+  120. PASS  (car '[a b])
+  121. PASS  (equal? '(1 2 3) '[1 2 3])
+  122. PASS  (read (open-input-string "]"))
+  123. PASS  (read (open-input-string "[1 2)"))
+  124. PASS  (read (open-input-string "(1 2]"))
+  125. PASS  (symbol? '+.foo)
+  126. PASS  (symbol? '-.bar)
+  127. PASS  (symbol? '+..)
+  128. PASS  (exact? #e3/4)
+  129. PASS  (= #e3/4 3/4)
+  130. PASS  (inexact? #i3/4)
+  131. PASS  (= #i3/4 0.75)
+  132. PASS  #b101/10
+  133. PASS  #o7/4
+  134. PASS  #d3/4
+  135. PASS  (= #b101/10 5/2)
+  136. PASS  (read (open-input-string "#!fold-case ABC"))
+  137. PASS  (read (open-input-string "#!fold-case #!no-fold-case ...
+  138. PASS  (eq? (read (open-input-string "#!fold-case Foo")) 'foo)
+  139. PASS  (car (read (open-input-string "(3 |foo| 4)")))
+  140. PASS  (symbol? (cadr (read (open-input-string "(3 |foo| 4)"...
+  141. PASS  (read (open-input-string "@foo"))
+  142. PASS  (read (open-input-string "#true2"))
+
+142 TESTS PASSED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test001-literals.log
+-------------------------------------------------------------------------
+    1. PASS  42
+    2. PASS  -7
+    3. PASS  3.14
+    4. PASS  3/4
+    5. PASS  #t
+    6. PASS  #f
+    7. PASS  #\a
+    8. PASS  #\space
+    9. PASS  "hello"
+
+9 TESTS PASSED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test002-expander.log
+-------------------------------------------------------------------------
+    1. PASS  (cond-expand ((library (scheme base)) 'yes) (else 'no))
+    2. PASS  (cond-expand ((library (srfi 1)) 'yes) (else 'no))
+    3. PASS  (cond-expand ((library (no such lib)) 'yes) (else 'no))
+    4. PASS  (cond-expand (r7rs 'yes-r7rs) (else 'no))
+    5. PASS  (cond-expand (nosuch-feature 'no) (else 'fallback))
+    6. FAIL  (cond-expand ((and r7rs pyscheme) 'both) (else 'parti...
+         expected return: [both]
+         actual return:   [partial]
+    7. PASS  (cond-expand ((or nosuch r7rs) 'matched) (else 'no))
+    8. PASS  (cond-expand ((not nosuch) 'yes) (else 'no))
+    9. PASS  (cond-expand ((library (srfi 1)) 'have-srfi) (else 'n...
+   10. PASS  (cond-expand (r7rs (define sq (lambda (x) (* x x)))) ...
+   11. PASS  (cond-expand)
+   12. PASS  (cond-expand (nosuch 1))
+
+1 of 12 FAILED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test003-analyzer.log
+-------------------------------------------------------------------------
+    1. PASS  ()
+    2. PASS  (lambda 1 x)
+    3. PASS  (lambda (x x) x)
+    4. PASS  (lambda (1) 1)
+    5. PASS  (define)
+    6. PASS  (define 5 6)
+    7. PASS  (set!)
+    8. PASS  (if)
+    9. PASS  (if a b c d)
+   10. PASS  (begin)
+   11. PASS  (let ((x)) x)
+   12. PASS  (let ((1 2)) x)
+   13. PASS  (cond)
+   14. PASS  (cond ())
+   15. PASS  (cond (else 1) (#t 2))
+   16. PASS  (cond (else))
+   17. PASS  (when)
+   18. PASS  (when #t)
+   19. PASS  (quote)
+   20. PASS  (quote a b)
+   21. PASS  (if #t 1 2 3)
+   22. PASS  (lambda ())
+   23. PASS  (set! 42 1)
+   24. PASS  (let)
+   25. PASS  (let ((x 1)))
+   26. PASS  (let*)
+   27. PASS  (letrec)
+   28. PASS  (define-record-type)
+   29. PASS  (guard)
+   30. PASS  (parameterize)
+   31. PASS  (case-lambda ())
+   32. PASS  (case-lambda (()))
+   33. PASS  (call/cc car cdr)
+   34. PASS  (car '(1 2) '(3 4))
+   35. PASS  (not #t #f)
+   36. PASS  (sqrt)
+   37. PASS  (sqrt 4 9)
+   38. PASS  (expt)
+   39. PASS  (quotient 6 2 1)
+   40. PASS  (=)
+   41. PASS  (<)
+   42. PASS  (>)
+   43. PASS  (eof-object 42)
+   44. PASS  (car '(1 2))
+   45. PASS  (+ 1 2 3)
+   46. PASS  (sqrt 4)
+   47. PASS  (define (sq x) (* x x))
+   48. PASS  (sq)
+   49. PASS  (sq 4 5)
+   50. PASS  (sq 5)
+   51. PASS  (define (variadic x . rest) (cons x rest))
+   52. PASS  (variadic 1)
+   53. PASS  (variadic 1 2 3)
+   54. PASS  (let-values)
+   55. PASS  (define-values)
+
+55 TESTS PASSED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test004-core-forms.log
+---------------------------------------------------------------------------
+    1. PASS  (define a 5)
+    2. PASS  a
+    3. PASS  (define b 99)
+    4. PASS  b
+    5. PASS  (set! a 100)
+    6. PASS  a
+    7. PASS  (set! undefined-var 1)
+    8. PASS  unbound-ref
+    9. PASS  (if #t 1 2)
+   10. PASS  (if #f 1 2)
+   11. PASS  (if #t 1)
+   12. PASS  (if #f 1)
+   13. PASS  (if 0 'true 'false-branch)
+   14. PASS  ((lambda (x) x) 7)
+   15. PASS  (((lambda (x) (lambda (y) x)) 3) 9)
+   16. PASS  ((lambda (f) (f 3)) (lambda (x) x))
+   17. PASS  (define (id x) x)
+   18. PASS  (id 42)
+   19. PASS  (define id2 (lambda (x) x))
+   20. PASS  (id2 99)
+   21. PASS  ((lambda (x y) x) 11 22)
+   22. PASS  ((lambda (x y) y) 11 22)
+   23. PASS  ((lambda (a b c) b) 10 20 30)
+   24. PASS  ((lambda () 42))
+   25. PASS  (define (pick-second a b) b)
+   26. PASS  (pick-second 1 2)
+   27. PASS  (define (third a b c) c)
+   28. PASS  (third 100 200 300)
+   29. PASS  ((lambda (x) (set! x 1) (set! x 2) x) 0)
+   30. PASS  (define outer-x 1)
+   31. PASS  ((lambda (_) (set! outer-x 99)) 0)
+   32. PASS  outer-x
+   33. PASS  ((lambda (x y) x) 1)
+   34. PASS  ((lambda (x) x) 1 2)
+   35. PASS  ((lambda () 1) 99)
+   36. PASS  (define square
+   37. PASS  (square 7)
+   38. PASS  ((lambda args args) 1 2 3)
+   39. PASS  ((lambda args args))
+   40. PASS  ((lambda (a . rest) rest) 1 2 3)
+   41. PASS  ((lambda (a . rest) rest) 1)
+   42. PASS  ((lambda (a b . rest) (cons a rest)) 1 2 3 4)
+   43. PASS  (define (f . args) args)
+   44. PASS  (f 1 2 3)
+   45. PASS  (f)
+   46. PASS  (define (g x . rest) rest)
+   47. PASS  (g 1 2 3)
+   48. PASS  (g 1)
+   49. PASS  ((lambda (a b . rest) rest) 1)
+   50. PASS  (lambda (x . x) x)
+   51. PASS  '(a . b)
+   52. PASS  '(1 2 . 3)
+   53. PASS  '((a . b) c)
+   54. PASS  'foo
+   55. PASS  '()
+   56. PASS  '(1 2 3)
+   57. PASS  '(a (b c) d)
+   58. PASS  (quote x)
+   59. PASS  (quote ())
+   60. PASS  (quote (1 2 3))
+   61. PASS  car
+   62. PASS  ((lambda (f) (f '(1 2))) car)
+   63. PASS  (let ((x (list 1 2 3))) (set-car! x x) (equal? x x))
+   64. PASS  (let ((p (open-output-string))) (write-string "hello"...
+   65. PASS  (let ((p (open-output-string))) (write-string "hello"...
+   66. PASS  (let ((p (open-output-string))) (write-string "hello"...
+   67. PASS  (let ((p (open-output-string))) (write-string "hello"...
+   68. PASS  (let ((p (open-output-string))) (write-string "hello"...
+   69. PASS  (let ((p (open-input-bytevector (bytevector 1 2 3))))...
+   70. PASS  (let ((p (open-input-bytevector (bytevector 1 2 3))))...
+   71. PASS  (let ((p (open-input-bytevector (bytevector)))) (eof-...
+   72. PASS  (let ((bv (make-bytevector 3 0)) (p (open-input-bytev...
+   73. PASS  (let ((bv (make-bytevector 4 0)) (p (open-input-bytev...
+   74. PASS  (let ((p (open-output-bytevector))) (write-u8 65 p) (...
+   75. PASS  (let ((p (open-output-bytevector))) (write-u8 0 p) (w...
+   76. PASS  (let ((p (open-output-bytevector))) (write-bytevector...
+   77. PASS  (let ((p (open-output-bytevector))) (write-bytevector...
+   78. PASS  (let ((p (open-output-bytevector))) (write-bytevector...
+   79. PASS  #| this is ignored |# 42
+   80. PASS  #| outer #| nested |# still outer |# 99
+   81. PASS  #;(skipped) 'kept
+   82. PASS  '#2=(a b c)
+   83. PASS  (let ((x '#0=(1 2 . #0#))) (list (car x) (cadr x)))
+   84. PASS  (let ((x '#1=(a #1# b))) (car x))
+   85. PASS  (#3# . 5)
+   86. PASS  (case 6 ((2 3 5 7) 'prime) ((1 4 6 8 9) => (lambda (x...
+   87. PASS  (case 5 ((2 3 5 7) => (lambda (x) (list 'prime x))))
+   88. PASS  (case 1 (else => (lambda (x) (list 'got x))))
+   89. PASS  (case 0 ((0) => (lambda (x) (* x x))))
+   90. PASS  (let* ((p (open-output-string)))
+   91. PASS  (let* ((x (list 1 2)) (p (open-output-string)))
+   92. PASS  (let* ((x (list 1 2)) (p (open-output-string)))
+   93. PASS  (let* ((v (vector 1 2 3)) (p (open-output-string)))
+   94. PASS  (let ((p (open-output-string))) (write (string->symbo...
+   95. PASS  (let ((p (open-output-string))) (write 'foo p) (get-o...
+   96. PASS  (let ((p (open-output-string))) (write (string->symbo...
+   97. PASS  (quote 42)
+   98. PASS  (quote hello)
+   99. PASS  (quote (1 2 3))
+  100. PASS  ''x
+  101. PASS  (if #f 1 2)
+  102. PASS  (if 0 'yes 'no)
+  103. PASS  (if '() 'yes 'no)
+  104. PASS  (if #f 'never)
+  105. PASS  (if #t 'yes)
+  106. PASS  (if #t)
+  107. PASS  (cond (#f 1) (#t 2))
+  108. PASS  (cond (#f 1) (#f 2) (else 3))
+  109. PASS  (cond (#f 'never) (else 'default))
+  110. PASS  (cond ((= 1 1) 'yes) (else 'no))
+  111. PASS  (cond ((assv 2 '((1 one) (2 two) (3 three))) => cadr)
+  112. PASS  (cond (#f => car)
+  113. PASS  (cond (#f => car)
+  114. PASS  (cond ('() => null?)
+  115. PASS  (cond ((+ 3 4) => (lambda (n) (* n n))))
+  116. PASS  (case 2
+  117. PASS  (case 99
+  118. PASS  (case 1
+  119. PASS  (case (* 2 3)
+  120. PASS  (case 'foo
+  121. PASS  (case 10
+  122. PASS  (case 99
+  123. PASS  (and 1 #f 3)
+  124. PASS  (and #f (error "never"))
+  125. PASS  (and 1 2 #f)
+  126. PASS  (or #f)
+  127. PASS  (or #f 2 3)
+  128. PASS  (or #f #f #f)
+  129. PASS  (or 1 (error "never"))
+  130. PASS  (when #f 1 2 3)
+  131. PASS  (unless #f 42)
+  132. PASS  (unless #t 42)
+  133. PASS  (begin 1)
+  134. PASS  (begin (define x 10) (* x 2))
+  135. PASS  (define x 42)
+  136. PASS  x
+  137. PASS  (define y)
+  138. PASS  (define (square n) (* n n))
+  139. PASS  (define (fact n)
+  140. PASS  (fact 0)
+  141. PASS  (define (sum . args)
+  142. PASS  (sum 1 2 3 4 5)
+  143. PASS  (sum)
+  144. PASS  (define z 1)
+  145. PASS  (set! z 99)
+  146. PASS  z
+  147. PASS  (set! unbound-var 42)
+  148. PASS  ((lambda (x) (* x x)) 5)
+  149. PASS  ((lambda (x y) (+ x y)) 3 4)
+  150. PASS  ((lambda () 42))
+  151. PASS  ((lambda (x . rest) rest) 1 2 3)
+  152. PASS  ((lambda args args) 1 2 3)
+  153. PASS  (let ((x 10))
+  154. PASS  (lambda)
+  155. PASS  (let ((x 1) (y 2)) (+ x y))
+  156. PASS  (let ((x 5)) (* x x))
+  157. PASS  (let ((x 1) (y 2)) (let ((x y) (y x)) (list x y)))
+  158. PASS  (let loop ((n 5) (acc 1))
+  159. PASS  (let loop ((i 0) (acc '()))
+  160. PASS  (let* ((x 1) (y (+ x 1))) y)
+  161. PASS  (let* ((x 2) (y (* x 3)) (z (+ y 1))) z)
+  162. PASS  (letrec ((even? (lambda (n) (if (= n 0) #t (odd? (- n...
+  163. PASS  (letrec ((even? (lambda (n) (if (= n 0) #t (odd? (- n...
+  164. PASS  (letrec* ((x 1) (y (+ x 1))) y)
+  165. PASS  (do ((i 0 (+ i 1)))
+  166. PASS  (do ((i 1 (+ i 1))
+  167. PASS  (do ((i 0 (+ i 1))
+  168. PASS  ((case-lambda
+  169. PASS  ((case-lambda
+  170. PASS  ((case-lambda
+  171. PASS  (define-values (a b c) (values 1 2 3))
+  172. PASS  b
+  173. PASS  c
+  174. PASS  (let-values (((a b) (values 1 2))) (+ a b))
+  175. PASS  (let-values (((x) (values 42))) x)
+  176. PASS  (let-values (((a b) (values 1 2))
+  177. PASS  (let-values (((first . rest) (values 1 2 3)))
+  178. PASS  (let-values ((all (values 1 2 3)))
+  179. PASS  (let-values () 99)
+  180. PASS  (let-values (((x y) (values 10 20)))
+  181. PASS  (let*-values (((a b) (values 1 2))
+  182. PASS  (let*-values (((x) (values 5))
+  183. PASS  `foo
+  184. PASS  `(1 2 3)
+  185. PASS  `42
+  186. PASS  (let ((x 42)) `x)
+  187. PASS  (let ((x 42)) `,x)
+  188. PASS  (let ((a 1) (b 2)) `(,a ,b))
+  189. PASS  (let ((x 5)) `(before ,x after))
+  190. PASS  (let ((x '(a b))) `(1 ,x 2))
+  191. PASS  `(,(+ 1 2) ,(* 3 4))
+  192. PASS  (let ((x 5)) `(a ,x c))
+  193. PASS  (let ((x 10) (y 20)) `(,x + ,y = ,(+ x y)))
+  194. PASS  (let ((xs '(1 2 3))) `(,@xs))
+  195. PASS  (let ((xs '(1 2 3))) `(0 ,@xs 4))
+  196. PASS  (let ((a '(1 2)) (b '(3 4))) `(,@a ,@b))
+  197. PASS  (let ((xs '(2 3))) `(1 ,@xs 4 5))
+  198. PASS  (let ((xs '())) `(1 ,@xs 2))
+  199. PASS  (let ((x 0) (ys '(1 2))) `(,x ,@ys 3))
+  200. PASS  (let ((a 'hello) (bs '(world how)) (c 'are)) `(,a ,@b...
+  201. PASS  (let ((x 2)) `(1 . ,x))
+  202. PASS  (define (make-point x y) `(point ,x ,y))
+  203. PASS  (make-point 3 4)
+  204. PASS  (define (wrap . args) `(wrapped ,@args end))
+  205. PASS  (wrap 'a 'b 'c)
+  206. PASS  `(a b c)
+  207. PASS  `()
+  208. PASS  `42
+  209. PASS  (define x 42) `(x is ,x)
+  210. PASS  `(,(+ 1 2) ,(* 3 4))
+  211. PASS  `(a ,@(list 1 2 3) b)
+  212. PASS  `(,@(list 1 2) ,@(list 3 4))
+  213. PASS  `(,@(list 1 2) z)
+  214. PASS  `(start ,@(list 1 2))
+  215. PASS  (define xs '(10 20 30)) `(first is ,(car xs) rest ,@(...
+  216. PASS  (define c 100) `(a `b ,c)
+  217. PASS  (define c 100) `(a `(b ,,c))
+  218. PASS  (define c 100) `(a `(b ,c))
+  219. PASS  (define v 7) `,v
+  220. PASS  (unquote 5)
+  221. PASS  (unquote-splicing (list 1 2))
+  222. PASS  `#(1 2 3)
+  223. PASS  `#()
+  224. PASS  (let ((x 5)) `#(,x))
+  225. PASS  (let ((x 5) (y 6)) `#(,x ,y))
+  226. PASS  `#(,(+ 1 1) ,(+ 2 2))
+  227. PASS  `#(,@(list 1 2 3))
+  228. PASS  `#(1 ,@(list 2 3) 4)
+  229. PASS  `#(,@(list 1 2) ,@(list 3 4))
+  230. PASS  (let ((xs '(a b c))) `#(x ,@xs y))
+  231. PASS  (let () (define f (lambda () (g))) (define g (lambda ...
+  232. PASS  (let () (define x 1) (define y (+ x 1)) y)
+  233. PASS  (let () (define h (lambda () g)) (define-values (g) 9...
+  234. PASS  (let () (define x 1) (define-values (a b) (values 2 3...
+  235. PASS  (let () (begin (define x 10) (define y 20)) (+ x y))
+  236. PASS  ((lambda () (define x 100) (define y (+ x 1)) y))
+  237. PASS  ((case-lambda ((x) (define y 100) (+ x y)) ((x y) (* ...
+  238. PASS  (when #t (define x 7) (define y 8) (+ x y))
+  239. PASS  (unless #f (define-values (a b) (values 5 6)) (* a b))
+  240. PASS  (let*-values (((a) (values 10))) (define b (+ a 1)) (...
+  241. PASS  (parameterize () (define z 9) (* z z))
+  242. PASS  (guard (e (#t e)) (define ok 42) ok)
+
+242 TESTS PASSED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test005-derived-forms.log
+------------------------------------------------------------------------------
+    1. PASS  (begin 1 2 3)
+    2. PASS  (begin 42)
+    3. PASS  (define counter 0)
+    4. PASS  (begin (set! counter 1) (set! counter 2) counter)
+    5. PASS  (when #t 1 2 3)
+    6. PASS  (when #f 99)
+    7. PASS  (when 0 'truthy)
+    8. PASS  (when (null? (list)) (cons 1 (list)))
+    9. PASS  (unless #f 1 2 3)
+   10. PASS  (unless #t 99)
+   11. PASS  (unless (null? (list 1)) 'runs)
+   12. PASS  (and)
+   13. PASS  (and 1)
+   14. PASS  (and 1 2 3)
+   15. PASS  (and #f 99)
+   16. PASS  (and 1 #f 3)
+   17. PASS  (or)
+   18. PASS  (or 1)
+   19. PASS  (or #f #f 3)
+   20. PASS  (or #f #f #f)
+   21. PASS  (or 1 'would-not-evaluate)
+   22. PASS  (cond (#t 1))
+   23. PASS  (cond (#f 1) (#t 2) (else 3))
+   24. PASS  (cond (#f 1) (#f 2) (else 'fallback))
+   25. PASS  (cond (#f 1))
+   26. PASS  (cond (42))
+   27. PASS  (cond (#f) (else 99))
+   28. PASS  (cond ((cons 1 2) => car))
+   29. PASS  (cond (#f => car) (else 'skipped))
+   30. PASS  (cond ((cons 10 20) => cdr) (else 0))
+   31. PASS  (case 2 ((1 2 3) 'small) ((4 5) 'med) (else 'big))
+   32. PASS  (case 5 ((1 2 3) 'small) ((4 5) 'med) (else 'big))
+   33. PASS  (case 99 ((1 2 3) 'small) ((4 5) 'med) (else 'big))
+   34. PASS  (case 'b ((a) 1) ((b c) 2) (else 3))
+   35. PASS  (case 99 ((1) 'one))
+   36. PASS  (case 2 ((1 2) 'a 'b 'c) (else 'd))
+   37. PASS  (case 7 ((7) 'found) (else 'missing))
+   38. PASS  (case 2 ((2.0) 'real) (else 'int))
+   39. PASS  (case 2.0 ((2) 'int) (else 'real))
+   40. PASS  (case)
+   41. PASS  (case 1 (else 1) (else 2))
+   42. PASS  (case 1 (else 1) ((2) 'b))
+   43. PASS  (case 1 ())
+   44. PASS  (let ((x 1)) x)
+   45. PASS  (let () 42)
+   46. PASS  (let ((x 1) (y 2)) (cons x y))
+   47. PASS  (let ((a 1) (b 2) (c 3)) (list a b c))
+   48. PASS  (define outer 10)
+   49. PASS  (let ((outer 1)) outer)
+   50. PASS  outer
+   51. PASS  (let ((x 99) (y outer)) (cons x y))
+   52. PASS  (let* ((x 1) (y x)) y)
+   53. PASS  (let* ((x 1) (y (cons x (list)))) y)
+   54. PASS  (let* ((a 1) (b (cons a (list))) (c (cons 2 b))) c)
+   55. PASS  (letrec ((f (lambda (x) x))) (f 42))
+   56. PASS  (letrec ((last (lambda (lst) (if (null? (cdr lst)) (c...
+   57. PASS  (letrec ((p? (lambda (lst) (if (null? lst) #t (q? (cd...
+   58. PASS  (letrec* ((f (lambda (x) x)) (g (lambda (x) (f x)))) ...
+   59. PASS  (do ((i 0 (+ i 1))) ((= i 5) i))
+   60. PASS  (do ((i 0 (+ i 1)) (s 0 (+ s i))) ((= i 5) s))
+   61. PASS  (do ((i 0 (+ i 1))) ((= i 3)))
+   62. PASS  (do ((i 0 (+ i 1)) (acc (list) (cons i acc))) ((= i 4...
+   63. PASS  (do ((a 1 b) (b 2 (+ a b))) ((> a 10) a))
+   64. PASS  (do ((i 0 (+ i 1)) (v 'a)) ((= i 2) v))
+   65. PASS  (do ((x 'hi)) (#t x))
+   66. PASS  (do ((i 0 (+ i 1))) ((= i 3) 'first 'second 'third))
+   67. PASS  (do)
+   68. PASS  (do () ())
+   69. PASS  (do ((i)) ((= i 0) i))
+   70. PASS  (do ((1 0)) ((= 1 0)))
+   71. PASS  (do ((i 0 (+ i 1)) (i 0)) ((= i 5) i))
+   72. PASS  (define-values (p q r) (values 1 2 3)) (list p q r)
+   73. PASS  (define-values (head . tail) (values 10 20 30 40)) (l...
+   74. PASS  (define-values all (values 'x 'y 'z)) all
+   75. PASS  (define-values (solo) 77) solo
+
+75 TESTS PASSED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test006-advanced-forms.log
+-------------------------------------------------------------------------------
+    1. PASS  (call-with-values (lambda () (floor/ 13 4))
+    2. PASS  (call-with-values (lambda () (floor/ -13 4))
+    3. PASS  (call-with-values (lambda () (floor/ 13 -4))
+    4. PASS  (call-with-values (lambda () (floor/ -13 -4))
+    5. PASS  (call-with-values (lambda () (truncate/ 13 4))
+    6. PASS  (call-with-values (lambda () (truncate/ -13 4))
+    7. PASS  (call-with-values (lambda () (exact-integer-sqrt 14))
+    8. PASS  (call-with-values (lambda () (exact-integer-sqrt 9))
+    9. PASS  (call-with-values (lambda () (exact-integer-sqrt 0))
+   10. PASS  (call-with-values (lambda () (exact-integer-sqrt 1))
+   11. PASS  (call-with-values (lambda () (exact-integer-sqrt 100))
+   12. PASS  (guard (e (#t 'ok)) (< 1+2i 3+4i))
+   13. PASS  (guard (e (#t 'ok)) (exact 1+2i))
+   14. PASS  (call-with-values (lambda () (partition odd? '(1 2 3 ...
+   15. PASS  (call-with-values (lambda () (partition odd? '())) list)
+   16. PASS  (file-error?
+   17. PASS  (file-error?
+   18. FAIL  (file-error?
+         expected return: [#t]
+         actual return:   [#f]
+   19. PASS  (file-error?
+   20. PASS  (define f (case-lambda ((x) (list 'one x)) ((x y) (li...
+   21. PASS  (define f (case-lambda ((x) (list 'one x)) ((x y) (li...
+   22. PASS  (define f (case-lambda ((x) (list 'one x)) ((x y) (li...
+   23. PASS  (define g (case-lambda (() 'zero) ((a) a))) (g)
+   24. PASS  (define g (case-lambda (() 'zero) ((a) a))) (g 42)
+   25. PASS  (procedure? (case-lambda ((x) x)))
+   26. PASS  (apply (case-lambda ((x) 'one) ((x y z) 'three)) '(1 ...
+   27. PASS  (define g (case-lambda (() 'zero) ((a) a))) (g 1 2 3)
+   28. PASS  (case-lambda)
+   29. PASS  (case-lambda (() . body))
+   30. PASS  (force (delay 42))
+   31. PASS  (force (delay (+ 1 2 3)))
+   32. PASS  (promise? (delay 1))
+   33. PASS  (promise? 1)
+   34. PASS  (promise? "hi")
+   35. PASS  (promise? (lambda () 1))
+   36. PASS  (define p (delay 7)) (force p) (promise? p)
+   37. PASS  (define c 0) (define p (delay (begin (set! c (+ c 1))...
+   38. PASS  (define c 0) (define p (delay (begin (set! c (+ c 1))...
+   39. PASS  (force (make-promise 100))
+   40. PASS  (promise? (make-promise 5))
+   41. PASS  (define q (make-promise 'hello)) (force q) (force q)
+   42. PASS  (define x 10) (define p (delay (* x x))) (set! x 99) ...
+   43. PASS  (force (delay (delay 42)))
+   44. PASS  (force (delay (make-promise 'inner)))
+   45. PASS  (force (delay-force 42))
+   46. PASS  (force (delay-force (delay 17)))
+   47. PASS  (define (loop n) (if (zero? n) (delay 'done) (delay-f...
+   48. PASS  (force 5)
+   49. PASS  (force '(1 2 3))
+   50. PASS  (force "hi")
+   51. PASS  (delay)
+   52. PASS  (delay 1 2)
+   53. PASS  (delay-force)
+   54. PASS  (help delay)
+   55. PASS  (help force)
+   56. PASS  (values)
+   57. PASS  (values 42)
+   58. PASS  (values "hi")
+   59. PASS  (+ 1 (values 2))
+   60. PASS  (define values-single (values 42)) values-single
+   61. PASS  (if (values #t) (quote yes) (quote no))
+   62. PASS  (values 1 2 3)
+   63. PASS  (call-with-values (lambda () (values 10 20 30)) +)
+   64. PASS  (call-with-values (lambda () (values 1 2)) list)
+   65. PASS  (call-with-values (lambda () 42) (lambda (x) (* x 2)))
+   66. PASS  (call-with-values (lambda () (values)) (lambda () 'ok))
+   67. PASS  (call-with-values (lambda () (values 3 4)) (lambda (a...
+   68. PASS  (call-with-values (lambda () (values 1 2 3 4)) (lambd...
+   69. PASS  (let-values (((a b) (values 1 2))) (+ a b))
+   70. PASS  (let-values (((a b) (values 10 20)) ((c) (values 30))...
+   71. PASS  (define x 100) (let-values (((x) (values 1)) ((y) (va...
+   72. PASS  (let-values (((head . rest) (values 1 2 3 4))) (list ...
+   73. PASS  (let-values ((all (values 'a 'b 'c))) all)
+   74. PASS  (let-values () 1 2 3)
+   75. PASS  (let-values ((() (values))) 'body-ran)
+   76. PASS  (let*-values (((a b) (values 1 2)) ((c) (values (+ a ...
+   77. PASS  (let*-values (((x) (values 10)) ((x) (values (* x x))...
+   78. PASS  (+ 1 (values 2 3))
+   79. PASS  (if (values 1 2) 'yes 'no)
+   80. PASS  (let ((x (values 1 2))) x)
+   81. PASS  (define mv-bad (values 1 2))
+   82. PASS  (begin (values 1 2) (+ 3 4))
+   83. PASS  (let () (values 1 2) 'ok)
+   84. PASS  (define mv-tail (begin (values 1 2) 42)) mv-tail
+   85. PASS  (call-with-values (lambda () (dynamic-wind (lambda ()...
+   86. PASS  (call-with-values (lambda () (with-exception-handler ...
+   87. PASS  (define (loop n) (if (zero? n) 'done (call-with-value...
+   88. PASS  (make-parameter 10)
+   89. PASS  (parameter? (make-parameter 10))
+   90. PASS  (parameter? 42)
+   91. PASS  (procedure? (make-parameter 10))
+   92. PASS  (define p (make-parameter 10)) (p)
+   93. PASS  (define p (make-parameter 10)) (parameterize ((p 99))...
+   94. PASS  (define p (make-parameter 10)) (parameterize ((p 99))...
+   95. PASS  (define p (make-parameter 1)) (parameterize ((p 2)) (...
+   96. PASS  (define p (make-parameter 1)) (parameterize ((p 2)) (...
+   97. PASS  (define p (make-parameter 1)) (define q (make-paramet...
+   98. PASS  (define c (make-parameter 3 (lambda (x) (* x x)))) (c)
+   99. PASS  (define c (make-parameter 3 (lambda (x) (* x x)))) (p...
+  100. PASS  (define c (make-parameter 1 (lambda (x) (+ x 100)))) ...
+  101. PASS  (define p (make-parameter 0)) (define (loop n) (if (z...
+  102. PASS  (define p (make-parameter 1)) (parameterize ((p 99)) ...
+  103. PASS  (define p (make-parameter 1)) (parameterize ((p 99)) ...
+  104. PASS  (define p (make-parameter 1)) (parameterize ((p 99)) ...
+  105. PASS  (define p (make-parameter 10)) (p 1 2)
+  106. PASS  (make-parameter 1 42)
+  107. PASS  (parameterize ((42 10)) 'body)
+  108. PASS  (call/cc (lambda (k) (with-exception-handler (lambda ...
+  109. PASS  (call/cc (lambda (k) (with-exception-handler (lambda ...
+  110. PASS  (call/cc (lambda (k) (with-exception-handler (lambda ...
+  111. PASS  (call/cc (lambda (k) (with-exception-handler (lambda ...
+  112. PASS  (with-exception-handler (lambda (v) 'never) (lambda (...
+  113. PASS  (call/cc (lambda (k) (with-exception-handler (lambda ...
+  114. PASS  (call/cc (lambda (k) (with-exception-handler (lambda ...
+  115. PASS  (call/cc (lambda (k) (with-exception-handler (lambda ...
+  116. PASS  (call/cc (lambda (k) (with-exception-handler (lambda ...
+  117. PASS  (error-object? 42)
+  118. PASS  (error-object? "string")
+  119. PASS  (error-object-message 42)
+  120. PASS  (with-exception-handler (lambda (v) (+ v 1)) (lambda ...
+  121. PASS  (with-exception-handler (lambda (v) (+ v 1)) (lambda ...
+  122. PASS  (define (loop n) (with-exception-handler (lambda (v) ...
+  123. PASS  (guard (e ((symbol? e) (list 'sym e)) ((number? e) (l...
+  124. PASS  (guard (e ((symbol? e) (list 'sym e)) ((number? e) (l...
+  125. PASS  (guard (e ((string? e) 'got-string)) (raise 99))
+  126. PASS  (guard (e ((symbol? e) 'sym) (else (list 'other e))) ...
+  127. PASS  (guard (e ((error-object? e) (error-object-message e)...
+  128. PASS  (guard (e (else 'never)) (+ 1 2 3))
+  129. PASS  (guard (e (else 'outer-caught)) (guard (e (else (list...
+  130. PASS  (guard (e ((number? e) (list 'outer-num e))) (guard (...
+  131. PASS  (guard (e (else (list 'outer e))) (with-exception-han...
+  132. PASS  (guard (e (else e)) (error "fail" 'a 1))
+  133. PASS  (guard (e (else (list 'caught e))) (car 5))
+  134. PASS  (guard (e ((error-object? e) (error-object-message e)...
+  135. PASS  (guard (e (else (list 'caught e))) does-not-exist)
+  136. PASS  (define eval-arity-h (lambda () (lambda (x) x))) (gua...
+  137. PASS  (with-exception-handler (lambda (v) (list 'handled v)...
+  138. PASS  (guard (e (else 'caught)) (car))
+  139. PASS  (call/cc (lambda (k) (+ 1 2 3)))
+  140. PASS  (call/cc (lambda (k) (+ 1 (k 99) 1000)))
+  141. PASS  (call/cc (lambda (k) (list 'a 'b (k 'escape) 'c 'd)))
+  142. PASS  (+ 1 (call/cc (lambda (k) (let loop ((n 0)) (if (= n ...
+  143. PASS  (define cc #f) (+ 10 (call/cc (lambda (k) (set! cc k)...
+  144. PASS  (cc 200)
+  145. PASS  (define cc #f) (call/cc (lambda (k) (set! cc k) 'firs...
+  146. PASS  (define cc #f) (call/cc (lambda (k) (set! cc k) 'firs...
+  147. PASS  (define cc #f) (+ 0 (call/cc (lambda (k) (set! cc k) ...
+  148. PASS  (call-with-current-continuation (lambda (k) (+ 10 (k ...
+  149. PASS  (call/cc (lambda (k) (procedure? k)))
+  150. PASS  (define cc #f) (call/cc (lambda (k) (set! cc k) 0)) cc
+  151. PASS  (define (find-first pred xs) (call/cc (lambda (return...
+  152. PASS  (define (find-first pred xs) (call/cc (lambda (return...
+  153. PASS  (call/cc 1 2 3)
+  154. PASS  (call/cc)
+  155. PASS  (call/cc (lambda (escape) (with-exception-handler (la...
+  156. PASS  (define log '()) (dynamic-wind (lambda () (set! log (...
+  157. PASS  (define log '()) (dynamic-wind (lambda () (set! log (...
+  158. PASS  (define log '()) (guard (e (else 'caught)) (dynamic-w...
+  159. PASS  (define log '()) (dynamic-wind (lambda () (set! log (...
+  160. PASS  (define log '()) (define k-out #f) (+ 100 (call/cc (l...
+  161. PASS  (define log '()) (define k-in #f) (dynamic-wind (lamb...
+  162. PASS  (dynamic-wind (lambda () 'ignored-before) (lambda () ...
+  163. PASS  (dynamic-wind (lambda () 1) (lambda () 2))
+  164. PASS  (define captured-k #f) (with-exception-handler (lambd...
+  165. PASS  (guard (e (#t (list 'caught e))) (dynamic-wind (lambd...
+
+1 of 165 FAILED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test007-programs.log
+-------------------------------------------------------------------------
+    1. PASS  (define (fact n) (if (zero? n) 1 (* n (fact (- n 1)))))
+    2. PASS  (fact 0)
+    3. PASS  (fact 5)
+    4. PASS  (fact 10)
+    5. PASS  (define (fib n) (if (< n 2) n (+ (fib (- n 1)) (fib (...
+    6. PASS  (fib 10)
+    7. PASS  (define (length lst) (if (null? lst) 0 (+ 1 (length (...
+    8. PASS  (length (list 10 20 30 40 50))
+    9. PASS  (define (reverse lst) (let loop ((xs lst) (acc '())) ...
+   10. PASS  (reverse (list 1 2 3 4 5))
+   11. PASS  (define (map1 f lst) (if (null? lst) '() (cons (f (ca...
+   12. PASS  (map1 (lambda (x) (* x x)) (list 1 2 3 4))
+   13. PASS  (define (sum-list lst) (if (null? lst) 0 (+ (car lst)...
+   14. PASS  (sum-list (list 1 2 3 4 5))
+   15. PASS  (define (gcd a b) (if (zero? b) a (gcd b (modulo a b))))
+   16. PASS  (gcd 48 18)
+   17. PASS  (gcd 17 5)
+   18. PASS  (let loop ((i 1) (acc 1)) (if (> i 10) acc (loop (+ i...
+   19. PASS  (let loop ((lst (list 5 4 3 2 1)) (acc 0)) (if (null?...
+   20. PASS  (let loop ((lst (list 1 2 3))) (if (null? lst) 'done ...
+   21. PASS  (let loop ((lst (list 1 2 3)) (acc (list))) (if (null...
+
+21 TESTS PASSED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test008-macros.log
+-----------------------------------------------------------------------
+    1. PASS  (define-syntax hyg-m
+    2. PASS  (let-syntax ((hyg-h (syntax-rules () ((_) 0)))) (hyg-m))
+    3. PASS  (define-syntax hyg-swap!
+    4. PASS  (define hyg-tmp 99)
+    5. PASS  (define hyg-p 1)
+    6. PASS  (define hyg-q 2)
+    7. PASS  (hyg-swap! hyg-p hyg-q)
+    8. PASS  (list hyg-p hyg-q hyg-tmp)
+    9. PASS  (let ((t 42)) (or #f t))
+   10. PASS  (define-syntax hyg-m1 (syntax-rules () ((_ x) (hyg-m2...
+   11. PASS  (define-syntax hyg-m2 (syntax-rules () ((_ x) (* x x))))
+   12. PASS  (hyg-m1 7)
+   13. PASS  (letrec-syntax
+   14. PASS  (define defenv-x 1)
+   15. PASS  (let-syntax ((dm (syntax-rules () ((_) defenv-x))))
+   16. PASS  (let-syntax ((hs (syntax-rules () ((_) 0))))
+   17. PASS  (define-syntax my-or
+   18. PASS  (my-or #f #f 42)
+   19. PASS  (my-or #f #f #f)
+   20. PASS  (my-or 1 2 3)
+   21. PASS  (define-syntax my-list2 (syntax-rules () ((_ x ...) (...
+   22. PASS  (my-list2 1 2 3)
+   23. PASS  (my-list2)
+   24. PASS  (define-syntax my-if
+   25. PASS  (my-if #f then 1 else 2)
+   26. PASS  (my-if #t then 10 else 20)
+   27. PASS  (define-syntax add1x (syntax-rules () ((_ x) (+ x 1))))
+   28. PASS  (define-syntax add2x (syntax-rules () ((_ x) (add1x (...
+   29. PASS  (add2x 10)
+   30. PASS  (define-syntax scm
+   31. PASS  (let ((sct 42)) (scm sct))
+   32. PASS  (define (ids-sq x)
+   33. PASS  (ids-sq 7)
+   34. PASS  (define (ids-mixed x)
+   35. PASS  (ids-mixed 3)
+   36. PASS  (let ()
+   37. PASS  (letrec-syntax
+   38. PASS  (letrec-syntax
+   39. PASS  (define-syntax sr-fst (syntax-rules () ((_ a _) a)))
+   40. PASS  (sr-fst 1 99)
+   41. PASS  (define-syntax sr-snd (syntax-rules () ((_ _ b) b)))
+   42. PASS  (sr-snd 99 2)
+   43. PASS  (define-syntax sr-cadr (syntax-rules () ((_ (_ b . _)...
+   44. PASS  (sr-cadr (0 42 99 100))
+   45. PASS  (define-syntax sr-mid (syntax-rules () ((_ _ b _) b)))
+   46. PASS  (sr-mid 1 2 3)
+   47. PASS  (define-syntax sr-last (syntax-rules () ((_ _ ... x) ...
+   48. PASS  (sr-last 1 2 3)
+   49. PASS  (sr-last 42)
+   50. PASS  (define-syntax sr-wrap (syntax-rules ()
+   51. PASS  (sr-wrap 1 2 3 4)
+   52. PASS  (sr-wrap 1 2)
+   53. PASS  (define-syntax sr-drop-last2 (syntax-rules ()
+   54. PASS  (sr-drop-last2 1 2 3 4 5)
+   55. PASS  (define-syntax sr-mylist
+   56. PASS  (sr-mylist 1 2 3)
+   57. PASS  (sr-mylist)
+   58. PASS  (define-syntax sr-myappend
+   59. PASS  (sr-myappend 1 2 3 99)
+   60. PASS  (define-syntax vp-fst (syntax-rules () ((_ #(a b)) a)))
+   61. PASS  (vp-fst #(10 20))
+   62. PASS  (define-syntax vp-snd (syntax-rules () ((_ #(a b)) b)))
+   63. PASS  (vp-snd #(10 20))
+   64. PASS  (define-syntax vp->list (syntax-rules () ((_ #(x ...)...
+   65. PASS  (vp->list #(1 2 3))
+   66. PASS  (vp->list #())
+   67. PASS  (define-syntax vp-make (syntax-rules () ((_ a b c) #(...
+   68. PASS  (vp-make 1 2 3)
+   69. PASS  (define-syntax vp-list->vec (syntax-rules () ((_ x .....
+   70. PASS  (vp-list->vec 4 5 6)
+   71. PASS  (vp-list->vec)
+   72. PASS  (define-syntax vp-last (syntax-rules () ((_ #(_ ... z...
+   73. PASS  (vp-last #(1 2 3))
+   74. PASS  (vp-last #(99))
+   75. PASS  (define-syntax vp-is12 (syntax-rules ()
+   76. PASS  (vp-is12 #(1 2))
+   77. PASS  (vp-is12 #(1 3))
+   78. PASS  (vp-is12 #(1 2 3))
+   79. PASS  (vp-is12 (1 2))
+   80. PASS  (define-syntax vp-nested (syntax-rules ()
+   81. PASS  (vp-nested 0 #(1 2) 3)
+   82. PASS  (define-syntax vp-hyg (syntax-rules ()
+   83. PASS  (let ((vt 1)) (vp-hyg #(10 20)))
+   84. PASS  (define-syntax ne-id
+   85. PASS  (ne-id (1 2 3) (4 5) (6))
+   86. PASS  (ne-id)
+   87. PASS  (ne-id () ())
+   88. PASS  (define-syntax ne-add1
+   89. PASS  (ne-add1 (1 2) (3 4))
+   90. PASS  (define-syntax ne-vecs
+   91. PASS  (ne-vecs (1 2 3) (4 5))
+   92. PASS  (define-syntax ne-d3
+   93. PASS  (ne-d3 ((1 2) (3)) ((4 5 6)))
+   94. PASS  (define-syntax lb-cond
+   95. PASS  (lb-cond (#f 1) (else 42))
+   96. PASS  (let ((else #f)) (lb-cond (#f 1) (else 42) (#t 99)))
+   97. PASS  (let ((x 1)) (lb-cond (#f 1) (else 42)))
+   98. PASS  (define-syntax lb-if
+   99. PASS  (lb-if #t then 10 else 20)
+  100. PASS  (define-syntax bad-underscore (syntax-rules (_) ((_ x...
+  101. PASS  (define-syntax bad-ellipsis (syntax-rules (...) ((_ x...
+  102. PASS  (define-syntax bad-custom-ell (syntax-rules ~~ (~~ ((...
+  103. PASS  (define-syntax esc-sym
+  104. PASS  (esc-sym)
+  105. PASS  (define-syntax def-collector
+  106. PASS  (def-collector esc-collect)
+  107. PASS  (esc-collect 1 2 3)
+  108. PASS  (esc-collect)
+  109. PASS  (define-syntax esc-pvar
+  110. PASS  (esc-pvar 42)
+  111. PASS  (define-syntax my-if
+  112. PASS  (my-if #t 'yes 'no)
+  113. PASS  (my-if #f 'yes 'no)
+  114. PASS  (define-syntax swap!
+  115. PASS  (define x 1)
+  116. PASS  (define y 2)
+  117. PASS  (swap! x y)
+  118. PASS  y
+  119. PASS  (define-syntax while
+  120. PASS  (define i 0)
+  121. PASS  (define sum 0)
+  122. PASS  (while (< i 5)
+  123. PASS  sum
+  124. PASS  (define-syntax my-and
+  125. PASS  (my-and)
+  126. PASS  (my-and 1)
+  127. PASS  (my-and 1 2 3)
+  128. PASS  (my-and 1 #f 3)
+  129. PASS  (define-syntax my-or
+  130. PASS  (my-or)
+  131. PASS  (my-or #f #f #f)
+  132. PASS  (define-syntax push!
+  133. PASS  (define stack '())
+  134. PASS  (push! 1 stack)
+  135. PASS  (push! 2 stack)
+  136. PASS  stack
+  137. PASS  (define-syntax my-case
+  138. PASS  (my-case 2 (2 => 'found))
+  139. PASS  (my-case 5 (2 => 'found))
+  140. PASS  (let-syntax ((double (syntax-rules ()
+  141. PASS  (let-syntax ((inc (syntax-rules ()
+  142. PASS  (letrec-syntax
+  143. PASS  (define-syntax inc-by
+  144. PASS  (define-syntax double-inc
+  145. PASS  (double-inc 5)
+  146. PASS  (define-syntax def-const
+  147. PASS  (def-const pi 3.14159)
+  148. PASS  pi
+  149. PASS  (define-syntax my-list
+  150. PASS  (my-list 1 2 3)
+  151. PASS  (my-list)
+  152. PASS  (begin
+  153. PASS  (define result
+  154. PASS  result
+  155. PASS  (let ((tmp 1) (x 2))
+  156. PASS  (define-syntax my-or
+  157. PASS  (let ((t 5))
+  158. PASS  (define-syntax my-and2
+  159. PASS  (let ((v 10))
+  160. PASS  (define-syntax inc2
+  161. PASS  (inc2 41)
+  162. PASS  (let ((+ *)) (inc2 5))
+  163. PASS  (let-syntax ((double (syntax-rules ()
+  164. PASS  (let ((+ *))
+  165. PASS  (let ((+ *)) (double-inc 5))
+  166. PASS  (define-syntax my-case2
+  167. PASS  (my-case2 5 (2 => 'found))
+  168. PASS  (define-syntax my-list-of-lists
+  169. PASS  (my-list-of-lists (1 2 3) (4 5))
+  170. PASS  (define-syntax labeled-rows
+  171. PASS  (labeled-rows (a 1 2) (b 3 4 5))
+  172. PASS  (my-list-of-lists)
+  173. PASS  (my-list-of-lists (10 20 30))
+  174. PASS  (define-syntax depth3
+  175. PASS  (depth3 ((1 2) (3)) ((4 5 6)))
+  176. PASS  (define-syntax my-list2
+  177. PASS  (my-list2 1 2 3)
+  178. PASS  (my-list2)
+  179. PASS  (define-syntax my-append
+  180. PASS  (my-append (1 2 3) (4 5))
+  181. PASS  (define-syntax my-cond
+  182. PASS  (my-cond (#f 'no) (#t 'yes 'extra) (else 'never))
+  183. PASS  (guard (e (#t "caught"))
+  184. PASS  (guard (e ((string? e) (> (string-length e) 0))
+  185. PASS  (define-syntax must-be-pair
+  186. PASS  (must-be-pair (1 2))
+  187. PASS  (guard (e (#t "caught"))
+  188. PASS  (let ((%mv0 'outer)) (let-values (((a) (values 1))) (...
+  189. PASS  (let ((%mv1 'outer)) (let*-values (((a) (values 1)) (...
+  190. PASS  (let ((%mv-tmp0 'outer)) (define-values (a b) (values...
+  191. PASS  (let ((%do-loop% 'outer)) (do ((i 0 (+ i 1))) ((= i 3...
+  192. PASS  (define %record-type:thing 'mine) (define-record-type...
+  193. PASS  (define-syntax my-when (syntax-rules () ((_ test body...
+  194. PASS  (define-syntax my-when (syntax-rules () ((_ test body...
+  195. PASS  (define-syntax my-list (syntax-rules () ((_ x ...) (l...
+  196. PASS  (define-syntax my-list (syntax-rules () ((_ x ...) (l...
+  197. PASS  (define-syntax pick (syntax-rules () ((_) 'none) ((_ ...
+  198. PASS  (define-syntax pick (syntax-rules () ((_) 'none) ((_ ...
+  199. PASS  (define-syntax pick (syntax-rules () ((_) 'none) ((_ ...
+  200. PASS  (define-syntax my-when-even (syntax-rules (then) ((_ ...
+  201. PASS  (define-syntax swap! (syntax-rules () ((_ a b) (let (...
+  202. PASS  (define-syntax one-more (syntax-rules () ((_ n) (+ n ...
+  203. PASS  (letrec-syntax ((my-or (syntax-rules () ((_) #f) ((_ ...
+  204. PASS  (letrec-syntax ((my-or (syntax-rules () ((_) #f) ((_ ...
+  205. PASS  (define-syntax my-and (syntax-rules () ((_) #t) ((_ a...
+  206. PASS  (define-syntax my-and (syntax-rules () ((_) #t) ((_ a...
+  207. PASS  (define-syntax my-and (syntax-rules () ((_) #t) ((_ a...
+  208. PASS  (let-syntax ((sq (syntax-rules () ((_ x) (* x x))))) ...
+  209. PASS  (let-syntax ((sq (syntax-rules () ((_ x) (* x x)))) (...
+  210. PASS  (define-syntax only-pairs (syntax-rules () ((_ (a b))...
+  211. PASS  (define-syntax bad 42)
+  212. PASS  (define-syntax bad-let (syntax-rules () ((bad-let) (l...
+  213. PASS  (define-syntax bad-set (syntax-rules () ((bad-set x) ...
+  214. PASS  (let ()
+  215. PASS  (let ()
+  216. PASS  (let ()
+  217. PASS  (define-syntax multi-define-syntax
+  218. PASS  (let ()
+
+218 TESTS PASSED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test009-modules.log
+------------------------------------------------------------------------
+    1. PASS  (char-foldcase #\A)
+    2. PASS  (char-foldcase #\Z)
+    3. PASS  (char-foldcase #\newline)
+    4. PASS  (char-ci=? #\A #\a)
+    5. PASS  (char-ci=? #\A #\b)
+    6. PASS  (char-ci<? #\A #\B)
+    7. PASS  (char-ci<? #\B #\A)
+    8. PASS  (char-ci<=? #\A #\A)
+    9. PASS  (char-ci>? #\B #\a)
+   10. PASS  (char-ci>=? #\Z #\a)
+   11. PASS  (char-ci>=? #\A #\z)
+   12. PASS  (char-ci=? #\A #\a #\A)
+   13. PASS  (char-ci<? #\A #\B #\C)
+   14. PASS  (string-foldcase "Hello")
+   15. PASS  (string-foldcase "WORLD")
+   16. PASS  (string-foldcase "already")
+   17. PASS  (string-ci=? "Hello" "hello")
+   18. PASS  (string-ci=? "Hello" "HELLO")
+   19. PASS  (string-ci=? "abc" "xyz")
+   20. PASS  (string-ci<? "abc" "XYZ")
+   21. PASS  (string-ci<? "xyz" "abc")
+   22. PASS  (string-ci<=? "abc" "ABC")
+   23. PASS  (string-ci>? "XYZ" "abc")
+   24. PASS  (string-ci>=? "ABC" "abc")
+   25. PASS  (string-ci<? "abc" "ABD" "xyz")
+   26. PASS  (member 2.0 (list 1 2 3) =)
+   27. PASS  (member 2.0 (list 1 2 3) eqv?)
+   28. PASS  (member "b" (list "a" "b" "c") string=?)
+   29. PASS  (member "B" (list "a" "b" "c") string-ci=?)
+   30. PASS  (assoc 2.0 (list (list 1 "a") (list 2 "b") (list 3 "c...
+   31. PASS  (assoc "B" (list (list "a" 1) (list "b" 2)) string-ci=?)
+   32. PASS  (let ((p (open-output-string))) (write-shared (list 1...
+   33. PASS  (let ((p (open-output-string))) (write-simple "hello"...
+   34. PASS  (file-exists? "testing/test000-parser.log")
+   35. PASS  (file-exists? "no-such-file-xyz.scm")
+   36. PASS  (call-with-output-file "testing/test19-tmp.scm" (lamb...
+   37. PASS  (call-with-input-file "testing/test19-tmp.scm" read)
+   38. PASS  (with-input-from-file "testing/test19-tmp.scm" read)
+   39. PASS  (with-output-to-file "testing/test19-tmp2.txt" (lambd...
+   40. PASS  (file-exists? "testing/test19-tmp2.txt")
+   41. PASS  (delete-file "testing/test19-tmp2.txt")
+   42. PASS  (file-exists? "testing/test19-tmp2.txt")
+   43. PASS  (rename-file "testing/test19-tmp.scm" "testing/test19...
+   44. PASS  (file-exists? "testing/test19-tmp.scm")
+   45. PASS  (file-exists? "testing/test19-tmp-renamed.scm")
+   46. PASS  (delete-file "testing/test19-tmp-renamed.scm")
+   47. PASS  (call-with-output-file "testing/test19-load.scm" (lam...
+   48. PASS  (load "testing/test19-load.scm")
+   49. PASS  load-test-result
+   50. PASS  (delete-file "testing/test19-load.scm")
+   51. PASS  (string? (get-environment-variable "PATH"))
+   52. PASS  (boolean? (get-environment-variable "NONEXISTENT_VAR_...
+   53. PASS  (get-environment-variable "NONEXISTENT_VAR_XYZ_999")
+   54. PASS  (pair? (get-environment-variables))
+   55. PASS  (pair? (car (get-environment-variables)))
+   56. PASS  (jiffies-per-second)
+   57. PASS  (integer? (current-jiffy))
+   58. PASS  (real? (current-second))
+   59. PASS  (positive? (current-second))
+   60. PASS  (procedure? (eval (quote car) (scheme-report-environm...
+   61. PASS  (eval (quote (+ 1 2)) (scheme-report-environment 5))
+   62. PASS  (eval (quote (+ 1 2)) (null-environment 5))
+   63. PASS  (import (scheme inexact))
+   64. PASS  (import (scheme base))
+   65. PASS  (map (lambda (x) (* x x)) '(1 2 3 4 5))
+   66. PASS  (import (scheme write))
+   67. PASS  (procedure? write)
+   68. PASS  (import (scheme char))
+   69. PASS  (char-upcase #\a)
+   70. PASS  (string-upcase "hello")
+   71. PASS  (sqrt 2.0)
+   72. PASS  (import (scheme complex))
+   73. PASS  (real-part 3.0)
+   74. PASS  (imag-part 3.0)
+   75. PASS  (import (scheme cxr))
+   76. PASS  (caddr '(1 2 3 4))
+   77. PASS  (import (scheme lazy))
+   78. PASS  (define p (delay (+ 1 2)))
+   79. PASS  (force p)
+   80. PASS  (promise? p)
+   81. PASS  (import (scheme process-context))
+   82. PASS  (procedure? exit)
+   83. PASS  (import (scheme time))
+   84. PASS  (number? (current-second))
+   85. PASS  (integer? (jiffies-per-second))
+   86. PASS  (import (scheme case-lambda))
+   87. PASS  (define dispatch
+   88. PASS  (dispatch 5)
+   89. PASS  (dispatch 3 4)
+   90. PASS  (dispatch 1 2 3 4)
+   91. PASS  (define-library (my math)
+   92. PASS  (import (my math))
+   93. PASS  (cube 3)
+   94. PASS  (define-library (my priv)
+   95. PASS  (import (my priv))
+   96. PASS  (public-fn 5)
+   97. PASS  (define-library (my isolated)
+   98. PASS  (import (my isolated))
+   99. PASS  (get-x)
+  100. PASS  (define-library (my renamed)
+  101. PASS  (import (my renamed))
+  102. PASS  (plus 3 4)
+  103. PASS  (import (only (scheme base) + - *))
+  104. PASS  (+ 10 5)
+  105. PASS  (import (except (scheme base) write display))
+  106. PASS  (- 10 3)
+  107. PASS  (import (rename (scheme base) (+ add) (- sub)))
+  108. PASS  (add 3 5)
+  109. PASS  (sub 10 4)
+  110. PASS  (import (prefix (scheme base) s:))
+  111. PASS  (s:+ 2 3)
+  112. PASS  (s:car '(a b c))
+  113. PASS  (define-library (my base-utils)
+  114. PASS  (define-library (my derived)
+  115. PASS  (import (my derived))
+  116. PASS  (sextupled 5)
+  117. PASS  (define-library (my multi)
+  118. PASS  (import (my multi))
+  119. PASS  (add1 10)
+  120. PASS  (add2 10)
+  121. PASS  (cond-expand
+  122. PASS  (cond-expand
+  123. PASS  (cond-expand
+  124. PASS  (cond-expand
+  125. PASS  (cond-expand
+  126. PASS  (cond-expand
+  127. PASS  (cond-expand
+  128. PASS  (cond-expand
+  129. PASS  (cond-expand
+  130. PASS  (cond-expand ((library (scheme complex)) 'has-complex...
+  131. PASS  (cond-expand ((library (scheme inexact)) 'has-inexact...
+  132. PASS  (cond-expand ((library (scheme char)) 'has-char) (els...
+  133. PASS  (cond-expand ((library (scheme eval)) 'has-eval) (els...
+  134. PASS  (cond-expand ((library (scheme write)) 'has-write) (e...
+  135. PASS  (cond-expand ((library (scheme process-context)) 'has...
+  136. PASS  (cond-expand ((and (library (scheme base)) (library (...
+  137. PASS  (cond-expand ((or (library (scheme process-context)) ...
+  138. PASS  (cond-expand
+  139. PASS  (cond-expand
+  140. PASS  (cond-expand (no-such-feature 42))
+  141. PASS  (define-library (test cond-expand-lib)
+  142. PASS  (import (test cond-expand-lib))
+  143. PASS  ce-val
+  144. PASS  (define-library (test ce-else)
+  145. PASS  (import (test ce-else))
+  146. PASS  right-val
+  147. PASS  (call-with-output-file "/tmp/scheme_include_ci_test.scm"
+  148. PASS  (include-ci "/tmp/scheme_include_ci_test.scm")
+  149. PASS  include-ci-val
+  150. PASS  (import (scheme base))
+  151. PASS  (define-library (t1) (import (scheme base)) (export a...
+  152. PASS  (define-library (t2) (export bad) (begin (define (bad...
+  153. PASS  (import (t2)) (bad 5)
+  154. PASS  (define-library (t3) (import (scheme base)) (export (...
+  155. PASS  (define-library (t3) (import (scheme base)) (export (...
+  156. PASS  (define-library (t4) (import (scheme base)) (export a...
+  157. PASS  (define-library (t5) (import (scheme base)) (export a...
+  158. PASS  (define-library (t6) (import (scheme base)) (export a...
+  159. PASS  (define-library (t7) (import (scheme base)) (export a...
+  160. PASS  (define-library (t8) (import (scheme base)) (export m...
+  161. PASS  (import (no such library))
+  162. PASS  (define-library (base-a) (import (scheme base)) (expo...
+  163. PASS  (define-library (sugar) (import (scheme base)) (expor...
+  164. PASS  (define-library (t9) (import (scheme base)) (export a...
+  165. PASS  (define-library (mw1) (import (scheme base)) (export ...
+  166. PASS  (define-library (mw2) (import (scheme base)) (export ...
+  167. FAIL  (define-library (ce1) (cond-expand (pyscheme (import ...
+         expected return: [pyscheme]
+         actual return:   [other]
+  168. PASS  (define-library (ce2) (cond-expand (no-such-feature (...
+  169. PASS  (define-library (ild1) (include-library-declarations ...
+
+1 of 169 FAILED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test010-records.log
+------------------------------------------------------------------------
+    1. PASS  (define-record-type point
+    2. PASS  (define p (make-point 3 4))
+    3. PASS  (point? p)
+    4. PASS  (point? '(3 4))
+    5. PASS  (point? 42)
+    6. PASS  (point-x p)
+    7. PASS  (point-y p)
+    8. PASS  (define-record-type counter
+    9. PASS  (define c (make-counter 0))
+   10. PASS  (counter-value c)
+   11. PASS  (set-counter-value! c 42)
+   12. PASS  (counter-value c)
+   13. PASS  (define-record-type person
+   14. PASS  (define alice (make-person "Alice" 30))
+   15. PASS  (person-name alice)
+   16. PASS  (person-age alice)
+   17. PASS  (set-person-age! alice 31)
+   18. PASS  (person-age alice)
+   19. PASS  (person? alice)
+   20. PASS  (person? "Alice")
+   21. PASS  (define-record-type node
+   22. PASS  (define n (make-node 10))
+   23. PASS  (node-value n)
+   24. PASS  (node-next n)
+   25. PASS  (set-node-next! n 'end)
+   26. PASS  (node-next n)
+   27. PASS  (define p1 (make-point 1 2))
+   28. PASS  (define p2 (make-point 5 6))
+   29. PASS  (point-x p1)
+   30. PASS  (point-x p2)
+   31. PASS  (point? (make-counter 0))
+   32. PASS  (counter? (make-point 0 0))
+   33. PASS  (define pts (list (make-point 1 2) (make-point 3 4)))
+   34. PASS  (point-x (car pts))
+   35. PASS  (point-y (cadr pts))
+   36. PASS  (define-record-type empty-rec
+   37. PASS  (empty-rec? (make-empty-rec))
+   38. PASS  (empty-rec? 42)
+   39. FAIL  (eval '(+ 1 2) (environment '(scheme base)))
+         expected return: [3]
+         actual return:   []
+         expected error:  []
+         actual error:    [SchemeTypeError: line 1, col 16: environment: not implemented, library.h is stub
+(eval '(+ 1 2) (environment '(scheme base)))
+               ^]
+   40. PASS  (guard (e (#t 'caught))
+   41. FAIL  (eval '(finite? 1.0) (environment '(scheme inexact)))
+         expected return: [#t]
+         actual return:   []
+         expected error:  []
+         actual error:    [SchemeTypeError: line 1, col 22: environment: not implemented, library.h is stub
+(eval '(finite? 1.0) (environment '(scheme inexact)))
+                     ^]
+   42. FAIL  (eval '(+ (string-length "hi") 1)
+         expected return: [3]
+         actual return:   []
+         expected error:  []
+         actual error:    [SchemeTypeError: line 2, col 3: environment: not implemented, library.h is stub
+  (environment '(scheme base) '(scheme char)))
+  ^]
+   43. PASS  (guard (e (#t 'caught))
+   44. PASS  (eval '(define x 42))
+   45. PASS  (eval 'x)
+   46. PASS  (eval '(list 1 2 3))
+   47. PASS  (eval (list '+ 1 2 3))
+   48. PASS  (eval '(let ((n 5)) (* n n)))
+   49. PASS  (eval)
+   50. PASS  (eval '(+ 1 2) (interaction-environment))
+   51. PASS  (eval '(map (lambda (x) (* x x)) '(1 2 3)) (interacti...
+   52. PASS  (eval '(define test-env-var 777) (interaction-environ...
+   53. PASS  test-env-var
+   54. PASS  (scheme-report-environment 7)
+   55. PASS  (scheme-report-environment 5)
+   56. PASS  (eval '(+ 1 2) (scheme-report-environment 7))
+   57. PASS  (eval '(car '(a b c)) (scheme-report-environment 7))
+   58. PASS  (scheme-report-environment 99)
+   59. PASS  (scheme-report-environment 0)
+   60. PASS  (null-environment 5)
+   61. PASS  (null-environment 7)
+   62. PASS  (eval '+ (null-environment 5))
+   63. PASS  (eval '(if #t 42 0) (null-environment 5))
+   64. PASS  (eval '(begin 1 2 3) (null-environment 5))
+   65. PASS  (eval '(lambda (x) x) (null-environment 5))
+   66. PASS  (eval '(quote hello) (null-environment 5))
+   67. PASS  (eval '(define x 99) (null-environment 5))
+   68. PASS  (eval '(let ((x 1) (y 2)) (+ x y)) (null-environment 5))
+   69. PASS  (null-environment 99)
+   70. PASS  (null-environment 0)
+   71. PASS  (interaction-environment)
+   72. FAIL  (eq? (interaction-environment) (interaction-environme...
+         expected return: [#f]
+         actual return:   [#t]
+   73. PASS  (let ((e (null-environment 5)))
+   74. PASS  (let ((e (scheme-report-environment 7)))
+   75. PASS  (pair? (command-line))
+   76. PASS  (string? (car (command-line)))
+   77. FAIL  (features)
+         expected return: [(r7rs exact-closed exact-rational ratios ieee-float full-unicode pyscheme windows)]
+         actual return:   [(r7rs ratios exact-rational ieee-float full-unicode cekscheme)]
+   78. PASS  (list? (features))
+   79. PASS  (symbol? (car (features)))
+   80. PASS  (if (member 'r7rs (features)) #t #f)
+   81. PASS  (string? (get-environment-variable "PATH"))
+   82. PASS  (get-environment-variable "NOSUCHVAR_XYZ_12345")
+   83. PASS  (get-environment-variable 42)
+   84. PASS  (list? (get-environment-variables))
+   85. PASS  (let ((vars (get-environment-variables)))
+   86. FAIL  (let ((vars (get-environment-variables)))
+         expected return: [#t]
+         actual return:   [#f]
+   87. PASS  (number? (current-second))
+   88. PASS  (jiffies-per-second)
+   89. PASS  (positive? (current-jiffy))
+   90. PASS  (<= (current-jiffy) (current-jiffy))
+   91. PASS  (current-second 1)
+   92. PASS  (jiffies-per-second 1)
+   93. PASS  (current-jiffy 1)
+   94. PASS  (define-record-type point (make-point x y) point? (x ...
+   95. PASS  (define-record-type point (make-point x y) point? (x ...
+   96. PASS  (define-record-type point (make-point x y) point? (x ...
+   97. PASS  (define-record-type point (make-point x y) point? (x ...
+   98. PASS  (define-record-type point (make-point x y) point? (x ...
+   99. PASS  (define-record-type point (make-point x y) point? (x ...
+  100. PASS  (define-record-type point (make-point x y) point? (x ...
+  101. PASS  (define-record-type point (make-point x y) point? (x ...
+  102. PASS  (define-record-type box (make-box v) box? (v box-v se...
+  103. PASS  (define-record-type box (make-box v) box? (v box-v se...
+  104. PASS  (define-record-type point (make-point x y) point? (x ...
+  105. PASS  (define-record-type box (make-box v) box? (v box-v)) ...
+  106. PASS  (define-record-type bag (make-bag v) bag? (v bag-v)) ...
+  107. PASS  (define-record-type rec (make-rec a) rec? (a rec-a) (...
+  108. PASS  (define-record-type rec (make-rec a) rec? (a rec-a) (...
+  109. PASS  (define-record-type a (make-a v) a? (v a-v)) (define-...
+  110. PASS  (define-record-type a (make-a v) a? (v a-v)) (define-...
+  111. PASS  (define-record-type a (make-a v) a? (v a-v)) (define-...
+  112. PASS  (define-record-type a (make-a v) a? (v a-v)) (define-...
+  113. PASS  (define-record-type point (make-point x y) point? (x ...
+  114. PASS  (define-record-type tag (make-tag) tag?) (tag? (make-...
+  115. PASS  (define-record-type tag (make-tag) tag?) (make-tag)
+
+6 of 115 FAILED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test011-hygiene.log
+------------------------------------------------------------------------
+    1. PASS  (define-syntax h11-when
+    2. PASS  (let ((if 'redefined))
+    3. PASS  (let ((if (lambda args 'use-site-if)))
+    4. PASS  (define-syntax h11-or
+    5. PASS  (let ((t 'user)) (h11-or #f t))
+    6. PASS  (define-syntax h11-make-x
+    7. PASS  (define h11-x 'outer)
+    8. PASS  (h11-make-x h11-x)
+    9. PASS  (let ((else #f))
+   10. PASS  (let ((else 'truthy))
+   11. PASS  (let ((=> 'shadowed))
+   12. PASS  (let ((else 'shadowed))
+   13. PASS  (letrec-syntax ((h11-a (syntax-rules () ((_) (h11-b))))
+   14. PASS  (let-syntax ((h11-c (syntax-rules () ((_) 1)))
+   15. PASS  (let ((a 1) (a 2)) a)
+   16. PASS  (letrec ((a 1) (a 2)) a)
+   17. PASS  (letrec* ((a 1) (a 2)) a)
+   18. PASS  (let* ((a 1) (a 2)) a)
+   19. PASS  (define-syntax h11-must-be-zero
+   20. PASS  (h11-must-be-zero 0)
+   21. PASS  (h11-must-be-zero 5)
+   22. PASS  (define-syntax h11-no-args
+   23. PASS  (h11-no-args)
+   24. PASS  (define-syntax h11-bind-hidden
+   25. PASS  (let ()
+   26. PASS  (define-syntax h11-bind-visible
+   27. PASS  (let ()
+
+27 TESTS PASSED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test012-syntax-expand.log
+------------------------------------------------------------------------------
+    1. PASS  (syntax-expand '(define (f x) x))
+    2. PASS  (syntax-expand '(define (g a b) a))
+    3. PASS  (syntax-expand '(if #t 1))
+    4. PASS  (syntax-expand '(if #t 1 2))
+    5. PASS  (syntax-expand '(let ((x 1)) x))
+    6. PASS  (syntax-expand '(let ((a 1) (b 2)) (+ a b)))
+    7. PASS  (define-syntax h12-or
+    8. PASS  (syntax-expand '(h12-or a b))
+    9. PASS  (define-syntax h12-swap!
+   10. PASS  (syntax-expand '(h12-swap! p q))
+   11. PASS  (define-syntax h12-my-cond
+   12. PASS  (syntax-expand '(h12-my-cond (#f 1) (else 2)))
+   13. PASS  (let ((t #f)) (h12-or t #t))
+   14. PASS  (let ((t #f)) (h12-or #f (h12-or t #t)))
+   15. PASS  (define-syntax h12-lit
+   16. PASS  (h12-lit foo)
+   17. PASS  (let ((foo 99)) (h12-lit foo))
+   18. PASS  (define h12-x 'outer)
+   19. PASS  (define-syntax h12-get-x (syntax-rules () ((_ ) h12-x)))
+   20. PASS  (let ((h12-x 'inner)) (h12-get-x))
+   21. PASS  (let ((tmp 1) (other 2))
+   22. PASS  (define-syntax h12-and
+   23. PASS  (let ((t #f)) (h12-and #t #t #t))
+   24. PASS  (let ((t #f)) (h12-and t #t #t))
+   25. PASS  (let ((t #f)) (h12-and #t t #t))
+   26. PASS  (let ((t #f)) (h12-and #t #t t))
+   27. PASS  (let ((x 'outer-x))
+   28. PASS  (letrec-syntax
+
+28 TESTS PASSED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test020-arithmetic.log
+---------------------------------------------------------------------------
+    1. PASS  (+)
+    2. PASS  (+ 1 2 3 4 5)
+    3. PASS  (- 10)
+    4. PASS  (- 10 1 2 3)
+    5. PASS  (*)
+    6. PASS  (* 2 3 4)
+    7. PASS  (/ 12 3)
+    8. PASS  (/ 1 0)
+    9. PASS  (abs -42)
+   10. PASS  (abs 42)
+   11. PASS  (quotient 13 4)
+   12. PASS  (quotient -13 4)
+   13. PASS  (remainder 13 4)
+   14. PASS  (remainder -13 4)
+   15. PASS  (modulo 13 4)
+   16. PASS  (modulo -13 4)
+   17. PASS  (min 3 1 4 1 5 9 2 6)
+   18. PASS  (max 3 1 4 1 5 9 2 6)
+   19. PASS  (+ +inf.0 1)
+   20. PASS  (+ +inf.0 +inf.0)
+   21. PASS  (- +inf.0 +inf.0)
+   22. PASS  (* 0 +inf.0)
+   23. PASS  (* 2 +inf.0)
+   24. PASS  (/ +inf.0 2)
+   25. PASS  (/ 1 0.0)
+   26. PASS  (/ -1 0.0)
+   27. PASS  (/ 0 0.0)
+   28. PASS  (floor +inf.0)
+   29. PASS  (floor -inf.0)
+   30. PASS  (floor +nan.0)
+   31. PASS  (ceiling +inf.0)
+   32. PASS  (ceiling -inf.0)
+   33. PASS  (truncate +inf.0)
+   34. PASS  (truncate +nan.0)
+   35. PASS  (round +inf.0)
+   36. PASS  (* 4 (atan 1))
+   37. PASS  (number->string +inf.0)
+   38. PASS  (number->string -inf.0)
+   39. PASS  (number->string +nan.0)
+   40. PASS  (string->number "+inf.0")
+   41. PASS  (string->number "-inf.0")
+   42. PASS  (string->number "+nan.0")
+   43. PASS  (string->number "not-a-number")
+   44. PASS  (number->string 3+4i)
+   45. PASS  (number->string 0.0+1.0i)
+   46. PASS  (number->string 3.0-4.0i)
+   47. PASS  (number->string 0.0+0.0i)
+   48. PASS  (string->number "#b1010")
+   49. PASS  (string->number "#o17")
+   50. PASS  (string->number "#xff")
+   51. PASS  (string->number "#e3.0")
+   52. PASS  (string->number "#i42")
+   53. PASS  (string->number "#e#b1010")
+   54. PASS  (string->number "#i#xff")
+   55. PASS  (string->number "#z42")
+   56. PASS  (string->number "3+4i")
+   57. PASS  (string->number "3-4i")
+   58. PASS  (string->number "+2i")
+   59. PASS  (string->number "+i")
+   60. PASS  (string->number "-i")
+   61. PASS  (+ 1/2 1/3)
+   62. PASS  (- 1/2 1/3)
+   63. PASS  (* 2/3 3)
+   64. PASS  (* 1/2 1/3)
+   65. PASS  (/ 1/2 2)
+   66. PASS  (/ 1 3)
+   67. PASS  (/ 2)
+   68. PASS  (/ 3/4)
+   69. PASS  (+ 1/2 0.5)
+   70. PASS  (floor 7/2)
+   71. PASS  (floor -7/2)
+   72. PASS  (ceiling 7/2)
+   73. PASS  (ceiling -7/2)
+   74. PASS  (truncate 7/2)
+   75. PASS  (truncate -7/2)
+   76. PASS  (round 7/2)
+   77. PASS  (round 5/2)
+   78. PASS  (abs -3/4)
+   79. PASS  (abs 3/4)
+   80. PASS  (min 1/3 1/2)
+   81. PASS  (max 1/3 1/2)
+   82. PASS  (min 1/3 0.4)
+   83. PASS  (expt 2 3)
+   84. PASS  (expt 2 -2)
+   85. PASS  (expt 2 -1)
+   86. PASS  (expt 1/2 3)
+   87. PASS  (expt 2/3 2)
+   88. PASS  (sqrt 4/9)
+   89. PASS  (sqrt 1/4)
+   90. PASS  (number->string 3/4)
+   91. PASS  (number->string -1/3)
+   92. PASS  (string->number "3/4")
+   93. PASS  (string->number "-1/3")
+   94. PASS  (string->number "4/2")
+   95. PASS  (string->number "#e3/4")
+   96. PASS  (+ 3+4i 1-2i)
+   97. PASS  (+ 3+4i -3-4i)
+   98. PASS  (- 3+4i 1+2i)
+   99. PASS  (- 0+1i 0+1i)
+  100. PASS  (* 3+4i 1+2i)
+  101. PASS  (* 1+2i 1-2i)
+  102. PASS  (* 3+4i 2)
+  103. PASS  (/ 4 2)
+  104. PASS  (/ 0+2i 0+1i)
+  105. PASS  (/ 1+2i 1+1i)
+  106. PASS  (sqrt -1)
+  107. PASS  (sqrt -4)
+  108. PASS  (sqrt -1/4)
+  109. PASS  (sqrt 0+1i)
+  110. PASS  (abs 3+4i)
+  111. PASS  (abs 0+1i)
+  112. PASS  (expt 2+0i 3)
+  113. FAIL  (expt 0+1i 2)
+         expected return: [-1.0]
+         actual return:   [-1.0+1.2246467991473532e-16i]
+  114. FAIL  (expt 0+1i 4)
+         expected return: [1.0]
+         actual return:   [1.0-2.4492935982947064e-16i]
+  115. PASS  (number->string (sqrt -1))
+  116. PASS  (number->string (+ 3+4i 0))
+  117. PASS  (string->number "#e1.5")
+  118. PASS  (string->number "#e0.5")
+  119. PASS  (string->number "#e2.0")
+  120. PASS  (string->number "#e0.0")
+  121. PASS  (sqrt -0.0)
+  122. PASS  (expt -1 1/2)
+  123. PASS  (gcd 32.0 -36)
+  124. PASS  (lcm 32.0 -36)
+  125. PASS  (quotient 13.0 4)
+  126. PASS  (remainder 13 4.0)
+  127. PASS  (modulo -13.0 4)
+  128. PASS  (floor-quotient 5.0 2)
+  129. PASS  (floor-remainder 13 4.0)
+  130. PASS  (truncate-quotient -13.0 4)
+  131. PASS  (truncate-remainder -13 4.0)
+  132. PASS  (+ 1+2i 3+4i)
+  133. PASS  (- 5+3i 2+1i)
+  134. PASS  (* 1+1i 1-1i)
+  135. PASS  (/ 1+2i 3+4i)
+  136. PASS  (number->string 1/3+1/2i)
+  137. PASS  (string->number "#e3.0+4.0i")
+  138. PASS  (+ 1 #| skip |# 2 #| skip |# 3)
+  139. PASS  (+ 1 #;(ignored expression) 4)
+  140. PASS  (+ 1)
+  141. PASS  (+ 1 2)
+  142. PASS  (+ 1.0 2)
+  143. PASS  (+ -3 3)
+  144. PASS  (- 5)
+  145. PASS  (- -5)
+  146. PASS  (- 10 3)
+  147. PASS  (- 10 3 2)
+  148. PASS  (- 1.5 0.5)
+  149. PASS  (-)
+  150. PASS  (* 5)
+  151. PASS  (* 2 3)
+  152. PASS  (* -1 -1)
+  153. PASS  (* 2.0 3)
+  154. PASS  (/ 10 2)
+  155. PASS  (/ 7 2)
+  156. PASS  (/ 6 3)
+  157. PASS  (/ 1 4)
+  158. PASS  (/ 10 2 5)
+  159. PASS  (/)
+  160. PASS  (/ 0 5)
+  161. PASS  (quotient 10 3)
+  162. PASS  (quotient -10 3)
+  163. PASS  (quotient 10 -3)
+  164. PASS  (quotient -10 -3)
+  165. PASS  (quotient 6 3)
+  166. PASS  (quotient 0 5)
+  167. PASS  (quotient 1 0)
+  168. PASS  (quotient 1 2 3)
+  169. PASS  (quotient -13.0 4)
+  170. PASS  (remainder 10 3)
+  171. PASS  (remainder -10 3)
+  172. PASS  (remainder 10 -3)
+  173. PASS  (remainder -10 -3)
+  174. PASS  (remainder 0 5)
+  175. PASS  (remainder 1 0)
+  176. PASS  (remainder 13.0 4)
+  177. PASS  (remainder -13.0 4)
+  178. PASS  (modulo 10 3)
+  179. PASS  (modulo -10 3)
+  180. PASS  (modulo 10 -3)
+  181. PASS  (modulo -10 -3)
+  182. PASS  (modulo 0 5)
+  183. PASS  (modulo 13 -4)
+  184. PASS  (modulo 1 0)
+  185. PASS  (modulo 13.0 4)
+  186. PASS  (modulo -13.0 4)
+  187. PASS  (floor/)
+  188. PASS  (floor-quotient 13 4)
+  189. PASS  (floor-quotient -13 4)
+  190. PASS  (floor-quotient 13 -4)
+  191. PASS  (floor-quotient -13 -4)
+  192. PASS  (floor-quotient 10 0)
+  193. PASS  (floor-quotient)
+  194. PASS  (floor-remainder 13 4)
+  195. PASS  (floor-remainder -13 4)
+  196. PASS  (floor-remainder 13 -4)
+  197. PASS  (floor-remainder -13 -4)
+  198. PASS  (floor-remainder)
+  199. PASS  (truncate/)
+  200. PASS  (truncate-quotient 13 4)
+  201. PASS  (truncate-quotient -7 2)
+  202. PASS  (truncate-quotient 10 0)
+  203. PASS  (truncate-quotient)
+  204. PASS  (truncate-remainder 13 4)
+  205. PASS  (truncate-remainder -7 2)
+  206. PASS  (truncate-remainder)
+  207. PASS  (abs 5)
+  208. PASS  (abs -5)
+  209. PASS  (abs 0)
+  210. PASS  (abs -3.14)
+  211. PASS  (abs 2.5)
+  212. PASS  (abs 3/4)
+  213. PASS  (abs)
+  214. PASS  (expt 2 0)
+  215. PASS  (expt 2 1)
+  216. PASS  (expt 2 10)
+  217. PASS  (expt 3 3)
+  218. PASS  (expt 4 0.5)
+  219. PASS  (expt 0 0)
+  220. PASS  (expt 0 3)
+  221. PASS  (expt 2 -1)
+  222. PASS  (expt -2 -1)
+  223. PASS  (expt 2/3 3)
+  224. PASS  (expt 3/2 -2)
+  225. PASS  (sqrt 0)
+  226. PASS  (sqrt 1)
+  227. PASS  (sqrt 4)
+  228. PASS  (sqrt 9)
+  229. PASS  (sqrt 25)
+  230. PASS  (sqrt 100)
+  231. PASS  (sqrt 2)
+  232. PASS  (sqrt 1/4)
+  233. PASS  (sqrt 9/25)
+  234. PASS  (sqrt 4/1)
+  235. PASS  (exact-integer-sqrt)
+  236. PASS  (floor 3.7)
+  237. PASS  (floor 3.0)
+  238. PASS  (floor -3.2)
+  239. PASS  (floor 3.5)
+  240. PASS  (floor 5)
+  241. PASS  (floor -3)
+  242. PASS  (floor -7/2)
+  243. PASS  (ceiling 3.2)
+  244. PASS  (ceiling 3.0)
+  245. PASS  (ceiling -3.7)
+  246. PASS  (ceiling 3.5)
+  247. PASS  (ceiling 3)
+  248. PASS  (ceiling -3)
+  249. PASS  (ceiling -7/2)
+  250. PASS  (round 0.5)
+  251. PASS  (round 1.5)
+  252. PASS  (round 2.5)
+  253. PASS  (round 3.5)
+  254. PASS  (round 4.5)
+  255. PASS  (round -0.5)
+  256. PASS  (round -1.5)
+  257. PASS  (round -2.5)
+  258. PASS  (round 3.2)
+  259. PASS  (round 3.7)
+  260. PASS  (round 1.4)
+  261. PASS  (round 1.6)
+  262. PASS  (round -1.4)
+  263. PASS  (round -1.6)
+  264. PASS  (round 3)
+  265. PASS  (round 4)
+  266. PASS  (round 7/2)
+  267. PASS  (round -7/2)
+  268. PASS  (round 5/2)
+  269. PASS  (truncate 3.7)
+  270. PASS  (truncate -3.7)
+  271. PASS  (truncate 0.9)
+  272. PASS  (truncate 7)
+  273. PASS  (truncate -7/2)
+  274. PASS  (- 3/4 1/4)
+  275. PASS  (* 2/3 3/4)
+  276. PASS  (/ 1/2 1/3)
+  277. PASS  (/ 5 3)
+  278. PASS  (+ 1/2 1)
+  279. PASS  (* 2 3/4)
+  280. PASS  (+ 1/3 1/3 1/3)
+  281. PASS  (* 1/2 2)
+  282. PASS  (min 3)
+  283. PASS  (min 3 1 4 1 5 9)
+  284. PASS  (min -5 0 5)
+  285. PASS  (max 3)
+  286. PASS  (max 3 1 4 1 5 9)
+  287. PASS  (max -5 0 5)
+  288. PASS  (min)
+  289. PASS  (max)
+  290. PASS  (min 3 4.0)
+  291. PASS  (min 4.0 3)
+  292. PASS  (max 3.0 4)
+  293. PASS  (max 4 3.0)
+  294. PASS  (max 1/3 1/2)
+  295. PASS  (min 1/3 0.5)
+  296. PASS  (min 1 +inf.0)
+  297. PASS  (max 1 +inf.0)
+  298. PASS  (min 1 -inf.0)
+  299. PASS  (max 1 -inf.0)
+  300. PASS  (gcd)
+  301. PASS  (gcd 5)
+  302. PASS  (gcd 12 8)
+  303. PASS  (gcd 12 8 6)
+  304. PASS  (gcd 0 5)
+  305. PASS  (gcd 0 0)
+  306. PASS  (lcm)
+  307. PASS  (lcm 5)
+  308. PASS  (lcm 4 6)
+  309. PASS  (lcm 4 6 10)
+  310. PASS  (number->string 0)
+  311. PASS  (number->string 42)
+  312. PASS  (number->string -17)
+  313. PASS  (number->string)
+  314. PASS  (number->string #xFF 16)
+  315. PASS  (number->string #b1010 2)
+  316. PASS  (number->string #o17 8)
+  317. PASS  (string->number "42")
+  318. PASS  (string->number "0")
+  319. PASS  (string->number "-17")
+  320. PASS  (string->number "3.14")
+  321. PASS  (string->number "abc")
+  322. PASS  (string->number "")
+  323. PASS  (string->number "12abc")
+  324. PASS  (string->number)
+  325. PASS  (string->number "ff" 16)
+  326. PASS  (string->number "FF" 16)
+  327. PASS  (string->number "-a" 16)
+  328. PASS  (string->number "1010" 2)
+  329. PASS  (string->number "17" 8)
+  330. PASS  (string->number "255" 10)
+  331. PASS  (string->number "ff")
+  332. PASS  (string->number "0" 16)
+  333. PASS  (string->number "z" 16)
+  334. PASS  (string->number "#i3")
+  335. PASS  (string->number "#i1")
+  336. PASS  (string->number "#e1.0")
+  337. PASS  (string->number "#e3.0")
+  338. PASS  (string->number "#e5")
+  339. PASS  (string->number "#b101")
+  340. PASS  (string->number "#b1111")
+  341. PASS  (string->number "#o10")
+  342. PASS  (string->number "#xff")
+  343. PASS  (string->number "#x1A")
+  344. PASS  (string->number "#d42")
+  345. PASS  (string->number "#e#b101")
+  346. PASS  (string->number "#inot")
+  347. PASS  (string->number "+inf")
+  348. PASS  (string->number "inf.0")
+  349. PASS  (string->number (number->string 255 16) 16)
+  350. PASS  (string->number (number->string 10 2) 2)
+  351. PASS  (+ "a" 1)
+  352. PASS  (- #t 1)
+  353. PASS  (* '() 2)
+  354. PASS  (- 1+2i 3+4i)
+  355. PASS  (* 1+2i 3+4i)
+  356. PASS  (/ 2+4i 2+0i)
+  357. PASS  (+ 1+2i 3)
+  358. PASS  (* 2 1+3i)
+  359. PASS  (- 3+4i)
+  360. PASS  (sqrt -4)
+  361. PASS  (sqrt 4.0)
+  362. PASS  (sqrt 0+4i)
+  363. PASS  (expt 2+0i 2)
+  364. PASS  (string->number "-3.5+2.0i")
+  365. PASS  (number->string 3+4i)
+
+2 of 365 FAILED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test021-arithmetic2.log
+----------------------------------------------------------------------------
+    1. PASS  +inf.0
+    2. PASS  -inf.0
+    3. PASS  +nan.0
+    4. PASS  (exp 0)
+    5. PASS  (exp 1)
+    6. PASS  (exp -1)
+    7. PASS  (log 1)
+    8. PASS  (log 0)
+    9. PASS  (log -1)
+   10. PASS  (log 100 10)
+   11. PASS  (sin 0)
+   12. PASS  (cos 0)
+   13. PASS  (tan 0)
+   14. PASS  (sin (/ (* 4 (atan 1)) 2))
+   15. PASS  (asin 0)
+   16. PASS  (acos 1)
+   17. PASS  (atan 0)
+   18. PASS  (atan 1 1)
+   19. PASS  (asin 2)
+   20. PASS  (acos 2)
+   21. PASS  #b1010
+   22. PASS  #o17
+   23. PASS  #d42
+   24. PASS  #xff
+   25. PASS  #xDEAD
+   26. PASS  #b-1010
+   27. PASS  #o-17
+   28. PASS  #XFF
+   29. PASS  #e42
+   30. PASS  #e3.0
+   31. PASS  #i42
+   32. PASS  #i3
+   33. PASS  #e#b1010
+   34. PASS  #b#e1010
+   35. PASS  #i#b1010
+   36. PASS  #i#xff
+   37. PASS  #b#o1010
+   38. PASS  #e#e42
+   39. PASS  #e1.5
+   40. PASS  #e+inf.0
+   41. PASS  3+4i
+   42. PASS  3-4i
+   43. PASS  +2i
+   44. PASS  -2i
+   45. PASS  +i
+   46. PASS  -i
+   47. PASS  1.5+2.5i
+   48. PASS  0.0-3.0i
+   49. PASS  1.0+2.5e1i
+   50. PASS  +inf.0+0.0i
+   51. PASS  0.0+inf.0i
+   52. PASS  +nan.0+0.0i
+   53. PASS  3/4
+   54. PASS  -3/4
+   55. PASS  6/4
+   56. PASS  4/2
+   57. PASS  #e1.5
+   58. PASS  #e0.1
+   59. PASS  #e-0.5
+   60. PASS  (exact 1.5)
+   61. PASS  (exact 0.75)
+   62. PASS  (inexact 3/4)
+   63. PASS  (inexact 1/3)
+   64. PASS  (exact 3/4)
+   65. PASS  (exact? 3/4)
+   66. PASS  (inexact? 3/4)
+   67. PASS  (numerator 3/4)
+   68. PASS  (denominator 3/4)
+   69. PASS  (numerator 2)
+   70. PASS  (denominator 2)
+   71. PASS  (inexact? (sqrt 1/2))
+   72. PASS  (square 3/4)
+   73. PASS  (make-rectangular 3 4)
+   74. PASS  (make-rectangular 0 1)
+   75. PASS  (make-rectangular 1/2 1/3)
+   76. PASS  (real-part (make-polar 1 0))
+   77. PASS  (imag-part (make-polar 1 0))
+   78. PASS  (real-part 3+4i)
+   79. PASS  (imag-part 3+4i)
+   80. PASS  (real-part 5)
+   81. PASS  (imag-part 5)
+   82. PASS  (imag-part 5.0)
+   83. PASS  (real-part 3/4)
+   84. PASS  (imag-part 3/4)
+   85. PASS  (magnitude 3+4i)
+   86. PASS  (magnitude 5)
+   87. PASS  (magnitude -5)
+   88. PASS  (magnitude 3/4)
+   89. PASS  (angle 1)
+   90. PASS  (angle -1)
+   91. PASS  (angle 1+0i)
+   92. PASS  (inexact? 3+4i)
+   93. PASS  (exact? 3+4i)
+   94. PASS  (square 3+4i)
+   95. PASS  (square 0+1i)
+   96. PASS  (exp 0+0i)
+   97. PASS  (exp 0+1i)
+   98. PASS  (log 1+0i)
+   99. PASS  (log -1+0i)
+  100. PASS  (sin 0+0i)
+  101. PASS  (cos 0+0i)
+  102. PASS  (inexact 3+4i)
+  103. PASS  (exact 3+4i)
+  104. PASS  (exact 3.0+4.0i)
+  105. PASS  (rationalize 1/3 1/10)
+  106. PASS  (rationalize 3/10 1/10)
+  107. PASS  (rationalize -1/3 1/10)
+  108. PASS  (rationalize 1/4 1/4)
+  109. PASS  (rationalize 1/3 0)
+  110. PASS  (rationalize 0 0)
+  111. PASS  (rationalize 0.3 0.1)
+  112. PASS  (rationalize 0.0 0.1)
+  113. PASS  (rationalize 1 +inf.0)
+  114. PASS  (rationalize +inf.0 1)
+  115. PASS  1@0
+  116. PASS  2@0
+  117. PASS  (log -1)
+  118. PASS  (log -2)
+  119. PASS  (asin -2)
+  120. PASS  (acos 2)
+  121. PASS  (angle +nan.0)
+  122. PASS  (exact? 3+4i)
+  123. PASS  (exact? 1/3+1/2i)
+  124. PASS  (inexact? 3+4i)
+  125. PASS  (inexact 3+4i)
+  126. PASS  (exact 3.0+4.0i)
+  127. PASS  (imag-part 1/3+1/2i)
+  128. PASS  (make-rectangular 1/3 1/2)
+  129. PASS  (magnitude 3+4i)
+  130. PASS  (inexact? (quotient 13.0 4))
+  131. PASS  (exact? (quotient 13 4))
+  132. PASS  (inexact? (remainder 13.0 4))
+  133. PASS  (inexact? (expt 2 100))
+  134. PASS  (exact? (sqrt 4))
+  135. PASS  (inexact? (sqrt 2))
+  136. PASS  (exact? (sqrt 4/9))
+  137. PASS  (exact? (sqrt 2/3))
+  138. PASS  (inexact? (sqrt 2/3))
+  139. PASS  (exact? (floor 5))
+  140. PASS  (inexact? (floor 3.5))
+  141. PASS  (exact? (ceiling 3))
+  142. PASS  (exact? (round 3))
+  143. PASS  (exact->inexact 5)
+  144. PASS  (exact->inexact 0)
+  145. PASS  (exact->inexact -3)
+  146. PASS  (exact->inexact 1/4)
+  147. PASS  (exact->inexact 1/3)
+  148. PASS  (inexact->exact 3.0)
+  149. PASS  (inexact->exact 3.7)
+  150. PASS  (inexact->exact 0.0)
+  151. PASS  (inexact->exact 0.5)
+  152. PASS  (inexact->exact 0.25)
+  153. PASS  (inexact->exact 0.1)
+  154. PASS  (exact 5)
+  155. PASS  (exact 3.9)
+  156. PASS  (inexact 5)
+  157. PASS  (inexact 0)
+  158. PASS  (exact? 1/2)
+  159. PASS  (inexact? 1/2)
+  160. PASS  (numerator 5)
+  161. PASS  (denominator 5)
+  162. PASS  (numerator 0)
+  163. PASS  (denominator 0)
+  164. PASS  (denominator 3/4)
+  165. PASS  (numerator 3.0)
+  166. PASS  (denominator 3.0)
+  167. PASS  (numerator 0.5)
+  168. PASS  (denominator 0.5)
+  169. PASS  (numerator +inf.0)
+  170. PASS  (numerator -inf.0)
+  171. PASS  (denominator +inf.0)
+  172. PASS  (denominator -inf.0)
+  173. PASS  (numerator +nan.0)
+  174. PASS  (denominator +nan.0)
+  175. PASS  (numerator)
+  176. PASS  (denominator)
+  177. PASS  (rationalize 3 0)
+  178. PASS  (rationalize 1/3 1/10)
+  179. PASS  (rationalize 1/4 1/10)
+  180. PASS  (rationalize -1/3 1/10)
+  181. PASS  (rationalize 0 1/2)
+  182. PASS  (rationalize 1/2 0)
+  183. PASS  (rationalize 3 1/10)
+  184. PASS  (rationalize (exact .1) 0)
+  185. PASS  (exact? (rationalize 1/3 1/10))
+  186. PASS  (rationalize 3.0 0.1)
+  187. PASS  (inexact? (rationalize 0.3 0.1))
+  188. PASS  (inexact? (min 3 4.0))
+  189. PASS  (inexact? (max 3.0 4))
+  190. PASS  (exact? (min 3 4))
+  191. PASS  (exact? (max 3 4))
+  192. PASS  (inexact? (min 3.0 4.0))
+  193. PASS  (inexact? (string->number "#i3"))
+  194. PASS  (exact? (string->number "#e1.0"))
+  195. PASS  (exact? (string->number "#e#b101"))
+  196. PASS  (inexact? (string->number "#i#xff"))
+  197. PASS  (square 5)
+  198. PASS  (square -3)
+  199. PASS  (square 0)
+  200. PASS  (square 2.5)
+  201. PASS  (square)
+  202. PASS  (log 1)
+  203. PASS  (log 8 2)
+  204. PASS  (log 100 10)
+  205. PASS  (exp)
+  206. PASS  (log)
+  207. PASS  (tan 0)
+  208. PASS  (sin)
+  209. PASS  (cos)
+  210. PASS  (tan)
+  211. PASS  (atan 0)
+  212. PASS  (atan 1 1)
+  213. PASS  (asin)
+  214. PASS  (acos)
+  215. PASS  (atan)
+  216. PASS  (let ((x 2.0))
+  217. PASS  (exact-integer? 42)
+  218. PASS  (exact-integer? 0)
+  219. PASS  (exact-integer? 3.0)
+  220. PASS  (exact-integer? "hi")
+  221. PASS  (exact-integer?)
+  222. PASS  3-4i
+  223. PASS  +4i
+  224. PASS  -4i
+  225. PASS  -i
+  226. PASS  3.5+2.1i
+  227. PASS  (make-rectangular 3.0 0.0)
+  228. PASS  (inexact? 3+4i)
+  229. PASS  (real-part (expt 0+1i 2))
+  230. PASS  (real-part (expt 0+1i 4))
+  231. PASS  (make-rectangular 3.0 4.0)
+  232. PASS  (imag-part 3+4i)
+  233. PASS  (imag-part 3)
+  234. PASS  (imag-part 3.0)
+  235. PASS  (magnitude 5.0)
+  236. PASS  (angle 1.0)
+  237. PASS  (angle -1.0)
+  238. PASS  (exact? 5)
+  239. PASS  (exact? 5.0)
+  240. PASS  (exact? "5")
+  241. PASS  (exact?)
+  242. PASS  (inexact? 5.0)
+  243. PASS  (inexact? 5)
+  244. PASS  (inexact?)
+  245. PASS  (exact->inexact +inf.0)
+  246. PASS  (exact->inexact -inf.0)
+  247. PASS  (exact->inexact +nan.0)
+  248. PASS  (inexact->exact +inf.0)
+  249. PASS  (inexact->exact -inf.0)
+  250. PASS  (inexact->exact +nan.0)
+  251. PASS  (let ((n (random 10))) (and (integer? n) (>= n 0) (< ...
+  252. PASS  (random 1)
+  253. PASS  (random 0)
+
+253 TESTS PASSED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test022-bytevectors.log
+----------------------------------------------------------------------------
+    1. PASS  (bytevector? #u8(1 2 3))
+    2. PASS  (bytevector? #u8())
+    3. PASS  (bytevector? "hello")
+    4. PASS  (bytevector? '(1 2 3))
+    5. PASS  (make-bytevector 3)
+    6. PASS  (make-bytevector 4 7)
+    7. PASS  (make-bytevector 0)
+    8. PASS  (bytevector 1 2 3)
+    9. PASS  (bytevector)
+   10. PASS  (bytevector 0 127 255)
+   11. PASS  (bytevector-length #u8(1 2 3))
+   12. PASS  (bytevector-length #u8())
+   13. PASS  (bytevector-u8-ref #u8(10 20 30) 0)
+   14. PASS  (bytevector-u8-ref #u8(10 20 30) 2)
+   15. PASS  (bytevector-u8-ref #u8(1 2 3) 5)
+   16. PASS  (bytevector-copy #u8(1 2 3 4 5))
+   17. PASS  (bytevector-copy #u8(1 2 3 4 5) 1 3)
+   18. PASS  (bytevector-copy #u8(1 2 3 4 5) 2)
+   19. PASS  (bytevector-append #u8(1 2) #u8(3 4))
+   20. PASS  (bytevector-append #u8() #u8(5 6))
+   21. PASS  (bytevector-append)
+   22. PASS  (bytevector->u8-list #u8(1 2 3 4 5))
+   23. PASS  (bytevector->u8-list #u8())
+   24. PASS  (bytevector-u8-set! (make-bytevector 3) 5 0)
+   25. PASS  (bytevector-u8-set! (make-bytevector 3) 0 256)
+   26. PASS  (bytevector-copy #u8(1 2 3) 2 1)
+   27. PASS  (bytevector-copy! (make-bytevector 3) 2 #u8(9 9) 0 2)
+   28. PASS  (bytevector-length "oops")
+   29. PASS  (bytevector-u8-ref '() 0)
+   30. PASS  (utf8->string #u8(104 101 108 108 111))
+   31. PASS  (string->utf8 "hello")
+   32. PASS  (utf8->string (string->utf8 "abc"))
+   33. PASS  (string->utf8 "abc" 1 2)
+   34. PASS  (utf8->string #u8(1 2 3) 3 1)
+   35. PASS  (string->utf8 "abc" 2 1)
+
+35 TESTS PASSED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test023-chars.log
+----------------------------------------------------------------------
+    1. FAIL  (char->integer (string-ref "\x3BB;" 0))
+         expected return: [955]
+         actual return:   [206]
+    2. PASS  (char->integer #\x41)
+    3. PASS  (char->integer #\x0)
+    4. PASS  (char->integer #\x3BB)
+    5. PASS  (char=? #\x41 #\A)
+    6. PASS  (char=? #\x0 #\null)
+    7. PASS  (char? #\a)
+    8. PASS  (char? #\A)
+    9. PASS  (char? #\space)
+   10. PASS  (char? 65)
+   11. PASS  (char? "a")
+   12. PASS  (char? #t)
+   13. PASS  (char=? #\a #\a)
+   14. PASS  (char=? #\a #\b)
+   15. PASS  (char=? #\A #\A #\A)
+   16. PASS  (char=?)
+   17. PASS  (char<? #\a #\b)
+   18. PASS  (char<? #\b #\a)
+   19. PASS  (char<? #\a #\b #\c)
+   20. PASS  (char>? #\b #\a)
+   21. PASS  (char>? #\a #\b)
+   22. PASS  (char<=? #\a #\a)
+   23. PASS  (char<=? #\a #\b)
+   24. PASS  (char<=? #\b #\a)
+   25. PASS  (char>=? #\a #\a)
+   26. PASS  (char>=? #\b #\a)
+   27. PASS  (char>=? #\a #\b)
+   28. PASS  (char-ci=? #\a #\A)
+   29. PASS  (char-ci=? #\a #\b)
+   30. PASS  (char-ci=? #\A #\A #\a)
+   31. PASS  (char-ci=?)
+   32. PASS  (char-ci<? #\a #\B)
+   33. PASS  (char-ci<? #\B #\a)
+   34. PASS  (char-ci<? #\a #\A)
+   35. PASS  (char-ci>? #\a #\B)
+   36. PASS  (char-ci<=? #\a #\A)
+   37. PASS  (char-ci<=? #\a #\B)
+   38. PASS  (char-ci<=? #\B #\a)
+   39. PASS  (char-ci>=? #\A #\a)
+   40. PASS  (char-ci>=? #\B #\a)
+   41. PASS  (char-ci>=? #\a #\B)
+   42. PASS  (char-alphabetic? #\A)
+   43. PASS  (char-alphabetic? #\a)
+   44. PASS  (char-alphabetic? #\1)
+   45. PASS  (char-alphabetic? #\space)
+   46. PASS  (char-alphabetic?)
+   47. PASS  (char-numeric? #\0)
+   48. PASS  (char-numeric? #\9)
+   49. PASS  (char-numeric? #\A)
+   50. PASS  (char-numeric?)
+   51. PASS  (char-whitespace? #\space)
+   52. PASS  (char-whitespace? #\tab)
+   53. PASS  (char-whitespace? #\newline)
+   54. PASS  (char-whitespace? #\A)
+   55. PASS  (char-whitespace?)
+   56. PASS  (char-upper-case? #\A)
+   57. PASS  (char-upper-case? #\a)
+   58. PASS  (char-upper-case? #\0)
+   59. PASS  (char-lower-case? #\a)
+   60. PASS  (char-lower-case? #\A)
+   61. PASS  (char-upper-case?)
+   62. PASS  (char-lower-case?)
+   63. PASS  (char->integer #\A)
+   64. PASS  (char->integer #\a)
+   65. PASS  (char->integer #\space)
+   66. PASS  (char->integer #\0)
+   67. PASS  (char->integer #\newline)
+   68. PASS  (char->integer)
+   69. PASS  (char->integer 65)
+   70. PASS  (integer->char 65)
+   71. PASS  (integer->char 97)
+   72. PASS  (integer->char 32)
+   73. PASS  (integer->char 48)
+   74. PASS  (integer->char 10)
+   75. PASS  (integer->char)
+   76. PASS  (integer->char (char->integer #\z))
+   77. PASS  (char->integer (integer->char 90))
+   78. PASS  (char-upcase #\a)
+   79. PASS  (char-upcase #\A)
+   80. PASS  (char-upcase #\0)
+   81. PASS  (char-upcase)
+   82. PASS  (char-downcase #\A)
+   83. PASS  (char-downcase #\a)
+   84. PASS  (char-downcase #\0)
+   85. PASS  (char-downcase)
+   86. PASS  (char-foldcase #\a)
+   87. PASS  (char-foldcase #\0)
+   88. PASS  (char-foldcase)
+   89. PASS  (digit-value #\0)
+   90. PASS  (digit-value #\5)
+   91. PASS  (digit-value #\9)
+   92. PASS  (digit-value #\a)
+   93. PASS  (digit-value #\space)
+   94. PASS  (digit-value (integer->char #x00B2))
+   95. PASS  (digit-value (integer->char #x0660))
+   96. PASS  (digit-value)
+   97. PASS  (char? (string-ref "hello" 0))
+   98. PASS  (char-alphabetic? (string-ref "hello" 0))
+   99. PASS  (char-upcase (string-ref "hello" 0))
+
+1 of 99 FAILED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test024-comparison.log
+---------------------------------------------------------------------------
+    1. PASS  (= 1 1)
+    2. PASS  (= 1 1 1 1)
+    3. PASS  (= 1 2)
+    4. PASS  (< 1 2 3 4)
+    5. PASS  (< 1 3 2)
+    6. PASS  (> 4 3 2 1)
+    7. PASS  (<= 1 1 2 3)
+    8. PASS  (>= 3 3 2 1)
+    9. PASS  (= +inf.0 +inf.0)
+   10. PASS  (< -inf.0 0 +inf.0)
+   11. PASS  (> +inf.0 1000000)
+   12. PASS  (< +nan.0 0)
+   13. PASS  (< 1/3 1/2)
+   14. PASS  (= 2/4 1/2)
+   15. PASS  (> 3/4 1/2)
+   16. PASS  (<= 1/3 1/3)
+   17. PASS  (= 1/2 0.5)
+   18. PASS  (= 3+4i 3+4i)
+   19. PASS  (= 3+4i 3+5i)
+   20. PASS  (= 2+0i 2)
+   21. PASS  (= 1@0 (make-polar 1 0))
+   22. PASS  (= 5@0 5+0i)
+   23. PASS  (= 3+4i 3.0+4.0i)
+   24. PASS  (= 1/2 1/2)
+   25. PASS  (= 1/2 2/4)
+   26. PASS  (<= 1/4 1/4)
+   27. PASS  (>= 3/4 1/2)
+   28. PASS  (= (sinh 0) 0)
+   29. PASS  (< 1.17 (sinh 1) 1.18)
+   30. PASS  (= (sinh -1) (- (sinh 1)))
+   31. PASS  (= (cosh 0) 1)
+   32. PASS  (< 1.54 (cosh 1) 1.55)
+   33. PASS  (= (cosh -1) (cosh 1))
+   34. PASS  (= (tanh 0) 0)
+   35. PASS  (< 0.76 (tanh 1) 0.77)
+   36. PASS  (= (tanh -1) (- (tanh 1)))
+   37. PASS  (< 0.999 (tanh 10) 1.0)
+   38. PASS  (< -0.001 (- (asinh (sinh 1)) 1) 0.001)
+   39. PASS  (= (asinh 0) 0)
+   40. PASS  (= (asinh -1) (- (asinh 1)))
+   41. PASS  (= (acosh 1) 0)
+   42. PASS  (< -0.001 (- (acosh (cosh 2)) 2) 0.001)
+   43. PASS  (= (atanh 0) 0)
+   44. PASS  (< -0.001 (- (atanh (tanh 0.5)) 0.5) 0.001)
+   45. PASS  (= (atanh -0.5) (- (atanh 0.5)))
+   46. PASS  (< (abs (- (asinh (sinh 1.0)) 1.0)) 1e-10)
+   47. PASS  (< (abs (- (acosh (cosh 1.0)) 1.0)) 1e-10)
+   48. PASS  (< (abs (- (atanh (tanh 0.5)) 0.5)) 1e-10)
+   49. PASS  (= 1+2i 1+2i)
+   50. PASS  (= 1+2i 1+3i)
+   51. PASS  (= (make-rectangular 3.0 0.0) 3.0)
+   52. PASS  (< (abs (imag-part (expt 0+1i 2))) 1e-10)
+   53. PASS  (< (abs (imag-part (expt 0+1i 4))) 1e-10)
+   54. PASS  (< 1.5707 (angle +i) 1.5708)
+   55. PASS  (= 1 1 1)
+   56. PASS  (= 1 1 2)
+   57. PASS  (= 1.0 1)
+   58. PASS  (= 0 0.0)
+   59. PASS  (= 1)
+   60. PASS  (< 1 2)
+   61. PASS  (< 2 1)
+   62. PASS  (< 1 1)
+   63. PASS  (< 1 2 3)
+   64. PASS  (< 1 2 2)
+   65. PASS  (< -1 0 1)
+   66. PASS  (<= 1 2)
+   67. PASS  (<= 2 2)
+   68. PASS  (<= 3 2)
+   69. PASS  (<= 1 2 2 3)
+   70. PASS  (<= 1 2 1 3)
+   71. PASS  (> 2 1)
+   72. PASS  (> 1 2)
+   73. PASS  (> 1 1)
+   74. PASS  (> 3 2 1)
+   75. PASS  (> 3 2 2)
+   76. PASS  (>= 2 1)
+   77. PASS  (>= 2 2)
+   78. PASS  (>= 1 2)
+   79. PASS  (>= 3 2 2 1)
+   80. PASS  (>= 3 2 3 1)
+   81. PASS  (< "a" 1)
+   82. PASS  (< 3.0+0i 4)
+   83. PASS  (> 5 2.0+0i)
+   84. PASS  (<= 1+0i 1)
+   85. PASS  (>= 2 1+0i)
+   86. PASS  (< 1+2i 3)
+
+86 TESTS PASSED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test025-control.log
+------------------------------------------------------------------------
+    1. PASS  (apply * '(2 3 4))
+    2. PASS  (apply cons '(1 2))
+    3. PASS  (apply list '(1 2 3))
+    4. PASS  (apply + 1 2 '(3 4))
+    5. PASS  (apply list 'a 'b '(c d))
+    6. PASS  (apply max 1 '(2 3))
+    7. PASS  (apply (lambda (x y) (* x y)) '(6 7))
+    8. PASS  (apply)
+    9. PASS  (map (lambda (x) (* x x)) '(1 2 3 4 5))
+   10. PASS  (map car '((1 2) (3 4) (5 6)))
+   11. PASS  (map (lambda (x) (+ x 1)) '(0 1 2))
+   12. PASS  (map not '(#t #f #t))
+   13. PASS  (map (lambda (x) x) '())
+   14. PASS  (map + '(1 2 3) '(4 5 6))
+   15. PASS  (map * '(1 2 3) '(10 10 10))
+   16. PASS  (map list '(a b c) '(1 2 3))
+   17. PASS  (map)
+   18. PASS  (for-each display '(1 2 3))
+   19. PASS  (for-each (lambda (x) (display (* x x))) '(1 2 3))
+   20. PASS  (for-each display '())
+   21. PASS  (for-each)
+   22. PASS  (apply append '((1 2) (3 4) (5 6)))
+   23. PASS  (let loop ((n 10) (acc 1))
+   24. PASS  (let loop ((n 100000) (acc 0))
+   25. PASS  (let loop ((n 100000))
+   26. PASS  (letrec ((even? (lambda (n)
+   27. PASS  (define (count-down n)
+   28. PASS  (count-down 100000)
+   29. PASS  (define (classify n)
+   30. PASS  (classify -5)
+   31. PASS  (classify 0)
+   32. PASS  (classify 7)
+   33. PASS  (define (all-positive? lst)
+   34. PASS  (all-positive? '(1 2 3 4 5))
+   35. PASS  (all-positive? '(1 2 -3 4 5))
+   36. PASS  (define (last-of-list lst)
+   37. PASS  (last-of-list '(1 2 3 4 5))
+   38. PASS  (apply string-append '("hello" " " "world"))
+   39. PASS  (apply + 1 2 '(3 4))
+   40. PASS  (apply (lambda (x y) (* x y)) '(6 7))
+   41. PASS  (define (count-down n)
+   42. PASS  (count-down 50000)
+   43. PASS  (call/cc (lambda (k) (k 42) 99))
+   44. PASS  (+ 1 (call/cc (lambda (k) (+ 2 (k 10)))))
+   45. PASS  (define saved-k #f)
+   46. PASS  (+ 1 (call/cc (lambda (k) (set! saved-k k) 0)))
+   47. PASS  (saved-k 9)
+   48. PASS  (values 42)
+   49. PASS  (call-with-values (lambda () (values 1 2)) +)
+   50. PASS  (call-with-values (lambda () (values 1 2 3)) list)
+   51. PASS  (call-with-values (lambda () 42) (lambda (x) (* x 2)))
+   52. PASS  (call-with-values (lambda () (values)) list)
+   53. PASS  (call-with-values (lambda () (values)) (lambda () 'ze...
+   54. PASS  (call-with-values (lambda () (values)) +)
+   55. PASS  (call-with-values (lambda () (values 'a 'b 'c)) list)
+   56. PASS  (call-with-values (lambda () 42) (lambda (x) (* x 2)))
+   57. PASS  (call-with-values)
+   58. PASS  (define (cwv-loop n acc)
+   59. PASS  (cwv-loop 10000 0)
+   60. PASS  (delay 42)
+   61. PASS  (force (delay (+ 1 2)))
+   62. PASS  (force 42)
+   63. PASS  (let ((count 0))
+   64. PASS  (promise? (delay 42))
+   65. PASS  (promise? 42)
+   66. PASS  (promise? (make-promise 5))
+   67. PASS  (force (make-promise 99))
+   68. PASS  (promise?)
+   69. PASS  (make-promise)
+   70. PASS  (force)
+   71. PASS  (let ((p (make-parameter 10)))
+   72. PASS  (let ((p (make-parameter 10)))
+   73. PASS  (let ((p (make-parameter 10)))
+   74. PASS  (let ((p (make-parameter 1)))
+   75. PASS  (parameter? (make-parameter 0))
+   76. PASS  (parameter? 42)
+   77. PASS  (parameter? car)
+   78. PASS  (let ((p (make-parameter 5 (lambda (x) (* x 2)))))
+   79. PASS  (make-parameter)
+   80. PASS  (parameter?)
+   81. PASS  (let ((log '()))
+   82. PASS  (let ((log '()))
+   83. PASS  (dynamic-wind
+   84. PASS  (let ((log '()))
+   85. PASS  (dynamic-wind)
+   86. PASS  (define (dw-loop n)
+   87. PASS  (dw-loop 10000)
+   88. PASS  (error "something went wrong")
+   89. PASS  (error "bad value" 42)
+   90. PASS  (error "expected" "foo" "got" "bar")
+   91. PASS  (error)
+   92. PASS  (raise 42)
+   93. PASS  (raise "oops")
+   94. PASS  (raise '(error info))
+   95. PASS  (raise)
+   96. PASS  (with-exception-handler
+   97. PASS  (with-exception-handler
+   98. PASS  (with-exception-handler
+   99. PASS  (with-exception-handler
+  100. PASS  (with-exception-handler
+  101. PASS  (guard (e (#t (string-append "caught: " (error-object...
+  102. PASS  (with-exception-handler
+  103. PASS  (with-exception-handler
+  104. PASS  (with-exception-handler
+  105. PASS  (with-exception-handler
+  106. PASS  (with-exception-handler
+  107. PASS  (with-exception-handler)
+  108. PASS  (define (weh-loop n)
+  109. PASS  (weh-loop 10000)
+  110. PASS  (guard (exn (#t 'handled))
+  111. PASS  (guard (exn ((error-object? exn) (string-append "erro...
+  112. PASS  (guard (exn (#t 'caught))
+  113. PASS  (guard (exn (#t (display "caught") 'done))
+  114. PASS  (guard (e (#t (list 'caught e)))
+  115. PASS  (guard (e (#t 'oops))
+  116. PASS  (guard (e (else 'fallback))
+  117. PASS  (guard (e
+  118. PASS  (define (guard-tco-test n)
+  119. PASS  (guard-tco-test 100000)
+  120. PASS  (read-error?
+  121. PASS  (file-error?
+  122. PASS  (guard (e (#t (error-object? e)))
+  123. PASS  (guard (e (#t (error-object-message e)))
+  124. PASS  (guard (e (#t (error-object-irritants e)))
+  125. PASS  (guard (e (#t (error-object-irritants e)))
+  126. PASS  (error-object? "a string")
+  127. PASS  (error-object?)
+  128. PASS  (read-error?
+  129. PASS  (read-error? 42)
+  130. PASS  (file-error?
+  131. PASS  (file-error? 42)
+  132. PASS  (guard (e ((error-object? e) (error-object-message e)))
+  133. PASS  (eq? (gensym) (gensym))
+  134. PASS  (symbol? (gensym))
+  135. PASS  (integer->char 0)
+  136. FAIL  (integer->char #x10FFFF)
+         expected return: [#\􏿿]
+         actual return:   [#\x10FFFF]
+  137. PASS  (guard (e (#t e))
+  138. PASS  (guard (e (#t e))
+  139. PASS  (guard (e (#t e))
+  140. PASS  (guard (e (#t e))
+  141. PASS  (apply 42 '(1 2))
+  142. PASS  (call-with-values (lambda () (call/cc (lambda (k) (k ...
+  143. PASS  (call-with-values (lambda () (call/cc (lambda (k) (k ...
+  144. PASS  (define p-cc (make-parameter 1))
+  145. PASS  (define k-cc #f)
+  146. PASS  (parameterize ((p-cc 2))
+  147. PASS  (p-cc)
+  148. PASS  (define k-dw #f)
+  149. PASS  (define log-dw '())
+  150. PASS  (dynamic-wind
+  151. PASS  (reverse log-dw)
+  152. PASS  (k-dw '_)
+  153. PASS  (length log-dw)
+  154. PASS  (with-exception-handler
+  155. PASS  (with-exception-handler
+  156. PASS  (define vp
+  157. PASS  (vp)
+  158. PASS  (parameterize ((vp 5)) (vp))
+  159. PASS  (guard (e (#t (error-object-message e)))
+  160. PASS  (call/cc (lambda (k) (cond (#t => k)) 'unreached))
+  161. PASS  (call/cc (lambda (k) (cond (42 => k)) 'unreached))
+  162. PASS  (call/cc
+  163. PASS  (call/cc (lambda (k) (case 5 ((5) => k) (else 'no)) '...
+
+1 of 163 FAILED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test026-equivalence.log
+----------------------------------------------------------------------------
+    1. PASS  (eq? 'a 'a)
+    2. PASS  (eqv? 2 2)
+    3. PASS  (eqv? 2 2.0)
+    4. PASS  (equal? (list 1 2 3) (list 1 2 3))
+    5. PASS  (equal? '(1 (2 3)) '(1 (2 3)))
+    6. PASS  (equal? 42 "42")
+    7. PASS  (equal? 3+4i 3+4i)
+    8. PASS  (equal? 3+4i 3+5i)
+    9. PASS  (equal? +i +i)
+   10. PASS  (eqv? 3+4i 3+4i)
+   11. PASS  (equal? 1/3+1/2i 1/3+1/2i)
+   12. PASS  (equal? (vector 1 2) (vector 1 2))
+   13. PASS  (equal? (vector 1 2) (vector 1 3))
+   14. PASS  (equal? (vector 1 2) (vector 1 2 3))
+   15. PASS  (equal? (vector) (vector))
+   16. PASS  (equal? (vector (list 1 2) "x") (vector (list 1 2) "x"))
+   17. PASS  (equal? (vector (list 1 2)) (vector (list 1 3)))
+   18. PASS  (equal? (bytevector 1 2 3) (bytevector 1 2 3))
+   19. PASS  (equal? (bytevector 1 2 3) (bytevector 1 2 4))
+   20. PASS  (equal? (bytevector) (bytevector))
+   21. PASS  (equal? (bytevector 1) (bytevector 1 2))
+   22. PASS  (equal? (list 1 (vector 2 3)) (list 1 (vector 2 3)))
+   23. PASS  (equal? (list 1 (bytevector 2 3)) (list 1 (bytevector...
+   24. PASS  (equal? (vector (list 1) (bytevector 2)) (vector (lis...
+   25. PASS  (eq? '|foo| 'foo)
+   26. PASS  (eqv? 0 0.0)
+   27. PASS  (eqv? 1 1.0)
+   28. PASS  (eqv? 1/2 0.5)
+   29. PASS  (symbol=? 'foo 'foo)
+   30. PASS  (symbol=? 'foo 'bar)
+   31. PASS  (symbol=? 'a 'a 'a)
+   32. PASS  (symbol=? 'a 'a 'b)
+   33. PASS  (symbol=?)
+   34. PASS  (eq? 'a 'b)
+   35. PASS  (eq? '() '())
+   36. PASS  (eq? #t #t)
+   37. PASS  (eq? #f #f)
+   38. PASS  (eq? #t #f)
+   39. PASS  (eq? (list 1) (list 1))
+   40. PASS  (eq? 42 42)
+   41. PASS  (eq?)
+   42. PASS  (eq? 1 2 3)
+   43. PASS  (eqv? 42 42)
+   44. PASS  (eqv? 42 43)
+   45. PASS  (eqv? 'a 'a)
+   46. PASS  (eqv? 'a 'b)
+   47. PASS  (eqv? #t #t)
+   48. PASS  (eqv? '() '())
+   49. PASS  (eqv? "abc" "abc")
+   50. PASS  (eqv? 0.0 -0.0)
+   51. PASS  (eqv? 0.0 0.0)
+   52. PASS  (eqv? -0.0 -0.0)
+   53. PASS  (eqv? 0 0)
+   54. PASS  (eqv? 1/2 0.5)
+   55. PASS  (eqv?)
+   56. PASS  (equal? '(1 2 3) '(1 2 3))
+   57. PASS  (equal? '(1 2 3) '(1 2 4))
+   58. PASS  (equal? "hello" "hello")
+   59. PASS  (equal? "hello" "world")
+   60. PASS  (equal? 42 42)
+   61. PASS  (equal? '#(1 2 3) '#(1 2 3))
+   62. PASS  (equal? '#(1 2 3) '#(1 2 4))
+   63. PASS  (equal? '((1 2) (3 4)) '((1 2) (3 4)))
+   64. PASS  (equal? '((1 2) (3 4)) '((1 2) (3 5)))
+   65. PASS  (equal? '() '())
+   66. PASS  (equal? 1 1.0)
+   67. PASS  (equal?)
+   68. PASS  (boolean=? #t #t)
+   69. PASS  (boolean=? #f #f)
+   70. PASS  (boolean=? #t #f)
+   71. PASS  (boolean=? #t #t #t)
+   72. PASS  (boolean=? #t #t #f)
+   73. PASS  (boolean=?)
+   74. PASS  (eq? #\a #\a)
+   75. PASS  (eq? #\a #\b)
+   76. PASS  (equal? '#(1 2 3) (list->vector (vector->list '#(1 2 ...
+   77. PASS  (equal? (bytevector->u8-list (u8-list->bytevector '(1...
+   78. PASS  (equal? (u8-list->bytevector (bytevector->u8-list #u8...
+   79. PASS  (equal? #u8(1 2 3) #u8(1 2 3))
+   80. PASS  (equal? #u8(1 2 3) #u8(1 2 4))
+   81. PASS  (equal? #u8() #u8())
+   82. PASS  (eq? (eof-object) (eof-object))
+   83. PASS  (equal? (eof-object) (eof-object))
+
+83 TESTS PASSED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test027-help.log
+---------------------------------------------------------------------
+    1. FAIL  (help cons)
+         expected output: [Primitive  |  args: pre-evaluated
+
+   Usage: (cons a b)
+
+   Return a newly allocated pair whose car is a and whose cdr is b.
+   The pair is guaranteed to be different (in the sense of eq?) from every
+   existing object.]
+         actual output:   [Primitive  |  args: pre-evaluated
+
+   Usage: (cons a b)
+
+   Return a newly allocated pair whose car is a and whose cdr is b.  R7RS 6.4.]
+    2. PASS  (help if)
+    3. PASS  (define (square n) "Return n squared." (* n n))
+    4. PASS  (help square)
+    5. PASS  (define (triple n) (* n 3))
+    6. PASS  (help triple)
+    7. FAIL  (help 'cons)
+         expected output: [Primitive  |  args: pre-evaluated
+
+   Usage: (cons a b)
+
+   Return a newly allocated pair whose car is a and whose cdr is b.
+   The pair is guaranteed to be different (in the sense of eq?) from every
+   existing object.]
+         actual output:   [Primitive  |  args: pre-evaluated
+
+   Usage: (cons a b)
+
+   Return a newly allocated pair whose car is a and whose cdr is b.  R7RS 6.4.]
+    8. PASS  (apropos "letr")
+    9. FAIL  (help "overview")
+         expected output: [pyscheme Overview
+=================
+
+pyscheme is an R7RS-style Scheme interpreter implemented as a CEK
+abstract machine in Python.
+
+The pipeline is:
+
+  source -> Parser -> Expander -> Analyzer -> simplify -> cek_eval
+
+Each stage has a single responsibility: the Parser is a pure reader, the
+Expander rewrites surface sugar, the Analyzer produces a tagged AST and
+runs static checks (arity, shape), simplify narrows the AST to what the
+evaluator accepts, and cek_eval is a small abstract machine.
+
+Help sections:
+  (help "basics")    a short tutorial
+  (help "syntax")    the complete special-form reference
+  (help)             list all primitives and special forms]
+         actual output:   [No matches for 'overview'.]
+   10. PASS  (help "no-such-topic-or-name-123")
+   11. PASS  (help 42)
+   12. PASS  (apropos 'bad)
+
+3 of 12 FAILED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test028-lists.log
+----------------------------------------------------------------------
+    1. PASS  (cons 1 2)
+    2. PASS  (cons 1 '())
+    3. PASS  (cons 1 (cons 2 (cons 3 '())))
+    4. PASS  (car '(1 2 3))
+    5. PASS  (cdr '(1 2 3))
+    6. PASS  (car (cons 'a 'b))
+    7. PASS  (cdr (cons 'a 'b))
+    8. PASS  (list)
+    9. PASS  (list 1 2 3)
+   10. PASS  (list 'a 'b 'c)
+   11. PASS  (pair? '(1))
+   12. PASS  (pair? '())
+   13. PASS  (pair? 1)
+   14. PASS  (null? '())
+   15. PASS  (null? '(1))
+   16. PASS  (null? 1)
+   17. PASS  (car '())
+   18. PASS  (car 1)
+   19. PASS  (cdr '())
+   20. PASS  (cons 1)
+   21. PASS  (car 1 2)
+   22. PASS  (list 1 #;2 3)
+   23. PASS  (list? '())
+   24. PASS  (list? (list 1 2 3))
+   25. PASS  (list? (cons 1 2))
+   26. PASS  (list? (let ((x (list 1 2 3))) (set-cdr! (cddr x) x) x))
+   27. PASS  (null? '(1 2))
+   28. PASS  (null? #f)
+   29. PASS  (null? 0)
+   30. PASS  (null?)
+   31. PASS  (pair? (cons 1 2))
+   32. PASS  (pair? '(1 2 3))
+   33. PASS  (pair? "hello")
+   34. PASS  (pair?)
+   35. PASS  (list? '(1 2 3))
+   36. PASS  (list? 42)
+   37. PASS  (list? '#(1 2))
+   38. PASS  (list?)
+   39. PASS  (cons 1 '(2 3))
+   40. PASS  (cons 'a (cons 'b (cons 'c '())))
+   41. PASS  (car '(a))
+   42. PASS  (cdr '(a))
+   43. PASS  (car (cons 1 2))
+   44. PASS  (cdr (cons 1 2))
+   45. PASS  (car 5)
+   46. PASS  (cdr "hello")
+   47. PASS  (car)
+   48. PASS  (cdr)
+   49. PASS  (cons)
+   50. PASS  (cons 1 2 3)
+   51. PASS  (let ((p (cons 1 2))) (set-car! p 99) p)
+   52. PASS  (let ((p (cons 1 2))) (set-cdr! p 99) p)
+   53. PASS  (let ((p '(1 2 3))) (set-car! p 0) p)
+   54. PASS  (let ((p '(1 2 3))) (set-cdr! p '(9)) p)
+   55. PASS  (caar '((1 2) 3))
+   56. PASS  (cadr '(1 2 3))
+   57. PASS  (cdar '((1 2) 3))
+   58. PASS  (cddr '(1 2 3))
+   59. PASS  (caaar '(((1 2) 3) 4))
+   60. PASS  (caadr '(1 (2 3) 4))
+   61. PASS  (cadar '((1 2) 3))
+   62. PASS  (caddr '(1 2 3 4))
+   63. PASS  (cadddr '(1 2 3 4 5))
+   64. PASS  (caaaar '((((1)))))
+   65. PASS  (caaadr '(0 ((1))))
+   66. PASS  (caadar '((0 (1))))
+   67. PASS  (caaddr '(0 0 (1)))
+   68. PASS  (cadaar '(((0 1))))
+   69. PASS  (cadadr '(0 (0 1)))
+   70. PASS  (caddar '((0 0 1)))
+   71. PASS  (cdaaar '((((0 1)))))
+   72. PASS  (cdaadr '(0 ((0 1))))
+   73. PASS  (cdadar '((0 (0 1))))
+   74. PASS  (cdaddr '(0 0 (0 1)))
+   75. PASS  (cddaar '(((0 0 1))))
+   76. PASS  (cddadr '(0 (0 0 1)))
+   77. PASS  (cdddar '((0 0 0 1)))
+   78. PASS  (list 1)
+   79. PASS  (list 1 "hello" #t)
+   80. PASS  (make-list 0)
+   81. PASS  (make-list 3 0)
+   82. PASS  (make-list 4 'x)
+   83. PASS  (make-list 2)
+   84. PASS  (make-list)
+   85. PASS  (length '())
+   86. PASS  (length '(1))
+   87. PASS  (length '(1 2 3))
+   88. PASS  (length '(a b c d e))
+   89. PASS  (length (cons 1 2))
+   90. PASS  (length)
+   91. PASS  (append)
+   92. PASS  (append '(1 2))
+   93. PASS  (append '(1 2) '(3 4))
+   94. PASS  (append '(1) '(2) '(3))
+   95. PASS  (append '() '(1 2))
+   96. PASS  (append '(1 2) '())
+   97. PASS  (append '(1 2) 3)
+   98. PASS  (reverse '())
+   99. PASS  (reverse '(1))
+  100. PASS  (reverse '(1 2 3))
+  101. PASS  (reverse '(a b c d))
+  102. PASS  (reverse)
+  103. PASS  (list-tail '(a b c d) 0)
+  104. PASS  (list-tail '(a b c d) 2)
+  105. PASS  (list-tail '(a b c d) 4)
+  106. PASS  (list-tail '(a b c) 5)
+  107. PASS  (list-tail)
+  108. PASS  (list-ref '(a b c d) 0)
+  109. PASS  (list-ref '(a b c d) 2)
+  110. PASS  (list-ref '(a b c d) 3)
+  111. PASS  (list-ref '(a b c) 5)
+  112. PASS  (list-ref)
+  113. PASS  (let ((lst (list 10 20 30)))
+  114. PASS  (let ((lst (list 10 20 30)))
+  115. PASS  (let ((lst (list 10 20 30)))
+  116. PASS  (list-set! (list 1 2 3) 0 9)
+  117. PASS  (list-set!)
+  118. PASS  (list-copy '())
+  119. PASS  (list-copy '(1 2 3))
+  120. PASS  (let ((original '(1 2 3)))
+  121. PASS  (list-copy)
+  122. PASS  (assoc 2 '((1 a) (2 b) (3 c)))
+  123. PASS  (assoc "b" '(("a" 1) ("b" 2) ("c" 3)))
+  124. PASS  (assoc 99 '((1 a) (2 b)))
+  125. PASS  (assv 2 '((1 a) (2 b) (3 c)))
+  126. PASS  (assv 99 '((1 a) (2 b)))
+  127. PASS  (assq 'b '((a 1) (b 2) (c 3)))
+  128. PASS  (assq 'z '((a 1) (b 2) (c 3)))
+  129. PASS  (assq 'a '())
+  130. PASS  (assoc 2.0 '((1 . a) (2 . b) (3 . c)) =)
+  131. PASS  (assoc 4 '((1 . a) (2 . b) (3 . c)) (lambda (x y) (= ...
+  132. PASS  (assoc 99 '((1 . a) (2 . b) (3 . c)) =)
+  133. PASS  (assoc "banana" '(("Apple" . 1) ("Banana" . 2) ("Cher...
+  134. PASS  (member 3 '(1 2 3 4 5))
+  135. PASS  (member 9 '(1 2 3))
+  136. PASS  (member '() '(1 '() 3))
+  137. PASS  (memv 3 '(1 2 3 4 5))
+  138. PASS  (memv 9 '(1 2 3))
+  139. PASS  (memq 'b '(a b c))
+  140. PASS  (memq 'z '(a b c))
+  141. PASS  (member 2.0 '(1 2 3 4) =)
+  142. PASS  (member 3 '(1 2 4 5 6) <)
+  143. PASS  (member 99 '(1 2 3) =)
+  144. PASS  (member "hello" '("Bye" "Hello" "World") string-ci=?)
+  145. PASS  (let ((result '())) (for-each (lambda (x y) (set! res...
+  146. PASS  (length (iota 10))
+  147. PASS  (receive (a . rest) (values 1 2 3) (cons a rest))
+  148. PASS  (length (filter even? '(1 2 3 4 5 6 7 8)))
+  149. PASS  (reverse (cons 1 2))
+
+149 TESTS PASSED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test029-logical.log
+------------------------------------------------------------------------
+    1. PASS  (not #t)
+    2. PASS  (not #f)
+    3. PASS  (not 0)
+    4. PASS  (not '())
+    5. PASS  (not "")
+    6. PASS  (not 42)
+    7. PASS  (not)
+
+7 TESTS PASSED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test030-meta.log
+---------------------------------------------------------------------
+    1. PASS  (apply + '(1 2 3))
+    2. PASS  (apply + '())
+    3. PASS  (apply * '(2 3 4))
+    4. PASS  (apply + 10 20 '(3 4))
+    5. PASS  (apply + 1 2 3 '(4 5 6))
+    6. PASS  (apply - '(100))
+    7. PASS  (apply (lambda (x y) (+ x y)) '(100 200))
+    8. PASS  (apply (lambda args args) '(1 2 3 4 5))
+    9. PASS  (apply (lambda (x . rest) (cons x rest)) '(head a b c))
+   10. PASS  (apply (lambda () 42) '())
+   11. PASS  (apply car '((1 2)))
+   12. PASS  (apply cons '(1 2))
+   13. PASS  (apply apply (list + (list 1 2 3)))
+   14. PASS  (define (loop n acc) (if (zero? n) acc (apply loop (l...
+   15. PASS  (apply + 'not-a-list)
+   16. PASS  (apply 1 '(2 3))
+   17. PASS  (apply (lambda (x y) (+ x y)) '(1))
+   18. PASS  (eval 42)
+   19. PASS  (eval "hello")
+   20. PASS  (eval #t)
+   21. PASS  (eval '(+ 1 2))
+   22. PASS  (eval '(* 3 4))
+   23. PASS  (eval '(if #t 'yes 'no))
+   24. PASS  (eval '(let ((x 5)) (* x x)))
+   25. PASS  (eval '(define xx 99)) xx
+   26. PASS  (define (double x) (* x 2)) (eval '(double 21))
+   27. PASS  (eval '(eval '(+ 100 1)))
+   28. PASS  (define (loop n) (if (zero? n) 'done (eval (list 'loo...
+   29. FAIL  (eval '())
+         expected return: []
+         actual return:   [()]
+         expected error:  [line 1, col 8: empty list () is not a valid expression; use (quote ()) for the empty list
+(eval '())
+       ^]
+         actual error:    []
+   30. PASS  (interaction-environment)
+   31. PASS  (eval '(+ 1 2) (interaction-environment))
+   32. PASS  (define eval-test-x 11) (eval 'eval-test-x (interacti...
+   33. PASS  (eval '(define eval-test-y 22) (interaction-environme...
+   34. FAIL  (environment '(scheme base))
+         expected return: [#<environment>]
+         actual return:   []
+         expected error:  []
+         actual error:    [SchemeTypeError: line 1, col 1: environment: not implemented, library.h is stub
+(environment '(scheme base))
+^]
+   35. FAIL  (eval '(+ 10 20) (environment '(scheme base)))
+         expected return: [30]
+         actual return:   []
+         expected error:  []
+         actual error:    [SchemeTypeError: line 1, col 18: environment: not implemented, library.h is stub
+(eval '(+ 10 20) (environment '(scheme base)))
+                 ^]
+   36. FAIL  (eval '(force (make-promise (+ 1 2))) (environment '(...
+         expected return: [3]
+         actual return:   []
+         expected error:  []
+         actual error:    [SchemeTypeError: line 1, col 39: environment: not implemented, library.h is stub
+(eval '(force (make-promise (+ 1 2))) (environment '(scheme base) '(scheme lazy)))
+                                      ^]
+   37. FAIL  (eval '(define z 1) (environment '(scheme base)))
+         expected error:  [SchemeTypeError: cannot define 'z' in a frozen environment]
+         actual error:    [SchemeTypeError: line 1, col 21: environment: not implemented, library.h is stub
+(eval '(define z 1) (environment '(scheme base)))
+                    ^]
+   38. FAIL  (eval '(set! cons 1) (environment '(scheme base)))
+         expected error:  [SchemeTypeError: set! on 'cons' in a frozen environment]
+         actual error:    [SchemeTypeError: line 1, col 22: environment: not implemented, library.h is stub
+(eval '(set! cons 1) (environment '(scheme base)))
+                     ^]
+   39. PASS  (eval '(+ 1 2) 'not-an-env)
+   40. PASS  (eval '(+ 1 2) 42)
+   41. FAIL  (environment '(no such lib))
+         expected error:  [SchemeTypeError: line 1, col 1: environment: library not found: (no such lib)
+(environment '(no such lib))
+^]
+         actual error:    [SchemeTypeError: line 1, col 1: environment: not implemented, library.h is stub
+(environment '(no such lib))
+^]
+   42. FAIL  (eval '(quote ok) (environment))
+         expected return: [ok]
+         actual return:   []
+         expected error:  []
+         actual error:    [SchemeTypeError: line 1, col 19: environment: not implemented, library.h is stub
+(eval '(quote ok) (environment))
+                  ^]
+   43. PASS  (define (loop2 n) (if (zero? n) 'done (eval (list 'lo...
+   44. PASS  (error "oops")
+   45. PASS  (error "bad input:" 42)
+   46. PASS  (error "wrong" 1 'two "three")
+   47. PASS  (error 42)
+   48. PASS  (define (sqrt-safe x) (if (negative? x) (error "sqrt ...
+   49. PASS  (inexact? (runtime))
+   50. PASS  (>= (runtime) 0)
+   51. PASS  (number? (runtime))
+   52. PASS  (runtime 1)
+   53. PASS  (trace)
+   54. PASS  (define (double x) (* x 2))
+   55. PASS  (trace double)
+   56. PASS  (double 5)
+   57. PASS  (untrace double)
+   58. PASS  (double 7)
+   59. PASS  (define (fact n) (if (= n 0) 1 (* n (fact (- n 1)))))
+   60. PASS  (trace fact)
+   61. PASS  (fact 3)
+   62. PASS  (untrace)
+   63. PASS  (trace)
+   64. PASS  (trace 42)
+   65. PASS  (untrace 42)
+
+8 of 65 FAILED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test031-ports.log
+----------------------------------------------------------------------
+    1. PASS  (read-bytevector! (make-bytevector 3) (open-input-byt...
+    2. PASS  (read-bytevector! (make-bytevector 3) (open-input-byt...
+    3. PASS  (display 42)
+    4. PASS  (display #t)
+    5. PASS  (display #f)
+    6. PASS  (display "hello")
+    7. PASS  (display 'foo)
+    8. PASS  (display '(1 2 3))
+    9. PASS  (display '#(1 2 3))
+   10. PASS  (display '())
+   11. PASS  (begin (display "abc") (display 42))
+   12. PASS  (display "stdout")
+   13. PASS  (display)
+   14. PASS  (write 42)
+   15. PASS  (write "hello")
+   16. PASS  (write 'foo)
+   17. PASS  (write '(1 "two" #t))
+   18. PASS  (write #t)
+   19. PASS  (write '())
+   20. PASS  (write)
+   21. PASS  (newline)
+   22. PASS  (begin (display "a") (newline) (display "b"))
+   23. PASS  (write-char #\A)
+   24. PASS  (write-char #\a)
+   25. PASS  (write-char #\newline)
+   26. PASS  (write-char)
+   27. PASS  (let ((p (open-output-bytevector)))
+   28. PASS  (write-simple '(1 "a" #t))
+   29. PASS  (write-simple #\space)
+   30. PASS  (write-shared '(1 2 3))
+   31. PASS  (write-shared "hello")
+   32. PASS  (write-shared #t)
+   33. PASS  (write-shared '(a b c))
+   34. PASS  (write-shared '(1 (2 3) 4))
+   35. PASS  (let ((x '(1 2)))
+   36. PASS  (let ((x (list 1 2 3)))
+   37. PASS  (let ((v (vector 1 2)))
+   38. PASS  (write-shared '(a b) (current-output-port))
+   39. PASS  (let ((x '(a b)))
+   40. PASS  (let ((x '(a b)))
+   41. PASS  (eof-object? (eof-object))
+   42. PASS  (eof-object? #f)
+   43. PASS  (eof-object? 0)
+   44. PASS  (eof-object? "")
+   45. PASS  (port? (current-output-port))
+   46. PASS  (port? (current-input-port))
+   47. PASS  (port? 42)
+   48. PASS  (port? "hello")
+   49. PASS  (input-port? (current-input-port))
+   50. PASS  (input-port? (current-output-port))
+   51. PASS  (output-port? (current-output-port))
+   52. PASS  (output-port? (current-input-port))
+   53. PASS  (textual-port? (current-input-port))
+   54. PASS  (textual-port? (current-output-port))
+   55. PASS  (textual-port? (open-input-string "x"))
+   56. PASS  (textual-port? 42)
+   57. PASS  (textual-port? "hello")
+   58. PASS  (binary-port? (current-input-port))
+   59. PASS  (binary-port? (open-output-bytevector))
+   60. PASS  (binary-port? #f)
+   61. PASS  (input-port-open? (current-input-port))
+   62. PASS  (output-port-open? (current-output-port))
+   63. PASS  (output-port? (current-output-port))
+   64. PASS  (output-port? (open-output-string))
+   65. PASS  (get-output-string (open-output-string))
+   66. PASS  (let ((p (open-output-string)))
+   67. PASS  (let ((p (open-output-string)))
+   68. PASS  (let ((p (open-output-string)))
+   69. PASS  (let ((p (open-output-string)))
+   70. PASS  (let ((p (open-output-string)))
+   71. PASS  (let ((p (open-output-string)))
+   72. PASS  (input-port? (open-input-string "hello"))
+   73. PASS  (let ((p (open-output-bytevector)))
+   74. PASS  (get-output-bytevector (open-input-string "x"))
+   75. PASS  (let ((p (open-input-bytevector #u8(1 2 3))))
+   76. PASS  (let* ((fname "/tmp/scheme_bin_test.txt")
+   77. PASS  (output-port? (open-binary-output-file "/tmp/scheme_b...
+   78. PASS  (input-port? (open-binary-input-file "/tmp/scheme_bin...
+   79. PASS  (let ((p (open-output-string)))
+   80. PASS  (let ((p (open-input-string "hello")))
+   81. PASS  (let* ((fname "/tmp/scheme_test_io.txt")
+   82. PASS  (let* ((fname "/tmp/scheme_test_io2.txt")
+   83. PASS  (let* ((p (open-input-string "42"))
+   84. PASS  (let ((p (open-input-string "42")))
+   85. PASS  (let ((p (open-input-string "hello")))
+   86. PASS  (let ((p (open-input-string "(+ 1 2)")))
+   87. PASS  (let ((p (open-input-string "#t")))
+   88. PASS  (let ((p (open-input-string "\"hello\"")))
+   89. FAIL  (let ((p (open-input-string "1 2 3")))
+         expected return: [(1 2 3)]
+         actual return:   []
+         expected error:  []
+         actual error:    ["<input-string>" line 1, col 3: unexpected token after expression
+1 2 3
+  ^]
+   90. PASS  (let ((p (open-input-string "42")))
+   91. PASS  (let ((p (open-input-string "")))
+   92. PASS  (let ((p (open-input-string "abc")))
+   93. PASS  (let ((p (open-input-string "abc")))
+   94. PASS  (let ((p (open-input-string "")))
+   95. PASS  (let ((p (open-input-string "abc")))
+   96. PASS  (let ((p (open-input-string "abc")))
+   97. PASS  (let ((p (open-input-string "")))
+   98. PASS  (let ((p (open-input-string "line1\nline2")))
+   99. PASS  (let ((p (open-input-string "line1\nline2")))
+  100. PASS  (let ((p (open-input-string "")))
+  101. PASS  (read-string 5 (open-input-string "hello world"))
+  102. PASS  (read-string 11 (open-input-string "hello world"))
+  103. PASS  (read-string 20 (open-input-string "hi"))
+  104. PASS  (read-string 5 (open-input-string ""))
+  105. PASS  (let ((p (open-input-string "abcde")))
+  106. PASS  (let ((p (open-input-bytevector #u8(1 2 3))))
+  107. PASS  (let ((p (open-input-bytevector #u8(42 43))))
+  108. PASS  (let ((p (open-input-bytevector #u8(7))))
+  109. PASS  (let* ((out (open-output-bytevector))
+  110. PASS  (let* ((out (open-output-bytevector))
+  111. PASS  (read-bytevector 5 (open-input-bytevector #u8()))
+  112. PASS  (let ((p (open-output-string)))
+  113. PASS  (file-exists? "no_such_scheme_test_xyz.txt")
+  114. PASS  (let* ((fname "/tmp/scheme_fexists_test.txt")
+  115. PASS  (file-exists?)
+  116. PASS  (let* ((fname "/tmp/scheme_del_test.txt")
+  117. PASS  (let* ((old "/tmp/scheme_rename_old.txt")
+  118. PASS  (let* ((old "/tmp/scheme_rename_a.txt")
+  119. PASS  (rename-file "a")
+  120. PASS  (let* ((fname "/tmp/pyscheme_ports_test.txt")
+  121. PASS  (output-port? (open-output-file "/tmp/pyscheme_ports_...
+  122. PASS  (input-port? (open-input-file "/tmp/pyscheme_ports_pr...
+  123. PASS  (file-error?
+  124. PASS  (read-char (open-output-string))
+  125. PASS  (write-char #\a (open-input-string ""))
+  126. PASS  (get-output-string (open-input-string ""))
+  127. PASS  (let ((p (open-input-string "")))
+  128. PASS  (display "hi" (open-output-bytevector))
+  129. PASS  (write 42 (open-output-bytevector))
+  130. PASS  (port-open? (open-input-string "hi"))
+  131. PASS  (port-open? (open-output-string))
+  132. PASS  (let ((p (open-input-string "")))
+  133. PASS  (port-open? 42)
+
+1 of 133 FAILED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test032-predicates.log
+---------------------------------------------------------------------------
+    1. PASS  (number? 42)
+    2. PASS  (number? "hi")
+    3. PASS  (integer? 42)
+    4. PASS  (integer? '())
+    5. PASS  (boolean? #t)
+    6. PASS  (boolean? 0)
+    7. PASS  (symbol? 'x)
+    8. PASS  (symbol? "x")
+    9. PASS  (string? "hi")
+   10. PASS  (procedure? car)
+   11. PASS  (procedure? (lambda (x) x))
+   12. PASS  (procedure? 42)
+   13. PASS  (zero? 0)
+   14. PASS  (zero? 1)
+   15. PASS  (positive? 1)
+   16. PASS  (positive? 0)
+   17. PASS  (negative? -1)
+   18. PASS  (even? 4)
+   19. PASS  (odd? 3)
+   20. PASS  (number? +inf.0)
+   21. PASS  (real? +inf.0)
+   22. PASS  (rational? +inf.0)
+   23. PASS  (integer? +inf.0)
+   24. PASS  (finite? 42)
+   25. PASS  (finite? 1.5)
+   26. PASS  (finite? +inf.0)
+   27. PASS  (finite? -inf.0)
+   28. PASS  (finite? +nan.0)
+   29. PASS  (infinite? +inf.0)
+   30. PASS  (infinite? -inf.0)
+   31. PASS  (infinite? 42)
+   32. PASS  (infinite? +nan.0)
+   33. PASS  (nan? +nan.0)
+   34. PASS  (nan? +inf.0)
+   35. PASS  (nan? 42)
+   36. PASS  (nan? 0.0)
+   37. PASS  (finite? (exp 1000))
+   38. PASS  (number? 3+4i)
+   39. PASS  (complex? 3+4i)
+   40. PASS  (real? 3+4i)
+   41. PASS  (rational? 3+4i)
+   42. PASS  (integer? 3+4i)
+   43. PASS  (rational? 3/4)
+   44. PASS  (rational? 1.5)
+   45. PASS  (number? 3/4)
+   46. PASS  (real? 3/4)
+   47. PASS  (integer? 3/4)
+   48. PASS  (finite? 3+4i)
+   49. PASS  (finite? +inf.0+0.0i)
+   50. PASS  (infinite? +inf.0+0.0i)
+   51. PASS  (infinite? 3+4i)
+   52. PASS  (nan? +nan.0+0.0i)
+   53. PASS  (nan? 3+4i)
+   54. PASS  (integer? 3+4i)
+   55. PASS  (finite? 3+4i)
+   56. PASS  (symbol? '|foo|)
+   57. PASS  (symbol? '|hello world|)
+   58. PASS  (rational? 1/2)
+   59. PASS  (number? 1/2)
+   60. PASS  (integer? 1/2)
+   61. PASS  (real? 1/2)
+   62. PASS  (infinite? (string->number "+inf.0"))
+   63. PASS  (infinite? (string->number "-inf.0"))
+   64. PASS  (nan? (string->number "+nan.0"))
+   65. PASS  (nan? (string->number "-nan.0"))
+   66. PASS  (finite? 1)
+   67. PASS  (finite? +nan.0)
+   68. PASS  (infinite? 1)
+   69. PASS  (infinite? 1.0)
+   70. PASS  (nan? 0)
+   71. PASS  (nan? 0.0)
+   72. PASS  (finite?)
+   73. PASS  (infinite?)
+   74. PASS  (nan?)
+   75. PASS  (complex? 3)
+   76. PASS  (complex? 3.0)
+   77. PASS  (real? 3.0)
+   78. PASS  (real? 3)
+   79. PASS  (rational? +nan.0)
+   80. PASS  (real? (make-rectangular 3.0 0.0))
+   81. PASS  (let ((x (list 1 2 3))) (set-cdr! (cddr x) x) (list? x))
+   82. PASS  (let ((x (list 1 2))) (set-cdr! (cdr x) x) (list? x))
+   83. PASS  (boolean? #f)
+   84. PASS  (boolean? '())
+   85. PASS  (boolean?)
+   86. PASS  (number? 3.14)
+   87. PASS  (number? "42")
+   88. PASS  (number? #t)
+   89. PASS  (number? '())
+   90. PASS  (number?)
+   91. PASS  (integer? 3)
+   92. PASS  (integer? 3.0)
+   93. PASS  (integer? 3.5)
+   94. PASS  (integer? "3")
+   95. PASS  (integer? 1/2)
+   96. PASS  (integer? +inf.0)
+   97. PASS  (integer? -inf.0)
+   98. PASS  (integer? +nan.0)
+   99. PASS  (integer? 1.0)
+  100. PASS  (integer? -3.0)
+  101. PASS  (integer? 0.0)
+  102. PASS  (integer? 1.5)
+  103. PASS  (integer?)
+  104. PASS  (real? 42)
+  105. PASS  (real? 3.14)
+  106. PASS  (real? "x")
+  107. PASS  (real? 1/2)
+  108. PASS  (rational? 42)
+  109. PASS  (rational? 3.14)
+  110. PASS  (rational? 1/2)
+  111. PASS  (complex? 42)
+  112. PASS  (complex? 3.14)
+  113. PASS  (string? "hello")
+  114. PASS  (string? "")
+  115. PASS  (string? 42)
+  116. PASS  (string? 'hello)
+  117. PASS  (string?)
+  118. PASS  (symbol? 'foo)
+  119. PASS  (symbol? "foo")
+  120. PASS  (symbol? 42)
+  121. PASS  (symbol?)
+  122. PASS  (procedure? +)
+  123. PASS  (procedure? 42)
+  124. PASS  (procedure? "car")
+  125. PASS  (procedure?)
+  126. PASS  (zero? 0.0)
+  127. PASS  (zero? -1)
+  128. PASS  (zero?)
+  129. PASS  (positive? 0.5)
+  130. PASS  (positive? -1)
+  131. PASS  (positive?)
+  132. PASS  (negative? -0.5)
+  133. PASS  (negative? 0)
+  134. PASS  (negative? 1)
+  135. PASS  (negative?)
+  136. PASS  (odd? 1)
+  137. PASS  (odd? 3)
+  138. PASS  (odd? -1)
+  139. PASS  (odd? 0)
+  140. PASS  (odd? 2)
+  141. PASS  (odd?)
+  142. PASS  (even? 0)
+  143. PASS  (even? 2)
+  144. PASS  (even? -4)
+  145. PASS  (even? 1)
+  146. PASS  (even? 3)
+  147. PASS  (even?)
+  148. PASS  (zero? "x")
+  149. PASS  (odd? 1.5)
+  150. PASS  (even? 2.0)
+
+150 TESTS PASSED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test033-strings.log
+------------------------------------------------------------------------
+    1. PASS  (string-length "\x41;")
+    2. PASS  (string-ref "\x41;" 0)
+    3. PASS  (string-length "\|")
+    4. PASS  (string=? "\|" "|")
+    5. PASS  (string=? "a\|b" "a|b")
+    6. PASS  (string=? (symbol->string '|foo|) "foo")
+    7. PASS  (string=? (symbol->string '|hello world|) "hello world")
+    8. PASS  (string=? (symbol->string '|a\|b|) "a|b")
+    9. PASS  (string->list "hello")
+   10. PASS  (string->list "hello" 1)
+   11. PASS  (string->list "hello" 1 3)
+   12. PASS  (string->list "hello" 0 0)
+   13. PASS  (string->list "hello" 5)
+   14. PASS  (string->list "hello" 2 2)
+   15. PASS  (string->list "hello" 3 1)
+   16. PASS  (string->list "hello" 6)
+   17. PASS  (string)
+   18. PASS  (string #\H #\e #\l #\l #\o)
+   19. PASS  (string #\A #\B #\C)
+   20. PASS  (string #\a)
+   21. PASS  (make-string 0)
+   22. PASS  (make-string 3 #\A)
+   23. PASS  (make-string 5 #\space)
+   24. PASS  (make-string)
+   25. PASS  (string-length "")
+   26. PASS  (string-length "hello")
+   27. PASS  (string-length "hello world")
+   28. PASS  (string-length)
+   29. PASS  (string-length 42)
+   30. PASS  (string-ref "hello" 0)
+   31. PASS  (string-ref "hello" 4)
+   32. PASS  (string-ref "A" 0)
+   33. PASS  (string-ref "hello" 10)
+   34. PASS  (string-ref "hello" -1)
+   35. PASS  (string-ref)
+   36. PASS  (let ((s (string-copy "hello")))
+   37. PASS  (let ((s (make-string 3 #\A)))
+   38. PASS  (string-set!)
+   39. PASS  (substring "hello" 0)
+   40. PASS  (substring "hello" 1)
+   41. PASS  (substring "hello" 1 3)
+   42. PASS  (substring "hello" 0 5)
+   43. PASS  (substring "hello" 2 2)
+   44. PASS  (substring "hello world" 6 11)
+   45. PASS  (substring)
+   46. PASS  (string-copy "hello")
+   47. PASS  (let ((s "hello"))
+   48. PASS  (string-copy)
+   49. PASS  (string-copy "hello" 1 3)
+   50. PASS  (string-copy "hello" 2)
+   51. PASS  (let ((s (make-string 4 #\X)))
+   52. PASS  (let ((s (string-copy "hello")))
+   53. PASS  (string-copy!)
+   54. PASS  (let ((s (make-string 3 #\A)))
+   55. PASS  (string-fill! (make-string 1 #\A) #\B)
+   56. PASS  (string-fill!)
+   57. PASS  (let ((s (string-copy "hello"))) (string-fill! s #\* ...
+   58. PASS  (let ((s (string-copy "hello"))) (string-fill! s #\x) s)
+   59. PASS  (string-append)
+   60. PASS  (string-append "hello")
+   61. PASS  (string-append "hello" " " "world")
+   62. PASS  (string-append "a" "b" "c" "d")
+   63. PASS  (string-append "" "test" "")
+   64. PASS  (string->list "")
+   65. PASS  (string->list "abc")
+   66. PASS  (string->list "ABC")
+   67. PASS  (string->list)
+   68. PASS  (string->list "hello" 2)
+   69. PASS  (list->string '())
+   70. PASS  (list->string '(#\H #\e #\l #\l #\o))
+   71. PASS  (list->string '(#\A #\B #\C))
+   72. PASS  (list->string)
+   73. PASS  (list->string (string->list "hello"))
+   74. PASS  (string=? "abc" "abc")
+   75. PASS  (string=? "abc" "abd")
+   76. PASS  (string=? "" "")
+   77. PASS  (string=?)
+   78. PASS  (string<? "abc" "abd")
+   79. PASS  (string<? "abd" "abc")
+   80. PASS  (string<? "abc" "abc")
+   81. PASS  (string<? "abc" "abcd")
+   82. PASS  (string>? "b" "a")
+   83. PASS  (string>? "a" "b")
+   84. PASS  (string<=? "abc" "abc")
+   85. PASS  (string<=? "abc" "abd")
+   86. PASS  (string<=? "abd" "abc")
+   87. PASS  (string>=? "abc" "abc")
+   88. PASS  (string>=? "abd" "abc")
+   89. PASS  (string>=? "abc" "abd")
+   90. PASS  (string=? "abc" "abc" "abc")
+   91. PASS  (string=? "abc" "abc" "xyz")
+   92. PASS  (string<? "a" "b" "c")
+   93. PASS  (string<? "a" "c" "b")
+   94. PASS  (string>? "c" "b" "a")
+   95. PASS  (string<=? "a" "a" "b")
+   96. PASS  (string>=? "c" "b" "b")
+   97. PASS  (string=? "hello" "hello")
+   98. PASS  (string-ci=? "ABC" "abc")
+   99. PASS  (string-ci<? "abc" "DEF")
+  100. PASS  (string-ci<? "DEF" "abc")
+  101. PASS  (string-ci<=? "abc" "abc")
+  102. PASS  (string-ci>=? "ABC" "abc")
+  103. PASS  (string-ci=?)
+  104. PASS  (string-upcase "hello")
+  105. PASS  (string-upcase "")
+  106. PASS  (string-upcase "Hello World")
+  107. PASS  (string-upcase)
+  108. PASS  (string-downcase "WORLD")
+  109. PASS  (string-downcase "")
+  110. PASS  (string-downcase "Hello World")
+  111. PASS  (string-downcase)
+  112. PASS  (string-foldcase "Hello World")
+  113. PASS  (string-foldcase "SCHEME")
+  114. PASS  (string-foldcase "")
+  115. PASS  (string-foldcase "abc")
+  116. PASS  (string-foldcase)
+  117. PASS  (string-map char-upcase "hello")
+  118. PASS  (string-map char-downcase "WORLD")
+  119. PASS  (string-map (lambda (c) c) "abc")
+  120. PASS  (string-map char-upcase "")
+  121. PASS  (string-map)
+  122. PASS  (string-map (lambda (a b) (if (char<? a b) a b)) "hel...
+  123. PASS  (string-map (lambda (a b) a) "abc" "xyz")
+  124. PASS  (let ((result '()))
+  125. PASS  (string-for-each display "")
+  126. PASS  (string-for-each)
+  127. PASS  (let ((result '()))
+  128. PASS  (string->symbol "hello")
+  129. PASS  (string->symbol "x")
+  130. PASS  (symbol->string 'hello)
+  131. PASS  (symbol->string '+)
+  132. PASS  (string->symbol)
+  133. PASS  (symbol->string)
+  134. PASS  (symbol->string "not-a-symbol")
+  135. PASS  (substring "hello" 3 1)
+  136. PASS  (substring "hello" -1 2)
+  137. PASS  (substring "hello" 0 10)
+  138. PASS  (string-append "a" 42)
+  139. PASS  (string-fill! (string-copy "abc") #\a 2 1)
+  140. PASS  (string<? "" "a")
+  141. PASS  (string<? "a" "")
+  142. PASS  (string<? "" "")
+
+142 TESTS PASSED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test034-vectors.log
+------------------------------------------------------------------------
+    1. PASS  (vector? (vector 1 2 3))
+    2. PASS  (vector? '#(1 2))
+    3. PASS  (vector? '(1 2))
+    4. PASS  (vector? "x")
+    5. PASS  (vector?)
+    6. PASS  (string->vector "hi")
+    7. PASS  (string->vector "")
+    8. PASS  (string->vector "hello" 1 3)
+    9. PASS  (vector->string (vector #\h #\e #\l #\l #\o))
+   10. PASS  (vector->string (vector))
+   11. PASS  (vector->string (vector #\a #\b #\c #\d) 1 3)
+   12. PASS  (vector->string (string->vector "hello"))
+   13. PASS  (string->vector (vector->string (vector #\x #\y #\z)))
+   14. PASS  (vector->string (vector #\a 42))
+   15. PASS  (make-vector 0)
+   16. PASS  (make-vector 3 0)
+   17. PASS  (make-vector 3 #f)
+   18. PASS  (make-vector 4 "x")
+   19. PASS  (make-vector)
+   20. PASS  (vector)
+   21. PASS  (vector 1)
+   22. PASS  (vector 1 2 3)
+   23. PASS  (vector 'a 'b 'c)
+   24. PASS  (vector 1 "hello" #t '())
+   25. PASS  (vector-length '#())
+   26. PASS  (vector-length '#(1 2 3))
+   27. PASS  (vector-length (make-vector 10 0))
+   28. PASS  (vector-length)
+   29. PASS  (vector-length '(1 2 3))
+   30. PASS  (vector-ref '#(10 20 30) 0)
+   31. PASS  (vector-ref '#(10 20 30) 2)
+   32. PASS  (vector-ref (vector 'a 'b 'c) 1)
+   33. PASS  (vector-ref '#(1 2 3) 3)
+   34. PASS  (vector-ref '#(1 2 3) -1)
+   35. PASS  (vector-ref '#() 0)
+   36. PASS  (vector-ref)
+   37. PASS  (let ((v (vector 1 2 3)))
+   38. PASS  (let ((v (vector 'a 'b 'c)))
+   39. PASS  (let ((v (vector 1 2 3)))
+   40. PASS  (vector-set!)
+   41. PASS  (vector->list '#())
+   42. PASS  (vector->list '#(1 2 3))
+   43. PASS  (vector->list (vector 'a 'b 'c))
+   44. PASS  (vector->list)
+   45. PASS  (list->vector '())
+   46. PASS  (list->vector '(1 2 3))
+   47. PASS  (list->vector '(a b c))
+   48. PASS  (list->vector)
+   49. PASS  (let ((v (vector 1 2 3)))
+   50. PASS  (let ((v (vector 'a 'b 'c 'd)))
+   51. PASS  (let ((v (vector 1 2 3 4 5)))
+   52. PASS  (let ((v (vector 1 2 3)))
+   53. PASS  (vector-fill!)
+   54. PASS  (vector-copy '#(1 2 3))
+   55. PASS  (let ((v1 (vector 1 2 3)))
+   56. PASS  (let ((v (vector 1 2 3)))
+   57. PASS  (vector-copy '#(1 2 3 4 5) 1)
+   58. PASS  (vector-copy '#(1 2 3 4 5) 1 3)
+   59. PASS  (vector-copy '#(1 2 3 4 5) 0 3)
+   60. PASS  (vector-copy)
+   61. PASS  (let ((v (make-vector 5 0)))
+   62. PASS  (let ((v (make-vector 5 0)))
+   63. PASS  (vector-copy!)
+   64. PASS  (vector-append '#(1 2) '#(3 4))
+   65. PASS  (vector-append '#(1) '#(2) '#(3))
+   66. PASS  (vector-append '#() '#(1 2) '#())
+   67. PASS  (vector-append)
+   68. PASS  (vector-map (lambda (x) (* x x)) '#(1 2 3 4 5))
+   69. PASS  (vector-map (lambda (x) (+ x 1)) '#(0 1 2))
+   70. PASS  (vector-map (lambda (x) x) '#())
+   71. PASS  (vector-map)
+   72. PASS  (vector-map + '#(1 2 3) '#(4 5 6))
+   73. PASS  (vector-map * '#(2 3 4) '#(10 10 10))
+   74. PASS  (vector-map (lambda (x) (* x 2)) '#(1 2 3))
+   75. PASS  (let ((sum 0))
+   76. PASS  (vector-for-each display '#())
+   77. PASS  (vector-for-each)
+   78. PASS  (let ((sum 0))
+   79. PASS  #u8(0 1 255)
+   80. PASS  #u8()
+   81. PASS  (let ((bv (make-bytevector 3 0)))
+   82. PASS  (let ((bv (bytevector 1 2 3 4 5)))
+   83. PASS  (let ((bv (make-bytevector 4 0)))
+   84. PASS  (let ((bv (make-bytevector 4 0)))
+   85. PASS  (let ((bv (make-bytevector 4 0)))
+   86. PASS  (let ((bv (make-bytevector 4 0)))
+   87. PASS  (let ((bv (make-bytevector 4 0)))
+   88. PASS  (let ((bv (bytevector #x34 #x12 0 0)))
+   89. PASS  (let ((bv (make-bytevector 4 0)))
+   90. PASS  (let ((bv (bytevector #x12 #x34 0 0)))
+   91. PASS  (let ((bv (make-bytevector 2 0)))
+   92. PASS  (let ((bv (make-bytevector 2 0)))
+   93. PASS  (let ((bv (make-bytevector 4 0)))
+   94. PASS  (let ((bv (make-bytevector 4 0)))
+   95. PASS  (let ((bv (make-bytevector 4 0)))
+   96. PASS  (let ((bv (make-bytevector 8 0)))
+   97. PASS  (let ((bv (make-bytevector 8 0)))
+   98. PASS  (let ((bv (make-bytevector 4 0)))
+   99. PASS  (let ((bv (make-bytevector 4 0)))
+  100. PASS  (let ((bv (make-bytevector 8 0)))
+  101. PASS  (let ((bv (make-bytevector 8 0)))
+  102. PASS  (let ((bv (make-bytevector 2 0)))
+  103. PASS  (let ((bv (make-bytevector 5 0)))
+  104. PASS  (let ((bv (make-bytevector 5 0)))
+  105. PASS  (let ((bv (make-bytevector 5 0)))
+  106. PASS  (vector-set! "not-a-vector" 0 1)
+
+106 TESTS PASSED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test102-Getting-Started.log
+--------------------------------------------------------------------------------
+    1. PASS  "Hi Mom!"
+    2. PASS  "hello"
+    3. PASS  42
+    4. PASS  22/7
+    5. PASS  3.141592653
+    6. PASS  +
+    7. PASS  (+ 76 31)
+    8. PASS  (* -12 10)
+    9. PASS  '(a b c d)
+   10. PASS  (car '(a b c))
+   11. PASS  (cdr '(a b c))
+   12. PASS  (cons 'a '(b c))
+   13. PASS  (cons (car '(a b c)) (cdr '(d e f)))
+   14. PASS  (define square
+   15. PASS  (square 5)
+   16. PASS  (square -200)
+   17. PASS  (square 0.5)
+   18. PASS  (square -1/2)
+   19. PASS  (define reciprocal
+   20. PASS  (reciprocal 10)
+   21. PASS  (reciprocal 1/10)
+   22. PASS  (reciprocal 0)
+   23. PASS  (reciprocal (reciprocal 1/10))
+   24. PASS  123456789987654321
+   25. PASS  3/4
+   26. PASS  2.718281828
+   27. PASS  2.2+1.1i
+   28. PASS  (+ 1/2 1/2)
+   29. PASS  (- 1.5 1/2)
+   30. PASS  (* 3 1/2)
+   31. PASS  (/ 1.5 3/4)
+   32. PASS  (+ (+ 2 2) (+ 2 2))
+   33. PASS  (- 2 (* 4 1/3))
+   34. PASS  (* 2 (* 2 (* 2 (* 2 2))))
+   35. PASS  (/ (* 6/7 7/2) (- 4.5 1.5))
+   36. PASS  (quote (1 2 3 4 5))
+   37. PASS  (quote ("this" "is" "a" "list"))
+   38. PASS  (quote (+ 3 4))
+   39. PASS  '(1 2 3 4)
+   40. PASS  '((1 2) (3 4))
+   41. PASS  '(/ (* 2 -1) 3)
+   42. PASS  (quote hello)
+   43. PASS  '2
+   44. PASS  '2/3
+   45. PASS  (quote "Hi Mom!")
+   46. PASS  (car '(a b c))
+   47. PASS  (cdr '(a b c))
+   48. PASS  (cdr '(a))
+   49. PASS  (car (cdr '(a b c)))
+   50. PASS  (cdr (cdr '(a b c)))
+   51. PASS  (car '((a b) (c d)))
+   52. PASS  (cdr '((a b) (c d)))
+   53. PASS  (cons 'a '())
+   54. PASS  (cons 'a '(b c))
+   55. PASS  (cons 'a (cons 'b (cons 'c '())))
+   56. PASS  (cons '(a b) '(c d))
+   57. PASS  (car (cons 'a '(b c)))
+   58. PASS  (cdr (cons 'a '(b c)))
+   59. PASS  (cons (car '(a b c)) (cdr '(d e f)))
+   60. PASS  (cons (car '(a b c)) (cdr '(a b c)))
+   61. PASS  (cons 'a 'b)
+   62. PASS  (cdr '(a . b))
+   63. PASS  (cons 'a '(b . c))
+   64. PASS  '(a . (b . (c . ())))
+   65. PASS  (list 'a 'b 'c)
+   66. PASS  (list 'a)
+   67. PASS  (list)
+   68. PASS  (let ((x 2)) (+ x 3))
+   69. PASS  (let ((y 3)) (+ 2 y))
+   70. PASS  (let ((x 2) (y 3)) (+ x y))
+   71. PASS  (+ (* 4 4) (* 4 4))
+   72. PASS  (let ((a (* 4 4))) (+ a a))
+   73. PASS  (let ([list1 '(a b c)] [list2 '(d e f)])
+   74. PASS  (let ([f +]) (f 2 3))
+   75. PASS  (let ([f +] [x 2]) (f x 3))
+   76. PASS  (let ([f +] [x 2] [y 3]) (f x y))
+   77. PASS  (let ([+ *]) (+ 2 3))
+   78. PASS  (+ 2 3)
+   79. PASS  (let ([a 4] [b -3])
+   80. PASS  (let ([x 1]) (let ([x (+ x 1)]) (+ x x)))
+   81. PASS  (let ([x 1]) (let ([new-x (+ x 1)]) (+ new-x new-x)))
+   82. PASS  (lambda (x) (+ x x))
+   83. PASS  ((lambda (x) (+ x x)) (* 3 4))
+   84. PASS  (let ([double (lambda (x) (+ x x))])
+   85. PASS  (let ([double-cons (lambda (x) (cons x x))])
+   86. PASS  (let ([double-any (lambda (f x) (f x x))])
+   87. PASS  (let ([x 'a])
+   88. PASS  (let ([f (let ([x 'sam])
+   89. PASS  (let ([f (let ([x 'sam])
+   90. PASS  (let ([f (lambda x x)]) (f 1 2 3 4))
+   91. PASS  (let ([f (lambda x x)]) (f))
+   92. PASS  (let ([g (lambda (x . y) (list x y))]) (g 1 2 3 4))
+   93. PASS  (let ([h (lambda (x y . z) (list x y z))]) (h 'a 'b '...
+   94. PASS  (define double-any
+   95. PASS  (double-any + 10)
+   96. PASS  (double-any cons 'a)
+   97. PASS  (define sandwich "peanut-butter-and-jelly")
+   98. PASS  sandwich
+   99. PASS  (define xyz '(x y z))
+  100. PASS  (let ([xyz '(z y x)]) xyz)
+  101. PASS  (define list (lambda x x))
+  102. PASS  (define cadr
+  103. PASS  (define cddr
+  104. PASS  (cadr '(a b c))
+  105. PASS  (cddr '(a b c))
+  106. PASS  (define doubler
+  107. PASS  (define double (doubler +))
+  108. PASS  (double 13/2)
+  109. PASS  (define double-cons (doubler cons))
+  110. PASS  (double-cons 'a)
+  111. PASS  (define double-any
+  112. PASS  (define proc1
+  113. PASS  (define proc2 cons)
+  114. PASS  (proc1 'a 'b)
+  115. PASS  (define abs
+  116. PASS  (abs 77)
+  117. PASS  (abs -77)
+  118. PASS  (< -1 0)
+  119. PASS  (> -1 0)
+  120. PASS  (if #t 'true 'false)
+  121. PASS  (if #f 'true 'false)
+  122. PASS  (if '() 'true 'false)
+  123. PASS  (if 1 'true 'false)
+  124. PASS  (if '(a b c) 'true 'false)
+  125. PASS  (not #t)
+  126. PASS  (not "false")
+  127. PASS  (not #f)
+  128. PASS  (or)
+  129. PASS  (or #f)
+  130. PASS  (or #f #t)
+  131. PASS  (or #f 'a #f)
+  132. PASS  (define reciprocal
+  133. PASS  (reciprocal 3)
+  134. PASS  (reciprocal 0.5)
+  135. PASS  (reciprocal 0)
+  136. PASS  (null? '())
+  137. PASS  (null? 'abc)
+  138. PASS  (null? '(x y z))
+  139. PASS  (null? (cdddr '(x y z)))
+  140. PASS  (define lisp-cdr
+  141. PASS  (lisp-cdr '(a b c))
+  142. PASS  (lisp-cdr '(c))
+  143. PASS  (lisp-cdr '())
+  144. PASS  (eqv? 'a 'a)
+  145. PASS  (eqv? 'a 'b)
+  146. PASS  (eqv? #f #f)
+  147. PASS  (eqv? #t #t)
+  148. PASS  (eqv? #f #t)
+  149. PASS  (eqv? 3 3)
+  150. PASS  (eqv? 3 2)
+  151. PASS  (let ([x "Hi Mom!"]) (eqv? x x))
+  152. PASS  (let ([x (cons 'a 'b)]) (eqv? x x))
+  153. PASS  (eqv? (cons 'a 'b) (cons 'a 'b))
+  154. PASS  (pair? '(a . c))
+  155. PASS  (pair? '(a b c))
+  156. PASS  (pair? '())
+  157. PASS  (pair? 'abc)
+  158. PASS  (pair? "Hi Mom!")
+  159. PASS  (pair? 1234567890)
+  160. PASS  (define reciprocal
+  161. PASS  (reciprocal 2/3)
+  162. PASS  (reciprocal 'a)
+  163. PASS  (define reciprocal
+  164. PASS  (reciprocal .25)
+  165. PASS  (define sign
+  166. PASS  (sign -88.3)
+  167. PASS  (sign 0)
+  168. PASS  (sign 333333333333)
+  169. PASS  (* (sign -88.3) (abs -88.3))
+  170. PASS  (define sign
+  171. PASS  (define sign
+  172. PASS  (define income-tax
+  173. PASS  (income-tax 5000)
+  174. PASS  (income-tax 15000)
+  175. PASS  (income-tax 25000)
+  176. PASS  (income-tax 50000)
+  177. PASS  (define goodbye
+  178. PASS  (define length
+  179. PASS  (length '())
+  180. PASS  (length '(a))
+  181. PASS  (length '(a b))
+  182. PASS  (define list-copy
+  183. PASS  (list-copy '())
+  184. PASS  (list-copy '(a b c))
+  185. PASS  (define memv
+  186. PASS  (memv 'a '(a b b d))
+  187. PASS  (memv 'b '(a b b d))
+  188. PASS  (memv 'c '(a b b d))
+  189. PASS  (memv 'd '(a b b d))
+  190. PASS  (if (memv 'b '(a b b d)) "yes" "no")
+  191. PASS  (define remv
+  192. PASS  (remv 'a '(a b b d))
+  193. PASS  (remv 'b '(a b b d))
+  194. PASS  (remv 'c '(a b b d))
+  195. PASS  (remv 'd '(a b b d))
+  196. PASS  (define tree-copy
+  197. PASS  (tree-copy '((a . b) . c))
+  198. PASS  (define abs-all
+  199. PASS  (abs-all '(1 -2 3 -4 5 -6))
+  200. PASS  (define abs-all
+  201. PASS  (map abs '(1 -2 3 -4 5 -6))
+  202. PASS  (map (lambda (x) (* x x)) '(1 -3 -5 7))
+  203. PASS  (map cons '(a b c) '(1 2 3))
+  204. PASS  (define map1
+  205. PASS  (map1 abs '(1 -2 3 -4 5 -6))
+  206. PASS  (define abcde '(a b c d e))
+  207. PASS  abcde
+  208. PASS  (set! abcde (cdr abcde))
+  209. PASS  abcde
+  210. PASS  (let ([abcde '(a b c d e)])
+  211. PASS  (define quadratic-formula
+  212. PASS  (quadratic-formula 2 -4 -6)
+  213. PASS  (define quadratic-formula
+  214. PASS  (define kons-count 0)
+  215. PASS  (define kons
+  216. PASS  (kons 'a '(b c))
+  217. PASS  kons-count
+  218. PASS  (kons 'a (kons 'b (kons 'c '())))
+  219. PASS  kons-count
+  220. PASS  (define next 0)
+  221. PASS  (define count
+  222. PASS  (count)
+  223. PASS  (count)
+  224. PASS  (define count
+  225. PASS  (define make-counter
+  226. PASS  (define count1 (make-counter))
+  227. PASS  (define count2 (make-counter))
+  228. PASS  (count1)
+  229. PASS  (count2)
+  230. PASS  (count1)
+  231. PASS  (count1)
+  232. PASS  (count2)
+  233. PASS  (define shhh #f)
+  234. PASS  (define tell #f)
+  235. PASS  (let ([secret 0])
+  236. PASS  (shhh "sally likes harry")
+  237. PASS  (tell)
+  238. PASS  secret
+  239. PASS  (define lazy
+  240. PASS  (define p (lazy (lambda () (display "Ouch!") (newline...
+  241. PASS  (define make-stack
+  242. PASS  (define stack1 (make-stack))
+  243. PASS  (define stack2 (make-stack))
+  244. PASS  (list (stack1 'empty?) (stack2 'empty?))
+  245. PASS  (stack1 'push! 'a)
+  246. PASS  (list (stack1 'empty?) (stack2 'empty?))
+  247. PASS  (stack1 'push! 'b)
+  248. PASS  (stack2 'push! 'c)
+  249. PASS  (stack1 'top)
+  250. PASS  (stack2 'top)
+  251. PASS  (stack1 'pop!)
+  252. PASS  (stack1 'top)
+  253. PASS  (list (stack1 'empty?) (stack2 'empty?))
+  254. PASS  (stack1 'pop!)
+  255. PASS  (list (stack1 'empty?) (stack2 'empty?))
+  256. PASS  (define p (list 1 2 3))
+  257. PASS  (set-car! (cdr p) 'two)
+  258. PASS  p
+  259. PASS  (set-cdr! p '())
+  260. PASS  p
+  261. PASS  (define make-queue
+  262. PASS  (define putq!
+  263. PASS  (define getq
+  264. PASS  (define delq!
+  265. PASS  (define myq (make-queue))
+  266. PASS  (putq! myq 'a)
+  267. PASS  (putq! myq 'b)
+  268. PASS  (getq myq)
+  269. PASS  (delq! myq)
+  270. PASS  (getq myq)
+  271. PASS  (delq! myq)
+  272. PASS  (putq! myq 'c)
+  273. PASS  (putq! myq 'd)
+  274. PASS  (getq myq)
+  275. PASS  (delq! myq)
+  276. PASS  (getq myq)
+
+276 TESTS PASSED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test103-Going-Further.log
+------------------------------------------------------------------------------
+    1. PASS  (let* ([a 5] [b (+ a a)] [c (+ a b)])
+    2. PASS  (let ([x 3])
+    3. PASS  (let ([sum (lambda (ls) (if (null? ls) 0 (+ (car ls) ...
+    4. PASS  (let ([sum (lambda (sum ls)
+    5. PASS  (letrec ([sum (lambda (ls)
+    6. PASS  (letrec ([even?
+    7. PASS  (letrec ([f (lambda () (+ x 2))]
+    8. PASS  (letrec ([y (+ x 2)] [x 1]) y)
+    9. PASS  (define list?
+   10. PASS  (define list?
+   11. PASS  (define factorial
+   12. PASS  (factorial 0)
+   13. PASS  (factorial 1)
+   14. PASS  (factorial 2)
+   15. PASS  (factorial 3)
+   16. PASS  (factorial 10)
+   17. PASS  (define factorial
+   18. PASS  (factorial 0)
+   19. PASS  (factorial 1)
+   20. PASS  (factorial 2)
+   21. PASS  (factorial 3)
+   22. PASS  (factorial 10)
+   23. PASS  (define fibonacci
+   24. PASS  (fibonacci 0)
+   25. PASS  (fibonacci 1)
+   26. PASS  (fibonacci 2)
+   27. PASS  (fibonacci 3)
+   28. PASS  (fibonacci 4)
+   29. PASS  (fibonacci 5)
+   30. PASS  (fibonacci 6)
+   31. PASS  (fibonacci 20)
+   32. PASS  (fibonacci 30)
+   33. PASS  (define fibonacci
+   34. PASS  (fibonacci 0)
+   35. PASS  (fibonacci 1)
+   36. PASS  (fibonacci 2)
+   37. PASS  (fibonacci 3)
+   38. PASS  (fibonacci 4)
+   39. PASS  (fibonacci 5)
+   40. PASS  (fibonacci 6)
+   41. PASS  (fibonacci 20)
+   42. PASS  (fibonacci 30)
+   43. PASS  (define factor
+   44. PASS  (factor 0)
+   45. PASS  (factor 1)
+   46. PASS  (factor 12)
+   47. PASS  (factor 3628800)
+   48. PASS  (factor 9239)
+   49. PASS  (call/cc
+   50. PASS  (call/cc
+   51. PASS  (+ 2
+   52. PASS  (define product
+   53. PASS  (product '(1 2 3 4 5))
+   54. PASS  (product '(7 3 8 0 1 9 5))
+   55. PASS  (let ([x (call/cc (lambda (k) k))])
+   56. PASS  (((call/cc (lambda (k) k)) (lambda (x) x)) "HEY!")
+   57. PASS  (define retry #f)
+   58. PASS  (define factorial
+   59. PASS  (factorial 4)
+   60. PASS  (retry 1)
+   61. PASS  (retry 2)
+   62. PASS  (retry 5)
+   63. PASS  (letrec ([f (lambda (x) (cons 'a x))]
+   64. PASS  (define car&cdr
+   65. PASS  (car&cdr '(a b c)
+   66. PASS  (car&cdr '(a b c) cons)
+   67. PASS  (car&cdr '(a b c a d) memv)
+   68. PASS  (define integer-divide
+   69. PASS  (integer-divide 10 3 list (lambda (x) x))
+   70. PASS  (integer-divide 10 0 list (lambda (x) x))
+   71. PASS  (define product
+   72. PASS  (product '(1 2 3 4 5) (lambda (x) x))
+   73. PASS  (product '(7 3 8 0 1 9 5) (lambda (x) x))
+   74. PASS  (define f (lambda (x) (* x x)))
+   75. PASS  (let ([x 3])
+   76. PASS  (f 4)
+   77. PASS  (let ()
+   78. PASS  (let ([x 3])
+   79. PASS  (define list?
+   80. PASS  (define calc #f)
+   81. PASS  (let ()
+   82. PASS  (calc '(add (mul 3 2) -4))
+   83. PASS  (calc '(div 1/2 1/6))
+   84. PASS  (calc '(add (mul 3 2) (div 4)))
+   85. PASS  (calc '(mul (add 1 -2) (pow 2 7)))
+   86. PASS  (define in-range?
+   87. PASS  (define-syntax range-case
+   88. PASS  (define letter->number
+   89. PASS  (define gpa->grade
+   90. PASS  (define-syntax gpa
+   91. PASS  (gpa c a c b b)
+   92. PASS  (gpa->grade 2.8)
+
+92 TESTS PASSED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test104-Procedures-and-Variable-Bindings.log
+-------------------------------------------------------------------------------------------------
+    1. PASS  (define x 'a)
+    2. PASS  (list x x)
+    3. PASS  (let ([x 'b])
+    4. PASS  (let ([let 'let]) let)
+    5. PASS  (define f
+    6. PASS  (define g
+    7. PASS  (lambda (x) (+ x 3))
+    8. PASS  ((lambda (x) (+ x 3)) 7)
+    9. PASS  ((lambda (x y) (* x (+ x y))) 7 13)
+   10. PASS  ((lambda (f x) (f x x)) + 11)
+   11. PASS  ((lambda () (+ 3 4)))
+   12. PASS  ((lambda (x . y) (list x y))
+   13. PASS  ((lambda (x . y) (list x y))
+   14. PASS  ((lambda (x y . z) (list x y z))
+   15. PASS  ((lambda x x) 7 13)
+   16. PASS  (define make-list
+   17. PASS  (define substring1
+   18. PASS  (define substring2
+   19. PASS  (define substring3
+   20. PASS  (let ([x (* 3.0 3.0)] [y (* 4.0 4.0)])
+   21. PASS  (let ([x 'a] [y '(b c)])
+   22. PASS  (let ([x 0] [y 1])
+   23. PASS  (let* ([x (* 5.0 5.0)]
+   24. PASS  (let ([x 0] [y 1])
+   25. PASS  (letrec ([sum (lambda (x)
+   26. PASS  (letrec* ([sum (lambda (x)
+   27. PASS  (letrec* ([f (lambda () (lambda () g))]
+   28. PASS  (letrec* ([g (f)]
+   29. PASS  (let-values ([(a b) (values 1 2)] [c (values 1 2 3)])
+   30. PASS  (let*-values ([(a b) (values 1 2)] [(a b) (values b a)])
+   31. PASS  (define x 3)
+   32. PASS  x
+   33. PASS  (define f
+   34. PASS  (f 5 4)
+   35. PASS  (define (sum-of-squares x y)
+   36. PASS  (sum-of-squares 3 4)
+   37. PASS  (define f
+   38. PASS  (let ([x 2])
+   39. PASS  (f 3)
+   40. PASS  (define-syntax multi-define-syntax
+   41. PASS  (let ()
+   42. PASS  (define f
+   43. PASS  (define g
+   44. PASS  (f 3)
+   45. PASS  (define flip-flop
+   46. PASS  (flip-flop)
+   47. PASS  (flip-flop)
+   48. PASS  (flip-flop)
+   49. PASS  (define memoize
+   50. PASS  (define fibonacci
+   51. FAIL  (fibonacci 100)
+         expected return: [573147844013817084101]
+         actual return:   [1298777728820984005]
+
+1 of 51 FAILED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test105-Control-Operations.log
+-----------------------------------------------------------------------------------
+    1. PASS  (+ 3 4)
+    2. PASS  ((if (odd? 3) + -) 6 2)
+    3. PASS  ((lambda (x) x) 5)
+    4. PASS  (let ([f (lambda (x) (+ x x))]) (f 8))
+    5. PASS  (apply + '(4 5))
+    6. PASS  (apply min '(6 8 3 2 5))
+    7. PASS  (apply min 5 1 3 '(6 8 3 2 5))
+    8. PASS  (apply vector 'a 'b '(c d e))
+    9. PASS  (define first car)
+   10. PASS  (define rest cdr)
+   11. PASS  (first '(a b c d))
+   12. PASS  (rest '(a b c d))
+   13. PASS  (apply append '(1 2 3) '((a b) (c d e) (f)))
+   14. PASS  (define x 3)
+   15. PASS  (begin (set! x (+ x 1)) (+ x x))
+   16. PASS  (let ()
+   17. PASS  (define swap-pair!
+   18. PASS  (swap-pair! (cons 'a 'b))
+   19. PASS  (let ([ls '(a b c)])
+   20. PASS  (let ([ls '()])
+   21. PASS  (let ([abs (lambda (x) (if (< x 0) (- 0 x) x))])
+   22. PASS  (let ([x -4])
+   23. PASS  (not #f)
+   24. PASS  (not #t)
+   25. PASS  (not '())
+   26. PASS  (not (< 4 5))
+   27. PASS  (let ([x 3]) (and (> x 2) (< x 4)))
+   28. PASS  (let ([x 5]) (and (> x 2) (< x 4)))
+   29. PASS  (and #f '(a b) '(c d))
+   30. PASS  (and '(a b) '(c d) '(e f))
+   31. PASS  (let ([x 3]) (or (< x 2) (> x 4)))
+   32. PASS  (let ([x 5]) (or (< x 2) (> x 4)))
+   33. PASS  (or #f '(a b) '(c d))
+   34. PASS  (let ([x 0])
+   35. PASS  (define select
+   36. PASS  (select 3)
+   37. PASS  (select 'b)
+   38. PASS  (select 'e)
+   39. PASS  (let ([x -4] [sign 'plus])
+   40. PASS  (define check-pair
+   41. PASS  (check-pair '(a b c))
+   42. PASS  (let ([x 4] [y 5])
+   43. PASS  (define divisors
+   44. PASS  (define factorial
+   45. PASS  (define fibonacci
+   46. PASS  (define scale-vector!
+   47. PASS  (divisors 5)
+   48. PASS  (divisors 32)
+   49. PASS  (factorial 10)
+   50. PASS  (fibonacci 6)
+   51. PASS  (map abs '(1 -2 3 -4 5 -6))
+   52. PASS  (map (lambda (x y) (* x y))
+   53. PASS  (let ([same-count 0])
+   54. PASS  (vector-map abs '#(1 -2 3 -4 5 -6))
+   55. PASS  (vector-map (lambda (x y) (* x y))
+   56. PASS  (let ([same-count 0])
+   57. PASS  (let ([ls '()])
+   58. PASS  (member 'd '(a b c))
+   59. PASS  (member 'b '(a b c))
+   60. PASS  (define-syntax unwind-protect
+   61. PASS  ((call/cc
+   62. PASS  (define-syntax fluid-let
+   63. PASS  (let ([x 3]) (+ (fluid-let ([x 5]) x) x))
+   64. PASS  (let ([x 'a])
+   65. PASS  (define stream-car (lambda (s) (car (force s))))
+   66. PASS  (define stream-cdr (lambda (s) (cdr (force s))))
+   67. PASS  (define counters
+   68. PASS  (define stream-add
+   69. PASS  (define even-counters (stream-add counters counters))
+   70. PASS  (stream-car counters)
+   71. PASS  (stream-car (stream-cdr counters))
+   72. PASS  (stream-car even-counters)
+   73. PASS  (stream-car (stream-cdr even-counters))
+   74. PASS  (values)
+   75. PASS  (values 1)
+   76. PASS  (values 1 2 3)
+   77. PASS  (define head&tail
+   78. PASS  (head&tail '(a b c))
+   79. PASS  (call-with-values
+   80. PASS  (call-with-values values list)
+   81. PASS  (define dxdy
+   82. PASS  (define segment-length
+   83. PASS  (define segment-slope
+   84. PASS  (define describe-segment
+   85. PASS  (define split
+   86. PASS  (dxdy '(0 . 0) '(0 . 5))
+   87. PASS  (segment-length '(1 . 4) '(4 . 8))
+   88. PASS  (segment-slope '(1 . 4) '(4 . 8))
+   89. PASS  (describe-segment '(1 . 4) '(4 . 8))
+   90. PASS  (split '(a b c d e f))
+   91. PASS  (+ (values 2) 4)
+   92. PASS  (if (values #t) 1 2)
+   93. PASS  (call-with-values (lambda () 4) (lambda (x) x))
+   94. PASS  (begin (values 1 2 3) 4)
+   95. PASS  (call-with-values
+   96. PASS  (define-syntax first
+   97. PASS  (if (first (values #t #f)) 'a 'b)
+   98. PASS  (define-syntax with-values
+   99. PASS  (with-values (values 1 2) list)
+  100. PASS  (with-values (split '(1 2 3 4)) (lambda (odds evens) ...
+  101. PASS  (let-values ([(odds evens) (split '(1 2 3 4))]) evens)
+  102. PASS  (let-values ([ls (values 'a 'b 'c)]) ls)
+
+102 TESTS PASSED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test106-Operations-on-Objects.log
+--------------------------------------------------------------------------------------
+    1. PASS  3.2
+    2. PASS  #f
+    3. PASS  #\c
+    4. PASS  "hi"
+    5. PASS  '#u8(3 4 5)
+    6. PASS  (+ 2 3)
+    7. PASS  '(+ 2 3)
+    8. PASS  (quote (+ 2 3))
+    9. PASS  'a
+   10. PASS  'cons
+   11. PASS  '()
+   12. PASS  '7
+   13. PASS  `(+ 2 3)
+   14. PASS  `(+ 2 ,(* 3 4))
+   15. PASS  `(a b (,(+ 2 3) c) d)
+   16. PASS  `(a b ,(reverse '(c d e)) f g)
+   17. PASS  (let ([a 1] [b 2]) `(,a . ,b))
+   18. PASS  `(+ ,@(cdr '(* 2 3)))
+   19. PASS  `(a b ,@(reverse '(c d e)) f g)
+   20. PASS  '`,(cons 'a 'b)
+   21. PASS  `',(cons 'a 'b)
+   22. PASS  `#(,@(list 1 2 3))
+   23. PASS  (eq? 'a 3)
+   24. PASS  (eq? #t 't)
+   25. PASS  (eq? "abc" 'abc)
+   26. PASS  (eq? "hi" '(hi))
+   27. PASS  (eq? #f '())
+   28. PASS  (eq? 9/2 7/2)
+   29. PASS  (eq? 3.4 53344)
+   30. PASS  (eq? 3 3.0)
+   31. PASS  (eq? 9/2 9/2)
+   32. PASS  (eq? 3.4 (+ 3.0 .4))
+   33. FAIL  (let ([x (* 12345678987654321 2)]) (eq? x x))
+         expected return: [#t]
+         actual return:   [#f]
+   34. PASS  (eq? #\a #\b)
+   35. PASS  (eq? #\a #\a)
+   36. FAIL  (let ([x (string-ref "hi" 0)]) (eq? x x))
+         expected return: [#t]
+         actual return:   [#f]
+   37. PASS  (eq? #t #t)
+   38. PASS  (eq? #f #f)
+   39. PASS  (eq? #t #f)
+   40. PASS  (eq? (null? '()) #t)
+   41. PASS  (eq? (null? '(a)) #f)
+   42. PASS  (eq? (cdr '(a)) '())
+   43. PASS  (eq? 'a 'a)
+   44. PASS  (eq? 'a 'b)
+   45. PASS  (eq? 'a (string->symbol "a"))
+   46. PASS  (eq? '(a) '(b))
+   47. PASS  (eq? '(a) '(a))
+   48. PASS  (let ([x '(a . b)]) (eq? x x))
+   49. PASS  (let ([x (cons 'a 'b)]) (eq? x x))
+   50. PASS  (eq? (cons 'a 'b) (cons 'a 'b))
+   51. PASS  (eq? "abc" "cba")
+   52. PASS  (eq? "abc" "abc")
+   53. PASS  (let ([x "hi"]) (eq? x x))
+   54. PASS  (let ([x (string #\h #\i)]) (eq? x x))
+   55. PASS  (eq? (string #\h #\i) (string #\h #\i))
+   56. PASS  (eq? '#u8(1) '#u8(1))
+   57. PASS  (eq? '#u8(1) '#u8(2))
+   58. PASS  (let ([x (make-bytevector 10 0)]) (eq? x x))
+   59. PASS  (let ([x (make-bytevector 10 0)]) (eq? x (make-byteve...
+   60. PASS  (eq? '#(a) '#(b))
+   61. PASS  (eq? '#(a) '#(a))
+   62. PASS  (let ([x '#(a)]) (eq? x x))
+   63. PASS  (let ([x (vector 'a)]) (eq? x x))
+   64. PASS  (eq? (vector 'a) (vector 'a))
+   65. PASS  (eq? car car)
+   66. PASS  (eq? car cdr)
+   67. PASS  (let ([f (lambda (x) x)]) (eq? f f))
+   68. PASS  (let ([f (lambda () (lambda (x) x))]) (eq? (f) (f)))
+   69. PASS  (eq? (lambda (x) x) (lambda (y) y))
+   70. PASS  (let ([f (lambda (x) (lambda () (set! x (+ x 1)) x))]...
+   71. PASS  (eqv? 'a 3)
+   72. PASS  (eqv? #t 't)
+   73. PASS  (eqv? "abc" 'abc)
+   74. PASS  (eqv? "hi" '(hi))
+   75. PASS  (eqv? #f '())
+   76. PASS  (eqv? 9/2 7/2)
+   77. PASS  (eqv? 3.4 53344)
+   78. PASS  (eqv? 3 3.0)
+   79. PASS  (eqv? 9/2 9/2)
+   80. PASS  (eqv? 3.4 (+ 3.0 .4))
+   81. PASS  (let ([x (* 12345678987654321 2)]) (eqv? x x))
+   82. PASS  (eqv? #\a #\b)
+   83. PASS  (eqv? #\a #\a)
+   84. PASS  (let ([x (string-ref "hi" 0)]) (eqv? x x))
+   85. PASS  (eqv? #t #t)
+   86. PASS  (eqv? #f #f)
+   87. PASS  (eqv? #t #f)
+   88. PASS  (eqv? (null? '()) #t)
+   89. PASS  (eqv? (null? '(a)) #f)
+   90. PASS  (eqv? (cdr '(a)) '())
+   91. PASS  (eqv? 'a 'a)
+   92. PASS  (eqv? 'a 'b)
+   93. PASS  (eqv? 'a (string->symbol "a"))
+   94. PASS  (eqv? '(a) '(b))
+   95. PASS  (eqv? '(a) '(a))
+   96. PASS  (let ([x '(a . b)]) (eqv? x x))
+   97. PASS  (let ([x (cons 'a 'b)]) (eqv? x x))
+   98. PASS  (eqv? (cons 'a 'b) (cons 'a 'b))
+   99. PASS  (eqv? "abc" "cba")
+  100. PASS  (eqv? "abc" "abc")
+  101. PASS  (let ([x "hi"]) (eqv? x x))
+  102. PASS  (let ([x (string #\h #\i)]) (eqv? x x))
+  103. PASS  (eqv? (string #\h #\i) (string #\h #\i))
+  104. PASS  (eqv? '#u8(1) '#u8(1))
+  105. PASS  (eqv? '#u8(1) '#u8(2))
+  106. PASS  (let ([x (make-bytevector 10 0)]) (eqv? x x))
+  107. PASS  (let ([x (make-bytevector 10 0)]) (eqv? x (make-bytev...
+  108. PASS  (eqv? '#(a) '#(b))
+  109. PASS  (eqv? '#(a) '#(a))
+  110. PASS  (let ([x '#(a)]) (eqv? x x))
+  111. PASS  (let ([x (vector 'a)]) (eqv? x x))
+  112. PASS  (eqv? (vector 'a) (vector 'a))
+  113. PASS  (eqv? car car)
+  114. PASS  (eqv? car cdr)
+  115. PASS  (let ([f (lambda (x) x)]) (eqv? f f))
+  116. PASS  (let ([f (lambda () (lambda (x) x))]) (eqv? (f) (f)))
+  117. PASS  (eqv? (lambda (x) x) (lambda (y) y))
+  118. PASS  (let ([f (lambda (x) (lambda () (set! x (+ x 1)) x))]...
+  119. PASS  (equal? 'a 3)
+  120. PASS  (equal? #t 't)
+  121. PASS  (equal? "abc" 'abc)
+  122. PASS  (equal? "hi" '(hi))
+  123. PASS  (equal? #f '())
+  124. PASS  (equal? 9/2 7/2)
+  125. PASS  (equal? 3.4 53344)
+  126. PASS  (equal? 3 3.0)
+  127. PASS  (equal? 9/2 9/2)
+  128. PASS  (equal? 3.4 (+ 3.0 .4))
+  129. PASS  (let ([x (* 12345678987654321 2)]) (equal? x x))
+  130. PASS  (equal? #\a #\b)
+  131. PASS  (equal? #\a #\a)
+  132. PASS  (let ([x (string-ref "hi" 0)]) (equal? x x))
+  133. PASS  (equal? #t #t)
+  134. PASS  (equal? #f #f)
+  135. PASS  (equal? #t #f)
+  136. PASS  (equal? (null? '()) #t)
+  137. PASS  (equal? (null? '(a)) #f)
+  138. PASS  (equal? (cdr '(a)) '())
+  139. PASS  (equal? 'a 'a)
+  140. PASS  (equal? 'a 'b)
+  141. PASS  (equal? 'a (string->symbol "a"))
+  142. PASS  (equal? '(a) '(b))
+  143. PASS  (equal? '(a) '(a))
+  144. PASS  (let ([x '(a . b)]) (equal? x x))
+  145. PASS  (let ([x (cons 'a 'b)]) (equal? x x))
+  146. PASS  (equal? (cons 'a 'b) (cons 'a 'b))
+  147. PASS  (equal? "abc" "cba")
+  148. PASS  (equal? "abc" "abc")
+  149. PASS  (let ([x "hi"]) (equal? x x))
+  150. PASS  (let ([x (string #\h #\i)]) (equal? x x))
+  151. PASS  (equal? (string #\h #\i) (string #\h #\i))
+  152. PASS  (equal? '#u8(1) '#u8(1))
+  153. PASS  (equal? '#u8(1) '#u8(2))
+  154. PASS  (let ([x (make-bytevector 10 0)]) (equal? x x))
+  155. PASS  (let ([x (make-bytevector 10 0)]) (equal? x (make-byt...
+  156. PASS  (equal? '#(a) '#(b))
+  157. PASS  (equal? '#(a) '#(a))
+  158. PASS  (let ([x '#(a)]) (equal? x x))
+  159. PASS  (let ([x (vector 'a)]) (equal? x x))
+  160. PASS  (equal? (vector 'a) (vector 'a))
+  161. PASS  (equal? car car)
+  162. PASS  (equal? car cdr)
+  163. PASS  (let ([f (lambda (x) x)]) (equal? f f))
+  164. PASS  (let ([f (lambda () (lambda (x) x))]) (equal? (f) (f)))
+  165. PASS  (equal? (lambda (x) x) (lambda (y) y))
+  166. PASS  (let ([f (lambda (x) (lambda () (set! x (+ x 1)) x))]...
+  167. PASS  (boolean? #t)
+  168. PASS  (boolean? #f)
+  169. PASS  (or (boolean? 't) (boolean? '()))
+  170. PASS  (null? '())
+  171. PASS  (null? '(a))
+  172. PASS  (null? (cdr '(a)))
+  173. PASS  (null? 3)
+  174. PASS  (null? #f)
+  175. PASS  (pair? '(a b c))
+  176. PASS  (pair? '(3 . 4))
+  177. PASS  (pair? '())
+  178. PASS  (pair? '#(a b))
+  179. PASS  (pair? 3)
+  180. PASS  (integer? 1901)
+  181. PASS  (rational? 1901)
+  182. PASS  (real? 1901)
+  183. PASS  (complex? 1901)
+  184. PASS  (number? 1901)
+  185. PASS  (integer? -3.0)
+  186. PASS  (rational? -3.0)
+  187. PASS  (real? -3.0)
+  188. PASS  (complex? -3.0)
+  189. PASS  (number? -3.0)
+  190. PASS  (integer? 7+0i)
+  191. PASS  (rational? 7+0i)
+  192. PASS  (real? 7+0i)
+  193. PASS  (complex? 7+0i)
+  194. PASS  (number? 7+0i)
+  195. PASS  (integer? -2/3)
+  196. PASS  (rational? -2/3)
+  197. PASS  (real? -2/3)
+  198. PASS  (complex? -2/3)
+  199. PASS  (number? -2/3)
+  200. PASS  (integer? -2.345)
+  201. PASS  (rational? -2.345)
+  202. PASS  (real? -2.345)
+  203. PASS  (complex? -2.345)
+  204. PASS  (number? -2.345)
+  205. PASS  (integer? 7.0+0.0i)
+  206. PASS  (rational? 7.0+0.0i)
+  207. PASS  (real? 7.0+0.0i)
+  208. PASS  (complex? 7.0+0.0i)
+  209. PASS  (number? 7.0+0.0i)
+  210. PASS  (integer? 3.2-2.01i)
+  211. PASS  (rational? 3.2-2.01i)
+  212. PASS  (real? 3.2-2.01i)
+  213. PASS  (complex? 3.2-2.01i)
+  214. PASS  (number? 3.2-2.01i)
+  215. PASS  (integer? 'a)
+  216. PASS  (rational? '(a b c))
+  217. PASS  (real? "3")
+  218. PASS  (complex? '#(1 2))
+  219. PASS  (number? #\a)
+  220. PASS  (char? 'a)
+  221. PASS  (char? 97)
+  222. PASS  (char? #\a)
+  223. PASS  (char? "a")
+  224. PASS  (char? (string-ref (make-string 1) 0))
+  225. PASS  (string? "hi")
+  226. PASS  (string? 'hi)
+  227. PASS  (string? #\h)
+  228. PASS  (vector? '#())
+  229. PASS  (vector? '#(a b c))
+  230. PASS  (vector? (vector 'a 'b 'c))
+  231. PASS  (vector? '())
+  232. PASS  (vector? '(a b c))
+  233. PASS  (vector? "abc")
+  234. PASS  (symbol? 't)
+  235. PASS  (symbol? "t")
+  236. PASS  (symbol? '(t))
+  237. PASS  (symbol? #\t)
+  238. PASS  (symbol? 3)
+  239. PASS  (symbol? #t)
+  240. PASS  (procedure? car)
+  241. PASS  (procedure? 'car)
+  242. PASS  (procedure? (lambda (x) x))
+  243. PASS  (procedure? '(lambda (x) x))
+  244. PASS  (call/cc procedure?)
+  245. PASS  (bytevector? #u8())
+  246. PASS  (bytevector? '#())
+  247. PASS  (bytevector? "abc")
+  248. PASS  (cons 'a '())
+  249. PASS  (cons 'a '(b c))
+  250. PASS  (cons 3 4)
+  251. PASS  (car '(a))
+  252. PASS  (car '(a b c))
+  253. PASS  (car (cons 3 4))
+  254. PASS  (cdr '(a))
+  255. PASS  (cdr '(a b c))
+  256. PASS  (cdr (cons 3 4))
+  257. PASS  (let ([x (list 'a 'b 'c)])
+  258. PASS  (let ([x (list 'a 'b 'c)])
+  259. PASS  (caar '((a)))
+  260. PASS  (cadr '(a b c))
+  261. PASS  (cdddr '(a b c d))
+  262. PASS  (cadadr '(a (b c)))
+  263. PASS  (list)
+  264. PASS  (list 1 2 3)
+  265. PASS  (list 3 2 1)
+  266. PASS  (list? '())
+  267. PASS  (list? '(a b c))
+  268. PASS  (list? 'a)
+  269. PASS  (list? '(3 . 4))
+  270. PASS  (list? 3)
+  271. PASS  (let ([x (list 'a 'b 'c)])
+  272. PASS  (length '())
+  273. PASS  (length '(a b c))
+  274. PASS  (length '(a b . c))
+  275. PASS  (length (let ([ls (list 'a 'b)])
+  276. PASS  (list-ref '(a b c) 0)
+  277. PASS  (list-ref '(a b c) 1)
+  278. PASS  (list-ref '(a b c) 2)
+  279. PASS  (list-tail '(a b c) 0)
+  280. PASS  (list-tail '(a b c) 2)
+  281. PASS  (list-tail '(a b c) 3)
+  282. PASS  (list-tail '(a b c . d) 2)
+  283. PASS  (list-tail '(a b c . d) 3)
+  284. PASS  (let ([x (list 1 2 3)])
+  285. PASS  (list-copy '(a b c))
+  286. PASS  (let ([x '(a b c)])
+  287. PASS  (append '(a b c) '())
+  288. PASS  (append '() '(a b c))
+  289. PASS  (append '(a b) '(c d))
+  290. PASS  (append '(a b) 'c)
+  291. PASS  (let ([x (list 'b)])
+  292. PASS  (reverse '())
+  293. PASS  (reverse '(a b c))
+  294. PASS  (memq 'a '(b c a d e))
+  295. PASS  (memq 'a '(b c d e g))
+  296. PASS  (memq 'a '(b a c a d a))
+  297. PASS  (memv 3.4 '(1.2 2.3 3.4 4.5))
+  298. PASS  (memv 3.4 '(1.3 2.5 3.7 4.9))
+  299. PASS  (let ([ls (list 'a 'b 'c)])
+  300. PASS  (member '(b) '((a) (b) (c)))
+  301. PASS  (member '(d) '((a) (b) (c)))
+  302. PASS  (member "b" '("a" "b" "c"))
+  303. PASS  (let ()
+  304. PASS  (define count-occurrences
+  305. PASS  (count-occurrences 'a '(a b c d a))
+  306. PASS  (assq 'b '((a . 1) (b . 2)))
+  307. PASS  (cdr (assq 'b '((a . 1) (b . 2))))
+  308. PASS  (assq 'c '((a . 1) (b . 2)))
+  309. PASS  (assv 2/3 '((1/3 . 1) (2/3 . 2)))
+  310. PASS  (assv 2/3 '((1/3 . a) (3/4 . b)))
+  311. PASS  (assoc '(a) '(((a) . a) (-1 . b)))
+  312. PASS  (assoc '(a) '(((b) . b) (a . c)))
+  313. PASS  (let ([alist (list (cons 2 'a) (cons 3 'b))])
+  314. PASS  (exact? 1)
+  315. PASS  (exact? -15/16)
+  316. PASS  (exact? 2.01)
+  317. PASS  (exact? #i77)
+  318. PASS  (exact? 1.0-2i)
+  319. PASS  (inexact? -123)
+  320. PASS  (inexact? #i123)
+  321. PASS  (inexact? 1e23)
+  322. PASS  (inexact? +i)
+  323. PASS  (= 7 7)
+  324. PASS  (= 7 9)
+  325. PASS  (< 2e3 3e2)
+  326. PASS  (<= 1 2 3 3 4 5)
+  327. PASS  (<= 1 2 3 4 5)
+  328. PASS  (> 1 2 2 3 3 4)
+  329. PASS  (>= 1 2 2 3 3 4)
+  330. PASS  (= -1/2 -0.5)
+  331. PASS  (= 2/3 .667)
+  332. PASS  (= 7.2+0i 7.2)
+  333. PASS  (= 7.2-3i 7)
+  334. PASS  (< 1/2 2/3 3/4)
+  335. PASS  (> 8 4.102 2/3 -5)
+  336. PASS  (let ([x 0.218723452])
+  337. PASS  (let ([i 1] [v (vector 'a 'b 'c)])
+  338. PASS  (apply < '(1 2 3 4))
+  339. PASS  (apply > '(4 3 3 2))
+  340. PASS  (= +nan.0 +nan.0)
+  341. PASS  (< +nan.0 +nan.0)
+  342. PASS  (> +nan.0 +nan.0)
+  343. PASS  (>= +inf.0 +nan.0)
+  344. PASS  (>= +nan.0 -inf.0)
+  345. PASS  (+)
+  346. PASS  (+ 1 2)
+  347. PASS  (+ 1/2 2/3)
+  348. PASS  (+ 3 4 5)
+  349. PASS  (+ 3.0 4)
+  350. PASS  (+ 3+4i 4+3i)
+  351. PASS  (apply + '(1 2 3 4 5))
+  352. PASS  (- 3)
+  353. PASS  (- -2/3)
+  354. PASS  (- 4 3.0)
+  355. PASS  (- 3.25+4.25i 1/4+1/4i)
+  356. PASS  (- 4 3 2 1)
+  357. PASS  (*)
+  358. PASS  (* 3.4)
+  359. PASS  (* 1 1/2)
+  360. PASS  (* 3 4 5.5)
+  361. PASS  (* 1+2i 3+4i)
+  362. PASS  (apply * '(1 2 3 4 5))
+  363. PASS  (/ -17)
+  364. PASS  (/ 1/2)
+  365. PASS  (/ .5)
+  366. PASS  (/ 3 4)
+  367. PASS  (/ 3.0 4)
+  368. PASS  (/ -5+10i 3+4i)
+  369. PASS  (/ 60 5 4 3 2)
+  370. PASS  (zero? 0)
+  371. PASS  (zero? 1)
+  372. PASS  (zero? (- 3.0 3.0))
+  373. PASS  (zero? (+ 1/2 1/2))
+  374. PASS  (zero? 0+0i)
+  375. PASS  (zero? 0.0-0.0i)
+  376. PASS  (positive? 128)
+  377. PASS  (positive? 0.0)
+  378. PASS  (positive? 1.8e-15)
+  379. PASS  (positive? -2/3)
+  380. PASS  (negative? -65)
+  381. PASS  (negative? 0)
+  382. PASS  (negative? -0.0121)
+  383. PASS  (negative? 15/16)
+  384. PASS  (even? 0)
+  385. PASS  (even? 1)
+  386. PASS  (even? 2.0)
+  387. PASS  (even? -120762398465)
+  388. PASS  (odd? 0)
+  389. PASS  (odd? 1)
+  390. PASS  (odd? 2.0)
+  391. PASS  (odd? -120762398465)
+  392. PASS  (finite? 2/3)
+  393. PASS  (infinite? 2/3)
+  394. PASS  (nan? 2/3)
+  395. PASS  (finite? 3.1415)
+  396. PASS  (infinite? 3.1415)
+  397. PASS  (nan? 3.1415)
+  398. PASS  (finite? +inf.0)
+  399. PASS  (infinite? -inf.0)
+  400. PASS  (nan? -inf.0)
+  401. PASS  (finite? +nan.0)
+  402. PASS  (infinite? +nan.0)
+  403. PASS  (nan? +nan.0)
+  404. PASS  (truncate 19)
+  405. PASS  (truncate 2/3)
+  406. PASS  (truncate -2/3)
+  407. PASS  (truncate 17.3)
+  408. PASS  (truncate -17/2)
+  409. PASS  (floor 19)
+  410. PASS  (floor 2/3)
+  411. PASS  (floor -2/3)
+  412. PASS  (floor 17.3)
+  413. PASS  (floor -17/2)
+  414. PASS  (ceiling 19)
+  415. PASS  (ceiling 2/3)
+  416. PASS  (ceiling -2/3)
+  417. PASS  (ceiling 17.3)
+  418. PASS  (ceiling -17/2)
+  419. PASS  (round 19)
+  420. PASS  (round 2/3)
+  421. PASS  (round -2/3)
+  422. PASS  (round 17.3)
+  423. PASS  (round -17/2)
+  424. PASS  (round 2.5)
+  425. PASS  (round 3.5)
+  426. PASS  (abs 1)
+  427. PASS  (abs -3/4)
+  428. PASS  (abs 1.83)
+  429. PASS  (abs -0.093)
+  430. PASS  (max 4 -7 2 0 -6)
+  431. PASS  (max 1/2 3/4 4/5 5/6 6/7)
+  432. PASS  (max 1.5 1.3 -0.3 0.4 2.0 1.8)
+  433. PASS  (max 5 2.0)
+  434. PASS  (max -5 -2.0)
+  435. PASS  (let ([ls '(7 3 5 2 9 8)])
+  436. PASS  (min 4 -7 2 0 -6)
+  437. PASS  (min 1/2 3/4 4/5 5/6 6/7)
+  438. PASS  (min 1.5 1.3 -0.3 0.4 2.0 1.8)
+  439. PASS  (min 5 2.0)
+  440. PASS  (min -5 -2.0)
+  441. PASS  (let ([ls '(7 3 5 2 9 8)])
+  442. PASS  (gcd)
+  443. PASS  (gcd 34)
+  444. PASS  (gcd 33.0 15.0)
+  445. PASS  (gcd 70 -42 28)
+  446. PASS  (lcm)
+  447. PASS  (lcm 34)
+  448. PASS  (lcm 33.0 15.0)
+  449. PASS  (lcm 70 -42 28)
+  450. PASS  (lcm 17.0 0)
+  451. PASS  (expt 2 10)
+  452. PASS  (expt 2 -10)
+  453. PASS  (expt 2 -10.0)
+  454. PASS  (expt -1/2 5)
+  455. PASS  (expt 3.0 3)
+  456. FAIL  (expt +i 2)
+         expected return: [-1.0]
+         actual return:   [-1.0+1.2246467991473532e-16i]
+  457. PASS  (sqrt 16)
+  458. PASS  (sqrt 1/4)
+  459. PASS  (sqrt 4.84)
+  460. PASS  (sqrt -4.84)
+  461. PASS  (sqrt 3+4i)
+  462. PASS  (sqrt -3.0-4.0i)
+  463. PASS  (exact-integer-sqrt 0)
+  464. PASS  (exact-integer-sqrt 9)
+  465. PASS  (exact-integer-sqrt 19)
+  466. PASS  (exp 0.0)
+  467. PASS  (exp 1.0)
+  468. PASS  (exp -.5)
+  469. PASS  (log 1.0)
+  470. PASS  (log (exp 1.0))
+  471. PASS  (/ (log 100) (log 10))
+  472. PASS  (log (make-polar (exp 2.0) 1.0))
+  473. PASS  (log 100.0 10.0)
+  474. PASS  (log .125 2.0)
+  475. PASS  (sin 0.0)
+  476. PASS  (cos 0.0)
+  477. PASS  (tan 0.0)
+  478. PASS  (define pi (* (asin 1) 2))
+  479. PASS  (= (* (acos 0) 2) pi)
+  480. PASS  (define pi (* (atan 1) 4))
+  481. PASS  (= (* (atan 1.0 0.0) 2) pi)
+  482. PASS  (real-part 3+4i)
+  483. PASS  (real-part -2.3+0.7i)
+  484. PASS  (real-part -i)
+  485. PASS  (real-part 17.2)
+  486. PASS  (real-part -17/100)
+  487. PASS  (imag-part 3+4i)
+  488. PASS  (imag-part -2.3+0.7i)
+  489. PASS  (imag-part -i)
+  490. PASS  (imag-part -2.5)
+  491. PASS  (imag-part -17/100)
+  492. PASS  (make-rectangular -2 7)
+  493. PASS  (make-rectangular 2/3 -1/2)
+  494. PASS  (make-rectangular 3.2 5.3)
+  495. PASS  (make-polar 2 0)
+  496. PASS  (make-polar 2.0 0.0)
+  497. PASS  (eqv? (make-polar 7.2 -0.588) 7.2@-0.588)
+  498. PASS  (angle 7.3@1.5708)
+  499. PASS  (angle 5.2)
+  500. PASS  (magnitude 1)
+  501. PASS  (magnitude -3/4)
+  502. PASS  (magnitude 1.83)
+  503. PASS  (magnitude -0.093)
+  504. PASS  (magnitude 3+4i)
+  505. PASS  (magnitude 7.25@0)
+  506. PASS  (string->number "0")
+  507. PASS  (string->number "3.4e3")
+  508. PASS  (string->number "#x#e-2e2")
+  509. PASS  (string->number "#e-2e2" 16)
+  510. PASS  (string->number "#i15/16")
+  511. PASS  (string->number "10" 16)
+  512. PASS  (number->string 3.4)
+  513. PASS  (number->string 1e2)
+  514. PASS  (number->string 1e-23)
+  515. PASS  (number->string -7/2)
+  516. PASS  (number->string 220/9 16)
+  517. PASS  (char->integer #\a)
+  518. PASS  (char->integer #\A)
+  519. PASS  (char->integer #\0)
+  520. PASS  (char->integer #\space)
+  521. PASS  (char->integer #\newline)
+  522. PASS  (integer->char 97)
+  523. PASS  (char=? #\a #\a)
+  524. PASS  (char=? #\a #\b)
+  525. PASS  (char<? #\a #\b)
+  526. PASS  (char<? #\b #\a)
+  527. PASS  (char<=? #\a #\a)
+  528. PASS  (char>? #\b #\a)
+  529. PASS  (char>=? #\a #\a)
+  530. PASS  (char-ci=? #\a #\A)
+  531. PASS  (char-ci<? #\a #\B)
+  532. PASS  (char-alphabetic? #\a)
+  533. PASS  (char-alphabetic? #\1)
+  534. PASS  (char-numeric? #\9)
+  535. PASS  (char-numeric? #\a)
+  536. PASS  (char-whitespace? #\space)
+  537. PASS  (char-whitespace? #\newline)
+  538. PASS  (char-whitespace? #\a)
+  539. PASS  (char-upper-case? #\A)
+  540. PASS  (char-upper-case? #\a)
+  541. PASS  (char-lower-case? #\a)
+  542. PASS  (char-lower-case? #\A)
+  543. PASS  (char-upcase #\a)
+  544. PASS  (char-upcase #\A)
+  545. PASS  (char-downcase #\A)
+  546. PASS  (char-downcase #\a)
+  547. PASS  (char-foldcase #\A)
+  548. PASS  (char-foldcase #\a)
+  549. PASS  (string? "abc")
+  550. PASS  (string? 'abc)
+  551. PASS  (make-string 3 #\a)
+  552. PASS  (make-string 0)
+  553. PASS  (string #\a #\b #\c)
+  554. PASS  (string-length "abc")
+  555. PASS  (string-length "")
+  556. PASS  (string-ref "abcde" 0)
+  557. PASS  (string-ref "abcde" 2)
+  558. PASS  (string=? "abc" "abc")
+  559. PASS  (string=? "abc" "abC")
+  560. PASS  (string<? "abc" "abd")
+  561. PASS  (string<? "abc" "abc")
+  562. PASS  (string>? "abd" "abc")
+  563. PASS  (string<=? "abc" "abc")
+  564. PASS  (string>=? "abc" "abc")
+  565. PASS  (string-ci=? "abc" "ABC")
+  566. PASS  (string-ci<? "abc" "ABD")
+  567. PASS  (string-upcase "hello")
+  568. PASS  (string-downcase "HELLO")
+  569. PASS  (string-foldcase "aAbBcC")
+  570. PASS  (string-append "abc" "def")
+  571. PASS  (string-append)
+  572. PASS  (string-append "a" "b" "c")
+  573. PASS  (substring "abcde" 1 4)
+  574. PASS  (substring "abcde" 2 5)
+  575. PASS  (string-copy "hello")
+  576. PASS  (string-copy "hello" 1 4)
+  577. PASS  (string-copy "hello" 2)
+  578. PASS  (string->list "abc")
+  579. PASS  (string->list "hello" 1 3)
+  580. PASS  (list->string '(#\a #\b #\c))
+  581. PASS  (string-for-each
+  582. PASS  (string-map char-upcase "hello")
+  583. PASS  (string-map
+  584. PASS  (vector? '#(1 2 3))
+  585. PASS  (vector? '(1 2 3))
+  586. PASS  (make-vector 5 0)
+  587. PASS  (make-vector 3)
+  588. PASS  (vector 'a 'b 'c)
+  589. PASS  (vector-length '#(a b c))
+  590. PASS  (vector-length '#())
+  591. PASS  (vector-ref '#(a b c) 0)
+  592. PASS  (vector-ref '#(a b c) 2)
+  593. PASS  (let ([v (vector 1 2 3)])
+  594. PASS  (vector->list '#(a b c))
+  595. PASS  (vector->list '#(a b c) 1)
+  596. PASS  (list->vector '(a b c))
+  597. PASS  (let ([v (vector 1 2 3)])
+  598. PASS  (vector-copy '#(a b c d e) 1 4)
+  599. PASS  (vector-copy '#(a b c d e) 2)
+  600. PASS  (let ([v (vector 1 2 3 4 5)])
+  601. PASS  (vector-map + '#(1 2 3) '#(4 5 6))
+  602. PASS  (vector-map (lambda (x) (* x x)) '#(1 2 3 4))
+  603. PASS  (vector-for-each
+  604. PASS  (bytevector? #u8(1 2 3))
+  605. PASS  (bytevector? '#(1 2 3))
+  606. PASS  (make-bytevector 5 0)
+  607. PASS  (make-bytevector 3)
+  608. PASS  (bytevector 1 2 3)
+  609. PASS  (bytevector-length #u8(1 2 3))
+  610. PASS  (bytevector-length #u8())
+  611. PASS  (bytevector-u8-ref #u8(1 2 3) 0)
+  612. PASS  (bytevector-u8-ref #u8(1 2 3) 2)
+  613. PASS  (let ([bv (bytevector 1 2 3)])
+  614. PASS  (bytevector-copy #u8(1 2 3 4 5) 1 3)
+  615. PASS  (bytevector-copy #u8(1 2 3) 1)
+  616. PASS  (bytevector-append #u8(1 2) #u8(3 4))
+  617. PASS  (bytevector-append)
+  618. PASS  (let ([bv (bytevector 1 2 3 4 5)])
+  619. PASS  (utf8->string #u8(104 101 108 108 111))
+  620. PASS  (string->utf8 "hello")
+  621. PASS  (symbol? 'abc)
+  622. PASS  (symbol? "abc")
+  623. PASS  (symbol? #t)
+  624. PASS  (symbol? 3)
+  625. PASS  (symbol->string 'abc)
+  626. PASS  (symbol->string 'hello-world)
+  627. PASS  (string->symbol "abc")
+  628. PASS  (string->symbol "Hello World")
+  629. PASS  (eq? 'abc (string->symbol "abc"))
+  630. PASS  (eq? (string->symbol "abc") (string->symbol "abc"))
+  631. PASS  (not #f)
+  632. PASS  (not #t)
+  633. PASS  (not '())
+  634. PASS  (not 0)
+  635. PASS  (not "")
+  636. PASS  (boolean=? #t #t)
+  637. PASS  (boolean=? #f #f)
+  638. PASS  (boolean=? #t #f)
+  639. PASS  (boolean=? #t #t #t)
+  640. PASS  (boolean=? #f #f #f)
+
+3 of 640 FAILED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test107-Input-Output.log
+-----------------------------------------------------------------------------
+    1. PASS  (eol-style crlf)
+    2. PASS  (eol-style lfcr)
+    3. PASS  (error-handling-mode replace)
+    4. PASS  (error-handling-mode relpace)
+    5. PASS  (buffer-mode block)
+    6. PASS  (buffer-mode cushion)
+    7. PASS  (buffer-mode? 'block)
+    8. PASS  (buffer-mode? 'line)
+    9. PASS  (buffer-mode? 'none)
+   10. PASS  (buffer-mode? 'something-else)
+   11. PASS  (open-file-input-port "myfile.ss")
+   12. PASS  (open-file-output-port "myfile.ss")
+   13. PASS  (input-port? (current-input-port))
+   14. PASS  (output-port? (current-output-port))
+   15. PASS  (output-port? (current-error-port))
+   16. PASS  (let ([ip (open-bytevector-input-port #u8(1 2))])
+   17. PASS  (get-line (open-string-input-port "hi.\nwhat's up?\n"))
+   18. PASS  (read-line (open-input-string "hi.\nwhat's up?\n"))
+   19. PASS  (let-values ([(op g) (open-bytevector-output-port)])
+   20. PASS  (let ([op (open-output-bytevector)])
+   21. PASS  (let-values ([(op g) (open-string-output-port)])
+   22. PASS  (let ([op (open-output-string)])
+   23. PASS  (call-with-string-output-port
+   24. PASS  (port? (open-input-string "test"))
+   25. PASS  (input-port? (open-input-string "test"))
+   26. PASS  (output-port? (open-output-string))
+   27. PASS  (binary-port? (open-input-bytevector #u8(1 2)))
+   28. PASS  (textual-port? (open-input-string "test"))
+   29. PASS  (binary-port? (open-input-string "test"))
+   30. PASS  (call-with-port (open-input-string "hello")
+   31. PASS  (close-port (open-input-string "test"))
+   32. PASS  (close-input-port (open-input-string "test"))
+   33. PASS  (close-output-port (open-output-string))
+   34. PASS  (port-eof? (open-input-string ""))
+   35. PASS  (port-position (open-input-string "hello"))
+   36. PASS  (port-open? (open-input-string "test"))
+   37. PASS  (eof-object? (eof-object))
+   38. PASS  (let ([sip (open-string-input-port "; a\n\n one (two)...
+   39. PASS  (let ([sip (open-string-input-port "one\ntwo\n")])
+   40. PASS  (read-char (open-input-string "hello"))
+   41. PASS  (peek-char (open-input-string "hello"))
+   42. PASS  (read-line (open-input-string "one\ntwo\n"))
+   43. PASS  (read-u8 (open-input-bytevector #u8(10 20 30)))
+   44. PASS  (peek-u8 (open-input-bytevector #u8(10 20)))
+   45. PASS  (read-bytevector 3 (open-input-bytevector #u8(1 2 3 4...
+   46. PASS  (read-bytevector! (make-bytevector 3 0) (open-input-b...
+   47. PASS  (char-ready? (open-input-string "hi"))
+   48. PASS  (get-char (open-input-string "hi"))
+   49. PASS  (lookahead-char (open-input-string "hi"))
+   50. PASS  (get-u8 (open-input-bytevector #u8(1 2)))
+   51. PASS  (lookahead-u8 (open-input-bytevector #u8(1 2)))
+   52. PASS  (write-char #\a (open-output-string))
+   53. PASS  (write-u8 65 (open-output-bytevector))
+   54. PASS  (write-string "hello" (open-output-string))
+   55. PASS  (write-string "hello world" (open-output-string) 6 11)
+   56. PASS  (write-bytevector #u8(1 2 3) (open-output-bytevector))
+   57. PASS  (newline (open-output-string))
+   58. PASS  (flush-output-port (open-output-string))
+   59. PASS  (put-u8 (open-output-bytevector) 42)
+   60. PASS  (put-char (open-output-string) #\a)
+   61. PASS  (put-string (open-output-string) "hello")
+   62. PASS  (put-datum (open-output-string) '(a b c))
+   63. PASS  (read (open-input-string "(a b c)"))
+   64. PASS  (read (open-input-string ""))
+   65. PASS  (let ([op (open-output-string)])
+   66. PASS  (with-input-from-string "test" read)
+   67. PASS  (with-output-to-string (lambda () (display "hello")))
+   68. PASS  (file-exists? "nonexistent-file.txt")
+   69. PASS  (string->utf8 "abc")
+   70. PASS  (utf8->string #u8(97 98 99))
+   71. PASS  (utf8->string (string->utf8 "hello"))
+   72. PASS  (let ([tx (make-transcoder (utf-8-codec) (eol-style lf)
+   73. PASS  (let ([tx (make-transcoder (utf-8-codec) (eol-style n...
+   74. PASS  (string->utf16 "abc")
+   75. PASS  (utf16->string #u8(0 97 0 98 0 99))
+   76. PASS  (string->utf32 "abc")
+
+76 TESTS PASSED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test108-Syntactic-Extension.log
+------------------------------------------------------------------------------------
+    1. PASS  (let ()
+    2. PASS  (let ()
+    3. PASS  (let ([f (lambda (x) (+ x 1))])
+    4. PASS  (let ([f (lambda (x) (+ x 1))])
+    5. PASS  (let ([if #f])
+    6. PASS  (define-syntax a (identifier-syntax car))
+    7. PASS  (let ([ls (list 0)])
+    8. PASS  (define-syntax my-or (lambda (x) #'x))
+    9. PASS  (let ([else #f])
+   10. PASS  (let ([a 3] [a 4]) (+ a a))
+   11. PASS  (let ([p (cons 0 #f)])
+   12. PASS  (let ([a 0])
+   13. PASS  (with-syntax ([x 'foo]) x)
+   14. PASS  (syntax->datum '(a b c))
+   15. PASS  (datum->syntax 'foo '(+ 1 2))
+   16. PASS  (generate-temporaries '(a b c))
+   17. PASS  (make-variable-transformer (lambda (x) x))
+   18. PASS  (define symbolic-identifier=?
+   19. PASS  (define-syntax loop
+   20. PASS  (define-syntax rec
+   21. PASS  (map (rec sum
+   22. PASS  (define-syntax let
+   23. PASS  (let fact ((n 5))
+   24. PASS  (define-syntax be-like-begin
+   25. PASS  (be-like-begin sequence)
+   26. PASS  (sequence (display "Say what?") (newline))
+   27. PASS  (define-syntax loop
+   28. PASS  (let ([n 3] [ls '()])
+   29. PASS  (let-syntax ([if (lambda (x)
+   30. PASS  (define-syntax define-integrable
+   31. PASS  (define-syntax define-structure
+
+31 TESTS PASSED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test109-Records.log
+------------------------------------------------------------------------
+    1. PASS  (define-record-type point (fields x y))
+    2. PASS  (define p (make-point 36 -17))
+    3. PASS  (point? p)
+    4. PASS  (point? '(cons 36 -17))
+    5. PASS  (point-x p)
+    6. PASS  (point-y p)
+    7. PASS  (define-record-type point (fields (mutable x) y))
+    8. PASS  (point-x-set! p (- (point-x p) 12))
+    9. PASS  (define-record-type point (fields (mutable x) (immuta...
+   10. PASS  (define-record-type (point mkpoint ispoint?)
+   11. PASS  (define (f p)
+   12. PASS  (f (f 'make))
+   13. PASS  (define (f p)
+   14. PASS  (define (g p)
+   15. PASS  (g (f))
+   16. PASS  (define (f)
+   17. PASS  (define (g p)
+   18. PASS  (g (f))
+   19. PASS  (define-record-type point (fields x y))
+   20. PASS  (define-record-type cpoint (parent point) (fields col...
+   21. PASS  (define cp (make-cpoint 3 4 'red))
+   22. PASS  (point? (make-cpoint 3 4 'red))
+   23. PASS  (cpoint? (make-point 3 4))
+   24. PASS  (cpoint-color cp)
+   25. PASS  (define-record-type point
+   26. PASS  (define-record-type cpoint
+   27. PASS  (define point-rtd (make-record-type-descriptor 'point...
+   28. PASS  (define point-rcd (make-record-constructor-descriptor...
+   29. PASS  (define make-point (record-constructor point-rcd))
+   30. PASS  (define point? (record-predicate point-rtd))
+   31. PASS  (define point-x (record-accessor point-rtd 0))
+   32. PASS  (define point-y (record-accessor point-rtd 1))
+   33. PASS  (define point-x-set! (record-mutator point-rtd 0))
+   34. PASS  (define rtd/parent
+   35. PASS  (record-type-descriptor? rtd/parent)
+   36. PASS  (record-type-descriptor? rcd/parent)
+   37. PASS  (record-mutator rtd/child 1)
+   38. PASS  (define record->name
+   39. PASS  (define-record-type dim (fields w l h))
+   40. PASS  (record->name (make-dim 10 15 6))
+   41. PASS  (define-record-type dim (fields w l h) (opaque #t))
+   42. PASS  (record->name (make-dim 10 15 6))
+   43. PASS  (record-type-parent (record-type-descriptor point))
+   44. PASS  (record-type-uid (record-type-descriptor point))
+   45. PASS  (define-record-type table (fields keys vals) (opaque ...
+   46. PASS  (define rtd (record-type-descriptor table))
+   47. PASS  (record-type-generative? rtd)
+   48. PASS  (record-type-sealed? rtd)
+   49. PASS  (record-type-opaque? rtd)
+   50. PASS  (record-type-field-names (record-type-descriptor point))
+   51. PASS  (record-field-mutable? (record-type-descriptor point) 0)
+   52. PASS  (define-record-type statement (fields str))
+   53. PASS  (define q (make-statement "He's dead, Jim"))
+   54. PASS  (record? q)
+   55. PASS  (define-record-type opaque-statement (fields str) (op...
+   56. PASS  (record? q)
+   57. PASS  (define print-fields
+   58. PASS  (define-record-type point (fields x y))
+   59. PASS  (define-record-type cpoint (parent point) (fields col...
+   60. PASS  (print-fields (make-cpoint -3 7 'blue))
+
+60 TESTS PASSED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test110-Libraries.log
+--------------------------------------------------------------------------
+    1. PASS  (library (list-tools setops (1))
+    2. PASS  (import (scheme base))
+    3. PASS  (import (scheme write))
+    4. PASS  (import (rnrs base))
+    5. PASS  (import (rnrs lists))
+    6. PASS  (import (rnrs syntax-case))
+    7. PASS  (import (list-tools setops (1)))
+    8. PASS  (import (only (rnrs lists) member))
+    9. PASS  (list? (command-line))
+   10. PASS  (library (list-tools setops (1))
+   11. PASS  (library (more-setops)
+   12. PASS  (import (list-tools setops) (more-setops) (rnrs))
+
+12 TESTS PASSED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test111-Exceptions.log
+---------------------------------------------------------------------------
+    1. PASS  (raise (condition (make-error) (make-message-conditio...
+    2. PASS  (raise-continuable (condition (make-violation) (make-...
+    3. PASS  (list (call/cc (lambda (k) (vector (with-exception-ha...
+    4. PASS  (list (vector (with-exception-handler (lambda (x) (+ ...
+    5. PASS  (list (vector (with-exception-handler (lambda (x) (+ ...
+    6. PASS  (error 'who "message" 'irritant)
+    7. PASS  (error "message" 'irritant)
+    8. PASS  (assertion-violation 'who "message" 'irritant)
+    9. PASS  (assert #t)
+   10. PASS  (syntax-violation 'who "message" '(bad form))
+   11. PASS  (define (try thunk)
+   12. PASS  (try (lambda () 17))
+   13. PASS  (try (lambda () (raise (make-error))))
+   14. PASS  (try (lambda () (raise (make-violation))))
+   15. PASS  (with-exception-handler
+   16. PASS  (guard (x [else x]) (raise "oops"))
+   17. PASS  (guard (x [#f #f]) (raise "oops"))
+   18. PASS  (guard (x [#f #f]) (raise (make-error)))
+   19. PASS  (define-syntax try
+   20. PASS  (try 17)
+   21. PASS  (try (error "test"))
+   22. PASS  (condition? 'stable)
+   23. PASS  (condition? (make-message-condition "oops"))
+   24. PASS  (condition)
+   25. PASS  (condition (make-error) (make-message-condition "oops"))
+   26. PASS  (simple-conditions (condition))
+   27. PASS  (simple-conditions (make-error))
+   28. PASS  (define-condition-type &mistake &condition make-mista...
+   29. PASS  (mistake? 'booboo)
+   30. PASS  (define c1 (make-mistake 'spelling))
+   31. PASS  (define c2 (condition c1 (make-irritants-condition '(...
+   32. PASS  (irritants-condition? c2)
+   33. PASS  (condition-irritants c2)
+   34. PASS  (condition-predicate 'foo)
+   35. PASS  (condition-accessor 'foo car)
+   36. PASS  (error? 'stable)
+   37. PASS  (make-error)
+   38. PASS  (make-violation)
+   39. PASS  (make-message-condition "oops")
+   40. PASS  (make-who-condition "f")
+   41. PASS  (make-irritants-condition '(a b))
+   42. PASS  (violation? 'foo)
+   43. PASS  (message-condition? 'foo)
+   44. PASS  (who-condition? 'foo)
+   45. PASS  (condition-message 'foo)
+   46. PASS  (condition-who 'foo)
+
+46 TESTS PASSED
+
+Test file: D:\SWDEV\Languages\Lisp\3PyScheme\testing\test112-Extended-Examples.log
+----------------------------------------------------------------------------------
+    1. PASS  (define make-matrix
+    2. PASS  (define matrix?
+    3. PASS  (define matrix-rows (lambda (x) (vector-length x)))
+    4. PASS  (define matrix-columns (lambda (x) (vector-length (ve...
+    5. PASS  (define matrix-ref (lambda (m i j) (vector-ref (vecto...
+    6. PASS  (define matrix-set! (lambda (m i j x) (vector-set! (v...
+    7. PASS  (define mat-sca-mul
+    8. PASS  (define mat-mat-mul
+    9. PASS  (define mul
+   10. PASS  (mul 3 4)
+   11. PASS  (mul 1/2 '#(#(1 2 3)))
+   12. PASS  (mul -2 '#(#(3 -2 -1) #(-3 0 -5) #(7 -1 -1)))
+   13. PASS  (mul '#(#(1 2 3)) '#(#(2 3) #(3 4) #(4 5)))
+   14. PASS  (mul '#(#(2 3 4) #(3 4 5)) '#(#(1) #(2) #(3)))
+   15. PASS  (mul '#(#(1 2 3) #(4 5 6)) '#(#(1 2 3 4) #(2 3 4 5) #...
+   16. PASS  (define domerge
+   17. PASS  (define dosort
+   18. PASS  (define sort
+   19. PASS  (define merge
+   20. PASS  (sort < '(3 4 2 1 2 5))
+   21. PASS  (sort > '(0.5 1/2))
+   22. PASS  (sort > '(1/2 0.5))
+   23. PASS  (list->string (sort char>? (string->list "coins")))
+   24. PASS  (merge char<? '(#\a #\c) '(#\b #\c #\d))
+   25. PASS  (merge < '(1/2 2/3 3/4) '(0.5 0.6 0.7))
+   26. PASS  (list->string (merge char>? (string->list "old") (str...
+   27. PASS  (define-syntax set-of
+   28. PASS  (set-of x (x in '(a b c)))
+   29. PASS  (set-of x (x in '(1 2 3 4)) (even? x))
+   30. PASS  (set-of (cons x y) (x in '(1 2 3)) (y is (* x x)))
+   31. PASS  (set-of (cons x y) (x in '(a b)) (y in '(1 2)))
+   32. PASS  (let ([p (open-output-string)])
+   33. PASS  (let ([p (open-output-string)])
+   34. PASS  (let ([p (open-output-string)])
+   35. PASS  (let ([p (open-output-string)])
+   36. PASS  (let ([p (open-output-string)])
+   37. PASS  (define dofmt
+   38. PASS  (define printf
+   39. PASS  (define fprintf
+   40. PASS  (printf "The string ~s displays as ~~.~%" "~")
+   41. PASS  (let ([p (open-output-string)])
+   42. PASS  (define primitive-environment
+   43. PASS  (define new-env
+   44. PASS  (define lookup (lambda (var env) (cdr (assq var env))))
+   45. PASS  (define assign (lambda (var val env) (set-cdr! (assq ...
+   46. PASS  (define exec
+   47. PASS  (define interpret (lambda (expr) (exec expr primitive...
+   48. PASS  (interpret 3)
+   49. PASS  (interpret '(cons 3 4))
+   50. PASS  (interpret '((lambda (x . y) (list x y)) 'a 'b 'c 'd))
+   51. PASS  (interpret '(((call/cc (lambda (k) k)) (lambda (x) x)...
+   52. PASS  (interpret '((lambda (memq) (memq memq 'a '(b c a d e)))
+   53. PASS  (interpret '((lambda (reverse)
+   54. PASS  (define-syntax define-object
+   55. PASS  (define-syntax send-message
+   56. PASS  (define-object (kons kar kdr)
+   57. PASS  (define p (kons 'a 'b))
+   58. PASS  (send-message p get-car)
+   59. PASS  (send-message p get-cdr)
+   60. PASS  (send-message p set-cdr! 'c)
+   61. PASS  (send-message p get-cdr)
+   62. PASS  (define-object (kons kar kdr)
+   63. PASS  (define p (kons 'a 'b))
+   64. PASS  (send-message p get-car)
+   65. PASS  (send-message p get-cdr)
+   66. PASS  (send-message p accesses)
+   67. PASS  (send-message p get-cdr)
+   68. PASS  (send-message p accesses)
+   69. PASS  (define uni
+   70. PASS  (define try-subst
+   71. PASS  (define occurs?
+   72. PASS  (define sigma
+   73. PASS  (define unify
+   74. PASS  (unify 'x 'y)
+   75. PASS  (unify '(f x y) '(g x y))
+   76. PASS  (unify '(f x (h)) '(f (h) y))
+   77. PASS  (unify '(f (g x) y) '(f y x))
+   78. PASS  (unify '(f (g x) y) '(f y (g x)))
+   79. PASS  (unify '(f (g x) y) '(f y z))
+
+79 TESTS PASSED
+
+
+Test Report
+===========
+test000-parser.log                       142 TESTS PASSED!
+test001-literals.log                     9 TESTS PASSED!
+test002-expander.log                     (1/12) Failed.
+test003-analyzer.log                     55 TESTS PASSED!
+test004-core-forms.log                   242 TESTS PASSED!
+test005-derived-forms.log                75 TESTS PASSED!
+test006-advanced-forms.log               (1/165) Failed.
+test007-programs.log                     21 TESTS PASSED!
+test008-macros.log                       218 TESTS PASSED!
+test009-modules.log                      (1/169) Failed.
+test010-records.log                      (6/115) Failed.
+test011-hygiene.log                      27 TESTS PASSED!
+test012-syntax-expand.log                28 TESTS PASSED!
+test020-arithmetic.log                   (2/365) Failed.
+test021-arithmetic2.log                  253 TESTS PASSED!
+test022-bytevectors.log                  35 TESTS PASSED!
+test023-chars.log                        (1/99) Failed.
+test024-comparison.log                   86 TESTS PASSED!
+test025-control.log                      (1/163) Failed.
+test026-equivalence.log                  83 TESTS PASSED!
+test027-help.log                         (3/12) Failed.
+test028-lists.log                        149 TESTS PASSED!
+test029-logical.log                      7 TESTS PASSED!
+test030-meta.log                         (8/65) Failed.
+test031-ports.log                        (1/133) Failed.
+test032-predicates.log                   150 TESTS PASSED!
+test033-strings.log                      142 TESTS PASSED!
+test034-vectors.log                      106 TESTS PASSED!
+test102-Getting-Started.log              276 TESTS PASSED!
+test103-Going-Further.log                92 TESTS PASSED!
+test104-Procedures-and-Variable-Bindings.log (1/51) Failed.
+test105-Control-Operations.log           102 TESTS PASSED!
+test106-Operations-on-Objects.log        (3/640) Failed.
+test107-Input-Output.log                 76 TESTS PASSED!
+test108-Syntactic-Extension.log          31 TESTS PASSED!
+test109-Records.log                      60 TESTS PASSED!
+test110-Libraries.log                    12 TESTS PASSED!
+test111-Exceptions.log                   46 TESTS PASSED!
+test112-Extended-Examples.log            79 TESTS PASSED!
+
+Total test files: 39.
+Total test cases: 4591.

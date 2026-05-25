@@ -1,71 +1,74 @@
 #pragma once
-#include "value.h"
-#include "scheme_export.h"
-#include "gc.h"
+// Parser.h -- Scheme source reader.
+// Direct port of pyscheme/Parser.py.
+#include "AST.h"
+#include "Environment.h"
 #include <string>
-#include <string_view>
 #include <vector>
-#include <optional>
-#include <unordered_map>
 
-// Parse a complex literal from text (e.g. "3+4i", "+i", "3.0-2.5i").
-// Returns the Value if the text is a valid complex literal, or nullopt otherwise.
-// Used by both the tokenizer and string->number.
-SCHEME_API std::optional<Value> parse_complex_literal(const std::string& text);
+// ── TokenKind ─────────────────────────────────────────────────────────────────
+// Port of Parser.py TOK_* constants.
 
-class SCHEME_API Parser
-   {
+enum class TokenKind {
+    LPAREN, RPAREN, LBRACKET, RBRACKET,
+    VECTOR_LPAREN, BYTEVECTOR_LPAREN,
+    QUOTE, QUASIQUOTE, UNQUOTE, UNQUOTE_SPLICING,
+    DOT,
+    INT, REAL, RATIONAL, COMPLEX, EXACT_COMPLEX,
+    STRING, CHAR, BOOL, IDENT,
+    END_OF_FILE,
+    DATUM_COMMENT,
+    LABEL_DEF, LABEL_REF,
+};
+
+// ── Token ─────────────────────────────────────────────────────────────────────
+// Port of Parser.py Token class.
+// src is stored by value (Token owns it — no heap ownership issues).
+// Payload fields are set only for the relevant kind.
+
+struct CEKSCHEME_API Token {
+    TokenKind   kind;
+    SourceInfo  src;
+
+    // Numeric / label payloads
+    int64_t     int_val  = 0;    // INT, LABEL_DEF, LABEL_REF, RATIONAL numerator
+    int64_t     int_val2 = 0;    // RATIONAL denominator
+    double      dbl_val  = 0.0;  // REAL, COMPLEX real part
+    double      dbl_val2 = 0.0;  // COMPLEX imaginary part
+
+    // Other payloads
+    bool        bool_val = false; // BOOL
+    char32_t    char_val = 0;     // CHAR
+    std::string str_val;          // STRING content, IDENT name
+
+    // EXACT_COMPLEX components (Scheme Values)
+    Value       val;              // real part
+    Value       val2;             // imaginary part
+
+    Token(TokenKind k, SourceInfo s)
+        : kind(k), src(std::move(s)) {}
+};
+
+// ── SchemeSyntaxError ──────────────────────────────────────────────────────────
+// Port of Parser.py SchemeSyntaxError.
+
+class CEKSCHEME_API SchemeSyntaxError : public PositionedSchemeError {
 public:
-   explicit Parser(std::string_view source);
+    using PositionedSchemeError::PositionedSchemeError;
+};
 
-   // Read and return the next expression, or nullopt at end-of-input.
-   std::optional<Value> next();
+// ── Public API ────────────────────────────────────────────────────────────────
+// Port of Parser.py parse, parse_one, tokenize.
+// filename: empty string = no filename (Python None).
 
-   // True if there are no more tokens.
-   bool at_end() const;
+CEKSCHEME_API std::vector<Value> scheme_parse(const std::string& source,
+                                               const std::string& filename = "");
 
-private:
-   enum class TokKind
-      {
-      LParen, RParen, Dot, Quote, Quasiquote, Unquote, UnquoteSplicing,
-      HashLParen,   // #(
-      HashU8LParen, // #u8(
-      Integer, Float, Bool, String, Char, Symbol, Complex, Rational,
-      LabelDefine,  // #<n>=  — R7RS datum label definition
-      LabelRef,     // #<n>#  — R7RS datum label back-reference
-      Eof
-      };
+CEKSCHEME_API Value scheme_parse_one(const std::string& source,
+                                      const std::string& filename = "");
 
-   struct Token
-      {
-      TokKind              kind;
-      std::string          text;
-      bool                 bool_val;
-      std::optional<Value> complex_val;
-      };
+CEKSCHEME_API Value scheme_parse_first(const std::string& source,
+                                        const std::string& filename = "");
 
-   std::string        src_;
-   size_t             pos_     = 0;
-   std::vector<Token> tokens_;
-   size_t             tok_pos_ = 0;
-
-   std::unordered_map<int, Value> datum_labels_;
-
-   // Lexer
-   void  tokenize();
-   void  skip_whitespace_and_comments();
-   Token read_token();
-   Token read_string_token();
-   Token read_hash_token();
-
-   // Parser
-   Value parse_expr();
-   Value parse_list();
-   Value parse_vector();
-   Value parse_bytevector();
-
-   const Token& peek() const;
-   Token        consume();
-
-   static Value list_from_vec(const std::vector<Value>& items);
-   };
+CEKSCHEME_API std::vector<Token> scheme_tokenize(const std::string& source,
+                                                   const std::string& filename = "");
