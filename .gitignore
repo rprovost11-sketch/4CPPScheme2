@@ -1,6 +1,8 @@
 # Build directories
 build/
 build3/
+build_asan/
+build_asan2/
 
 # VS / CMake artifacts
 *.user
