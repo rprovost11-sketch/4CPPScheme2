@@ -103,7 +103,7 @@ std::optional<Value> Interpreter::rawEval(
 
 std::string Interpreter::eval(const std::string& source, std::ostream* outStrm) {
     auto raw = rawEval(source, outStrm);
-    if (!raw)
+    if (!raw || is_void(*raw))
         return "";
     return scheme_pretty_print(*raw);
 }
