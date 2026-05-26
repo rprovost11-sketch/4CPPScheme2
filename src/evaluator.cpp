@@ -1610,14 +1610,6 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                             }
                             Value handler = new_collected[0];
                             Value thunk   = new_collected[1];
-                            // Tail-call optimization: if K's top is FRAME_POP_HANDLER
-                            // this call is in tail position of the previous thunk.
-                            // That thunk is done so its handler is dead; replace it.
-                            if (!K.empty() && K.back().tag == FRAME_POP_HANDLER) {
-                                K.pop_back();
-                                if (!ctx->handler_stack.empty())
-                                    ctx->handler_stack.pop_back();
-                            }
                             ctx->handler_stack.push_back(handler);
                             Frame hf; hf.tag = FRAME_POP_HANDLER;
                             K.push_back(std::move(hf));

@@ -22,7 +22,7 @@
 // ── Value tag constants ───────────────────────────────────────────────────────
 // Direct port of AST.py tag constants.  The GC uses GcType (below) to identify
 // heap objects; these integer constants are used in src_of() switch logic and
-// document the protocol that both pyscheme and cekscheme share.
+// document the protocol that both pyscheme and cppscheme2 share.
 
 constexpr int VOID              = 0;
 constexpr int BOOLEAN           = 1;
@@ -402,7 +402,7 @@ struct Continuation {
 
 // Port of AST.py SyntaxTransformer class.
 // Uses uint32_t symbol ids (not Symbol*) to match AST.py's intern-pool design.
-// free_id_map and intro_names carry CEKScheme's hygiene model.
+// free_id_map and intro_names carry cppscheme2's hygiene model.
 struct SyntaxTransformer {
     GcHeader                               header{GcType::SyntaxTransformer};
     std::string                            name;
@@ -578,56 +578,56 @@ struct SchemeChar {
 // Port of AST.py _SYMBOL_POOL / _SYMBOL_NAMES.
 // Maps symbol name strings to stable uint32_t ids.
 
-CEKSCHEME_API uint32_t    intern_symbol(const std::string& name);
-CEKSCHEME_API std::string symbol_name(uint32_t sid);
+CPPSCHEME2_API uint32_t    intern_symbol(const std::string& name);
+CPPSCHEME2_API std::string symbol_name(uint32_t sid);
 
 // ── Singletons ────────────────────────────────────────────────────────────────
 // Port of AST.py NIL_VALUE, VOID_VALUE, EOF_VALUE.
 
-CEKSCHEME_API extern const Value NIL_VALUE;
-CEKSCHEME_API extern const Value VOID_VALUE;
-CEKSCHEME_API extern const Value EOF_VALUE;
+CPPSCHEME2_API extern const Value NIL_VALUE;
+CPPSCHEME2_API extern const Value VOID_VALUE;
+CPPSCHEME2_API extern const Value EOF_VALUE;
 
 // ── Allocators ────────────────────────────────────────────────────────────────
 // Port of AST.py make_X functions.
 
-CEKSCHEME_API Value alloc_cons(Value car_val, Value cdr_val, SourceInfo* src = nullptr);
-CEKSCHEME_API Value make_nil(SourceInfo* src = nullptr);
-CEKSCHEME_API Value make_void();
-CEKSCHEME_API Value make_boolean(bool b, SourceInfo* src = nullptr);
-CEKSCHEME_API Value make_integer(int64_t n, SourceInfo* src = nullptr);
-CEKSCHEME_API Value make_real(double x, SourceInfo* src = nullptr);
-CEKSCHEME_API Value make_rational(int64_t num, int64_t den, SourceInfo* src = nullptr);
-CEKSCHEME_API Value make_complex(double re, double im, SourceInfo* src = nullptr);
-CEKSCHEME_API Value make_exact_complex(Value re, Value im, SourceInfo* src = nullptr);
-CEKSCHEME_API Value make_character(char32_t c, SourceInfo* src = nullptr);
-CEKSCHEME_API Value make_string(const std::string& s, SourceInfo* src = nullptr);
-CEKSCHEME_API Value make_symbol(const std::string& name, SourceInfo* src = nullptr);
-CEKSCHEME_API Value make_symbol_id(uint32_t sid, SourceInfo* src = nullptr);
-CEKSCHEME_API Value make_closure(std::vector<uint32_t> params, Value body,
+CPPSCHEME2_API Value alloc_cons(Value car_val, Value cdr_val, SourceInfo* src = nullptr);
+CPPSCHEME2_API Value make_nil(SourceInfo* src = nullptr);
+CPPSCHEME2_API Value make_void();
+CPPSCHEME2_API Value make_boolean(bool b, SourceInfo* src = nullptr);
+CPPSCHEME2_API Value make_integer(int64_t n, SourceInfo* src = nullptr);
+CPPSCHEME2_API Value make_real(double x, SourceInfo* src = nullptr);
+CPPSCHEME2_API Value make_rational(int64_t num, int64_t den, SourceInfo* src = nullptr);
+CPPSCHEME2_API Value make_complex(double re, double im, SourceInfo* src = nullptr);
+CPPSCHEME2_API Value make_exact_complex(Value re, Value im, SourceInfo* src = nullptr);
+CPPSCHEME2_API Value make_character(char32_t c, SourceInfo* src = nullptr);
+CPPSCHEME2_API Value make_string(const std::string& s, SourceInfo* src = nullptr);
+CPPSCHEME2_API Value make_symbol(const std::string& name, SourceInfo* src = nullptr);
+CPPSCHEME2_API Value make_symbol_id(uint32_t sid, SourceInfo* src = nullptr);
+CPPSCHEME2_API Value make_closure(std::vector<uint32_t> params, Value body,
                                   Environment* env, uint32_t rest_name_id,
                                   std::string docstring);
-CEKSCHEME_API Value make_primitive(const std::string& name, BuiltinFn fn);
-CEKSCHEME_API Value make_case_closure(std::vector<CaseClosure::Clause> clauses,
+CPPSCHEME2_API Value make_primitive(const std::string& name, BuiltinFn fn);
+CPPSCHEME2_API Value make_case_closure(std::vector<CaseClosure::Clause> clauses,
                                        Environment* env, std::string docstring);
-CEKSCHEME_API Value make_promise_lazy(Value thunk);
-CEKSCHEME_API Value make_promise_done(Value val);
-CEKSCHEME_API Value make_multi_values(std::vector<Value> vals, SourceInfo* src = nullptr);
-CEKSCHEME_API Value make_record_type(const std::string& name,
+CPPSCHEME2_API Value make_promise_lazy(Value thunk);
+CPPSCHEME2_API Value make_promise_done(Value val);
+CPPSCHEME2_API Value make_multi_values(std::vector<Value> vals, SourceInfo* src = nullptr);
+CPPSCHEME2_API Value make_record_type(const std::string& name,
                                       std::vector<uint32_t> field_name_ids);
-CEKSCHEME_API Value make_record(RecordType* rt, std::vector<Value> field_values);
-CEKSCHEME_API Value make_parameter(Value val, Value converter);
-CEKSCHEME_API Value make_error_object(const std::string& message,
+CPPSCHEME2_API Value make_record(RecordType* rt, std::vector<Value> field_values);
+CPPSCHEME2_API Value make_parameter(Value val, Value converter);
+CPPSCHEME2_API Value make_error_object(const std::string& message,
                                        std::vector<Value> irritants);
-CEKSCHEME_API Value make_file_error_object(const std::string& message,
+CPPSCHEME2_API Value make_file_error_object(const std::string& message,
                                             std::vector<Value> irritants);
-CEKSCHEME_API Value make_read_error_object(const std::string& message,
+CPPSCHEME2_API Value make_read_error_object(const std::string& message,
                                             std::vector<Value> irritants);
-CEKSCHEME_API Value make_continuation(void* frames_ptr,
+CPPSCHEME2_API Value make_continuation(void* frames_ptr,
                                        std::vector<WindFrame> wind_snapshot,
                                        std::vector<Value>     handler_snapshot,
                                        std::vector<Value>     shadow_snapshot);
-CEKSCHEME_API Value make_syntax_transformer(
+CPPSCHEME2_API Value make_syntax_transformer(
     const std::string& name,
     std::vector<uint32_t> literals,
     uint32_t ellipsis_id,
@@ -635,19 +635,19 @@ CEKSCHEME_API Value make_syntax_transformer(
     std::unordered_map<uint32_t, uint32_t> free_id_map,
     std::unordered_set<uint32_t> intro_names,
     std::unordered_set<uint32_t> binding_intro_names = {});
-CEKSCHEME_API Value make_environment(Environment* env);
-CEKSCHEME_API Value make_record_accessor(RecordType* rt, int index,
+CPPSCHEME2_API Value make_environment(Environment* env);
+CPPSCHEME2_API Value make_record_accessor(RecordType* rt, int index,
                                           const std::string& name);
-CEKSCHEME_API Value make_record_mutator(RecordType* rt, int index,
+CPPSCHEME2_API Value make_record_mutator(RecordType* rt, int index,
                                          const std::string& name);
-CEKSCHEME_API Value make_vector(std::vector<Value> items);
-CEKSCHEME_API Value make_bytevector(std::vector<uint8_t> items);
-CEKSCHEME_API Value make_port(bool is_input, bool is_text, const std::string& name);
-CEKSCHEME_API Value make_eof();
-CEKSCHEME_API Value make_bignum_si(int64_t n, SourceInfo* src = nullptr);
-CEKSCHEME_API Value make_bignum_str(const char* s, int base, SourceInfo* src = nullptr);
-CEKSCHEME_API Value make_bignum_copy(const __mpz_struct* z, SourceInfo* src = nullptr);
-CEKSCHEME_API void  init_value_pools();
+CPPSCHEME2_API Value make_vector(std::vector<Value> items);
+CPPSCHEME2_API Value make_bytevector(std::vector<uint8_t> items);
+CPPSCHEME2_API Value make_port(bool is_input, bool is_text, const std::string& name);
+CPPSCHEME2_API Value make_eof();
+CPPSCHEME2_API Value make_bignum_si(int64_t n, SourceInfo* src = nullptr);
+CPPSCHEME2_API Value make_bignum_str(const char* s, int base, SourceInfo* src = nullptr);
+CPPSCHEME2_API Value make_bignum_copy(const __mpz_struct* z, SourceInfo* src = nullptr);
+CPPSCHEME2_API void  init_value_pools();
 void pool_return_integer(SchemeInteger* p);
 void pool_return_real(SchemeReal* p);
 void pool_return_char(SchemeChar* p);
@@ -655,162 +655,162 @@ void pool_return_char(SchemeChar* p);
 // ── Predicates ────────────────────────────────────────────────────────────────
 // Port of AST.py is_X functions.
 
-CEKSCHEME_API bool is_cons(const Value& val);
-CEKSCHEME_API bool is_nil(const Value& val);
-CEKSCHEME_API bool is_void(const Value& val);
-CEKSCHEME_API bool is_boolean(const Value& val);
-CEKSCHEME_API bool is_integer(const Value& val);
-CEKSCHEME_API bool is_real(const Value& val);
-CEKSCHEME_API bool is_rational(const Value& val);
-CEKSCHEME_API bool is_complex(const Value& val);
-CEKSCHEME_API bool is_exact_complex(const Value& val);
-CEKSCHEME_API bool is_character(const Value& val);
-CEKSCHEME_API bool is_string(const Value& val);
-CEKSCHEME_API bool is_symbol(const Value& val);
-CEKSCHEME_API bool is_closure(const Value& val);
-CEKSCHEME_API bool is_primitive(const Value& val);
-CEKSCHEME_API bool is_case_closure(const Value& val);
-CEKSCHEME_API bool is_promise(const Value& val);
-CEKSCHEME_API bool is_multi_values(const Value& val);
-CEKSCHEME_API bool is_record_type(const Value& val);
-CEKSCHEME_API bool is_record(const Value& val);
-CEKSCHEME_API bool is_parameter(const Value& val);
-CEKSCHEME_API bool is_error_object(const Value& val);
-CEKSCHEME_API bool is_file_error_object(const Value& val);
-CEKSCHEME_API bool is_read_error_object(const Value& val);
-CEKSCHEME_API bool is_continuation(const Value& val);
-CEKSCHEME_API bool is_syntax_transformer(const Value& val);
-CEKSCHEME_API bool is_environment(const Value& val);
-CEKSCHEME_API bool is_record_accessor(const Value& val);
-CEKSCHEME_API bool is_record_mutator(const Value& val);
-CEKSCHEME_API bool is_vector(const Value& val);
-CEKSCHEME_API bool is_bytevector(const Value& val);
-CEKSCHEME_API bool is_port(const Value& val);
-CEKSCHEME_API bool is_eof(const Value& val);
-CEKSCHEME_API bool is_bignum(const Value& val);
+CPPSCHEME2_API bool is_cons(const Value& val);
+CPPSCHEME2_API bool is_nil(const Value& val);
+CPPSCHEME2_API bool is_void(const Value& val);
+CPPSCHEME2_API bool is_boolean(const Value& val);
+CPPSCHEME2_API bool is_integer(const Value& val);
+CPPSCHEME2_API bool is_real(const Value& val);
+CPPSCHEME2_API bool is_rational(const Value& val);
+CPPSCHEME2_API bool is_complex(const Value& val);
+CPPSCHEME2_API bool is_exact_complex(const Value& val);
+CPPSCHEME2_API bool is_character(const Value& val);
+CPPSCHEME2_API bool is_string(const Value& val);
+CPPSCHEME2_API bool is_symbol(const Value& val);
+CPPSCHEME2_API bool is_closure(const Value& val);
+CPPSCHEME2_API bool is_primitive(const Value& val);
+CPPSCHEME2_API bool is_case_closure(const Value& val);
+CPPSCHEME2_API bool is_promise(const Value& val);
+CPPSCHEME2_API bool is_multi_values(const Value& val);
+CPPSCHEME2_API bool is_record_type(const Value& val);
+CPPSCHEME2_API bool is_record(const Value& val);
+CPPSCHEME2_API bool is_parameter(const Value& val);
+CPPSCHEME2_API bool is_error_object(const Value& val);
+CPPSCHEME2_API bool is_file_error_object(const Value& val);
+CPPSCHEME2_API bool is_read_error_object(const Value& val);
+CPPSCHEME2_API bool is_continuation(const Value& val);
+CPPSCHEME2_API bool is_syntax_transformer(const Value& val);
+CPPSCHEME2_API bool is_environment(const Value& val);
+CPPSCHEME2_API bool is_record_accessor(const Value& val);
+CPPSCHEME2_API bool is_record_mutator(const Value& val);
+CPPSCHEME2_API bool is_vector(const Value& val);
+CPPSCHEME2_API bool is_bytevector(const Value& val);
+CPPSCHEME2_API bool is_port(const Value& val);
+CPPSCHEME2_API bool is_eof(const Value& val);
+CPPSCHEME2_API bool is_bignum(const Value& val);
 
 // Convenience predicates not in AST.py but needed by other modules.
-CEKSCHEME_API bool is_truthy(const Value& val);    // everything except #f is truthy
-CEKSCHEME_API bool is_number(const Value& val);    // any numeric type
-CEKSCHEME_API bool is_procedure(const Value& val); // closure, case-closure, primitive, continuation, parameter
+CPPSCHEME2_API bool is_truthy(const Value& val);    // everything except #f is truthy
+CPPSCHEME2_API bool is_number(const Value& val);    // any numeric type
+CPPSCHEME2_API bool is_procedure(const Value& val); // closure, case-closure, primitive, continuation, parameter
 
 // ── Accessors ─────────────────────────────────────────────────────────────────
 // Port of AST.py as_X functions.
 
-CEKSCHEME_API bool                 as_boolean(const Value& val);
-CEKSCHEME_API int64_t              as_integer(const Value& val);
-CEKSCHEME_API SourceInfo*          integer_src(const Value& val);
-CEKSCHEME_API double               as_real(const Value& val);
-CEKSCHEME_API int64_t              as_rational_num(const Value& val);
-CEKSCHEME_API int64_t              as_rational_den(const Value& val);
-CEKSCHEME_API double               as_complex_real(const Value& val);
-CEKSCHEME_API double               as_complex_imag(const Value& val);
-CEKSCHEME_API Value                as_exact_complex_real(const Value& val);
-CEKSCHEME_API Value                as_exact_complex_imag(const Value& val);
-CEKSCHEME_API char32_t             as_character(const Value& val);
-CEKSCHEME_API SourceInfo*          character_src(const Value& val);
-CEKSCHEME_API const __mpz_struct*  as_bignum(const Value& val);
-CEKSCHEME_API std::string          bignum_to_string(const Value& val, int base = 10);
-CEKSCHEME_API const std::string&   as_string(const Value& val);
-CEKSCHEME_API std::string&         as_string_mut(Value& val);
-CEKSCHEME_API std::string          as_symbol(const Value& val);   // returns name string
-CEKSCHEME_API uint32_t             as_symbol_id(const Value& val);// returns intern id
+CPPSCHEME2_API bool                 as_boolean(const Value& val);
+CPPSCHEME2_API int64_t              as_integer(const Value& val);
+CPPSCHEME2_API SourceInfo*          integer_src(const Value& val);
+CPPSCHEME2_API double               as_real(const Value& val);
+CPPSCHEME2_API int64_t              as_rational_num(const Value& val);
+CPPSCHEME2_API int64_t              as_rational_den(const Value& val);
+CPPSCHEME2_API double               as_complex_real(const Value& val);
+CPPSCHEME2_API double               as_complex_imag(const Value& val);
+CPPSCHEME2_API Value                as_exact_complex_real(const Value& val);
+CPPSCHEME2_API Value                as_exact_complex_imag(const Value& val);
+CPPSCHEME2_API char32_t             as_character(const Value& val);
+CPPSCHEME2_API SourceInfo*          character_src(const Value& val);
+CPPSCHEME2_API const __mpz_struct*  as_bignum(const Value& val);
+CPPSCHEME2_API std::string          bignum_to_string(const Value& val, int base = 10);
+CPPSCHEME2_API const std::string&   as_string(const Value& val);
+CPPSCHEME2_API std::string&         as_string_mut(Value& val);
+CPPSCHEME2_API std::string          as_symbol(const Value& val);   // returns name string
+CPPSCHEME2_API uint32_t             as_symbol_id(const Value& val);// returns intern id
 
-CEKSCHEME_API const std::vector<uint32_t>& as_closure_params(const Value& val);
-CEKSCHEME_API Value                        as_closure_body(const Value& val);
-CEKSCHEME_API Environment*                 as_closure_env(const Value& val);
-CEKSCHEME_API uint32_t                     as_closure_rest_name(const Value& val); // UINT32_MAX=none
-CEKSCHEME_API const std::string&           as_closure_docstring(const Value& val);
+CPPSCHEME2_API const std::vector<uint32_t>& as_closure_params(const Value& val);
+CPPSCHEME2_API Value                        as_closure_body(const Value& val);
+CPPSCHEME2_API Environment*                 as_closure_env(const Value& val);
+CPPSCHEME2_API uint32_t                     as_closure_rest_name(const Value& val); // UINT32_MAX=none
+CPPSCHEME2_API const std::string&           as_closure_docstring(const Value& val);
 
-CEKSCHEME_API const std::string& as_primitive_name(const Value& val);
-CEKSCHEME_API const BuiltinFn&   as_primitive_fn(const Value& val);
+CPPSCHEME2_API const std::string& as_primitive_name(const Value& val);
+CPPSCHEME2_API const BuiltinFn&   as_primitive_fn(const Value& val);
 
-CEKSCHEME_API const std::vector<CaseClosure::Clause>& as_case_closure_clauses(const Value& val);
-CEKSCHEME_API Environment*                            as_case_closure_env(const Value& val);
-CEKSCHEME_API const std::string&                      as_case_closure_docstring(const Value& val);
+CPPSCHEME2_API const std::vector<CaseClosure::Clause>& as_case_closure_clauses(const Value& val);
+CPPSCHEME2_API Environment*                            as_case_closure_env(const Value& val);
+CPPSCHEME2_API const std::string&                      as_case_closure_docstring(const Value& val);
 
-CEKSCHEME_API bool  as_promise_is_done(const Value& val);
-CEKSCHEME_API Value as_promise_payload(const Value& val);
-CEKSCHEME_API void  promise_resolve(Value& promise_val, Value result);
-CEKSCHEME_API void  promise_become(Value& dst, const Value& src_val);
+CPPSCHEME2_API bool  as_promise_is_done(const Value& val);
+CPPSCHEME2_API Value as_promise_payload(const Value& val);
+CPPSCHEME2_API void  promise_resolve(Value& promise_val, Value result);
+CPPSCHEME2_API void  promise_become(Value& dst, const Value& src_val);
 
-CEKSCHEME_API const std::vector<Value>& as_multi_values_list(const Value& val);
+CPPSCHEME2_API const std::vector<Value>& as_multi_values_list(const Value& val);
 
-CEKSCHEME_API RecordType*                  as_record_type_obj(const Value& val);   // for standalone RecordType* arm
-CEKSCHEME_API const std::string&           as_record_type_name(const Value& val);
-CEKSCHEME_API const std::vector<uint32_t>& as_record_type_field_names(const Value& val);
+CPPSCHEME2_API RecordType*                  as_record_type_obj(const Value& val);   // for standalone RecordType* arm
+CPPSCHEME2_API const std::string&           as_record_type_name(const Value& val);
+CPPSCHEME2_API const std::vector<uint32_t>& as_record_type_field_names(const Value& val);
 
-CEKSCHEME_API RecordType*               as_record_type(const Value& record_val);   // field of RECORD
-CEKSCHEME_API std::vector<Value>&       as_record_fields(Value& val);
-CEKSCHEME_API const std::vector<Value>& as_record_fields_const(const Value& val);
+CPPSCHEME2_API RecordType*               as_record_type(const Value& record_val);   // field of RECORD
+CPPSCHEME2_API std::vector<Value>&       as_record_fields(Value& val);
+CPPSCHEME2_API const std::vector<Value>& as_record_fields_const(const Value& val);
 
-CEKSCHEME_API Value as_parameter_value(const Value& val);
-CEKSCHEME_API Value as_parameter_converter(const Value& val);
-CEKSCHEME_API void  set_parameter_value(Value& val, Value newval);
+CPPSCHEME2_API Value as_parameter_value(const Value& val);
+CPPSCHEME2_API Value as_parameter_converter(const Value& val);
+CPPSCHEME2_API void  set_parameter_value(Value& val, Value newval);
 
-CEKSCHEME_API const std::string&        as_error_object_message(const Value& val);
-CEKSCHEME_API const std::vector<Value>& as_error_object_irritants(const Value& val);
-CEKSCHEME_API int                       as_error_object_kind(const Value& val);
+CPPSCHEME2_API const std::string&        as_error_object_message(const Value& val);
+CPPSCHEME2_API const std::vector<Value>& as_error_object_irritants(const Value& val);
+CPPSCHEME2_API int                       as_error_object_kind(const Value& val);
 
-CEKSCHEME_API void*                         as_continuation_frames(const Value& val);
-CEKSCHEME_API const std::vector<WindFrame>& as_continuation_wind(const Value& val);
-CEKSCHEME_API const std::vector<Value>&     as_continuation_handlers(const Value& val);
-CEKSCHEME_API const std::vector<Value>&     as_continuation_shadow(const Value& val);
+CPPSCHEME2_API void*                         as_continuation_frames(const Value& val);
+CPPSCHEME2_API const std::vector<WindFrame>& as_continuation_wind(const Value& val);
+CPPSCHEME2_API const std::vector<Value>&     as_continuation_handlers(const Value& val);
+CPPSCHEME2_API const std::vector<Value>&     as_continuation_shadow(const Value& val);
 
-CEKSCHEME_API const std::string&  as_syntax_transformer_name(const Value& val);
-CEKSCHEME_API const std::vector<uint32_t>& as_syntax_transformer_literals(const Value& val);
-CEKSCHEME_API uint32_t            as_syntax_transformer_ellipsis(const Value& val);
-CEKSCHEME_API const std::vector<SyntaxTransformer::Rule>& as_syntax_transformer_rules(const Value& val);
-CEKSCHEME_API const std::unordered_map<uint32_t, uint32_t>& as_syntax_transformer_free_id_map(const Value& val);
-CEKSCHEME_API const std::unordered_set<uint32_t>& as_syntax_transformer_intro_names(const Value& val);
-CEKSCHEME_API const std::unordered_set<uint32_t>& as_syntax_transformer_binding_intro_names(const Value& val);
+CPPSCHEME2_API const std::string&  as_syntax_transformer_name(const Value& val);
+CPPSCHEME2_API const std::vector<uint32_t>& as_syntax_transformer_literals(const Value& val);
+CPPSCHEME2_API uint32_t            as_syntax_transformer_ellipsis(const Value& val);
+CPPSCHEME2_API const std::vector<SyntaxTransformer::Rule>& as_syntax_transformer_rules(const Value& val);
+CPPSCHEME2_API const std::unordered_map<uint32_t, uint32_t>& as_syntax_transformer_free_id_map(const Value& val);
+CPPSCHEME2_API const std::unordered_set<uint32_t>& as_syntax_transformer_intro_names(const Value& val);
+CPPSCHEME2_API const std::unordered_set<uint32_t>& as_syntax_transformer_binding_intro_names(const Value& val);
 
-CEKSCHEME_API Environment* as_environment(const Value& val);
+CPPSCHEME2_API Environment* as_environment(const Value& val);
 
-CEKSCHEME_API RecordType*        as_record_accessor_type(const Value& val);
-CEKSCHEME_API int                as_record_accessor_index(const Value& val);
-CEKSCHEME_API const std::string& as_record_accessor_name(const Value& val);
+CPPSCHEME2_API RecordType*        as_record_accessor_type(const Value& val);
+CPPSCHEME2_API int                as_record_accessor_index(const Value& val);
+CPPSCHEME2_API const std::string& as_record_accessor_name(const Value& val);
 
-CEKSCHEME_API RecordType*        as_record_mutator_type(const Value& val);
-CEKSCHEME_API int                as_record_mutator_index(const Value& val);
-CEKSCHEME_API const std::string& as_record_mutator_name(const Value& val);
+CPPSCHEME2_API RecordType*        as_record_mutator_type(const Value& val);
+CPPSCHEME2_API int                as_record_mutator_index(const Value& val);
+CPPSCHEME2_API const std::string& as_record_mutator_name(const Value& val);
 
-CEKSCHEME_API std::vector<Value>&       as_vector_items(Value& val);
-CEKSCHEME_API const std::vector<Value>& as_vector_items_const(const Value& val);
+CPPSCHEME2_API std::vector<Value>&       as_vector_items(Value& val);
+CPPSCHEME2_API const std::vector<Value>& as_vector_items_const(const Value& val);
 
-CEKSCHEME_API std::vector<uint8_t>&       as_bytevector_items(Value& val);
-CEKSCHEME_API const std::vector<uint8_t>& as_bytevector_items_const(const Value& val);
+CPPSCHEME2_API std::vector<uint8_t>&       as_bytevector_items(Value& val);
+CPPSCHEME2_API const std::vector<uint8_t>& as_bytevector_items_const(const Value& val);
 
-CEKSCHEME_API Port* as_port(const Value& val);
+CPPSCHEME2_API Port* as_port(const Value& val);
 
 // ── Pair operations ───────────────────────────────────────────────────────────
 // Port of AST.py car, cdr, set_car, set_cdr.
 
-CEKSCHEME_API Value car(const Value& val);
-CEKSCHEME_API Value cdr(const Value& val);
-CEKSCHEME_API void  set_car(Value& cons_val, Value new_car);
-CEKSCHEME_API void  set_cdr(Value& cons_val, Value new_cdr);
+CPPSCHEME2_API Value car(const Value& val);
+CPPSCHEME2_API Value cdr(const Value& val);
+CPPSCHEME2_API void  set_car(Value& cons_val, Value new_car);
+CPPSCHEME2_API void  set_cdr(Value& cons_val, Value new_cdr);
 
 // ── Value equality ────────────────────────────────────────────────────────────
 // Port of AST.py eqv_atom.
-CEKSCHEME_API bool eqv_atom(const Value& a, const Value& b);
+CPPSCHEME2_API bool eqv_atom(const Value& a, const Value& b);
 
 // ── List construction helper ──────────────────────────────────────────────────
 // Port of AST.py list_from_items.
-CEKSCHEME_API Value list_from_items(const std::vector<Value>& items,
+CPPSCHEME2_API Value list_from_items(const std::vector<Value>& items,
                                      SourceInfo* src = nullptr);
 
 // ── Source info extraction ────────────────────────────────────────────────────
 // Port of AST.py src_of.
-CEKSCHEME_API SourceInfo* src_of(const Value& val);
+CPPSCHEME2_API SourceInfo* src_of(const Value& val);
 
 // ── Diagnostics ───────────────────────────────────────────────────────────────
 // Port of AST.py format_with_caret.
-CEKSCHEME_API std::string format_with_caret(const std::string& msg, SourceInfo* src);
+CPPSCHEME2_API std::string format_with_caret(const std::string& msg, SourceInfo* src);
 
 // ── GC support ────────────────────────────────────────────────────────────────
 // Returns the GcHeader* for val if it holds a GC-managed heap pointer, else nullptr.
-CEKSCHEME_API GcHeader* gc_value_header(const Value& val);
+CPPSCHEME2_API GcHeader* gc_value_header(const Value& val);
 
 // If val's heap object has a forwarding pointer set, update val's pointer in-place.
-CEKSCHEME_API void gc_forward_value(Value& val);
+CPPSCHEME2_API void gc_forward_value(Value& val);

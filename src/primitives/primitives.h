@@ -17,17 +17,17 @@ struct PrimitiveHelp {
 };
 
 // Port of PRIMITIVE_HELP dict.
-CEKSCHEME_API const std::unordered_map<std::string, PrimitiveHelp>& primitive_help();
+CPPSCHEME2_API const std::unordered_map<std::string, PrimitiveHelp>& primitive_help();
 
 // Port of CATEGORY_TITLES dict.
-CEKSCHEME_API const std::unordered_map<std::string, std::string>& category_titles();
+CPPSCHEME2_API const std::unordered_map<std::string, std::string>& category_titles();
 
 // Port of CATEGORY_ORDER list.
-CEKSCHEME_API const std::vector<std::string>& category_order();
+CPPSCHEME2_API const std::vector<std::string>& category_order();
 
 // Port of register_primitive().  hi==-1 means variadic (Python None).
 // Called from each module's register_xxx() function.
-CEKSCHEME_API void register_primitive(
+CPPSCHEME2_API void register_primitive(
     const std::string& name, int lo, int hi,
     BuiltinFn fn,
     const std::string& usage = "",
@@ -38,26 +38,26 @@ CEKSCHEME_API void register_primitive(
 // Port of install_primitives(env).
 // Calls all module register_xxx() functions (once), then binds every
 // registered primitive into env.
-CEKSCHEME_API void install_primitives(Environment* env);
+CPPSCHEME2_API void install_primitives(Environment* env);
 
 // ── Per-module register functions (port of each module's register()) ──────────
-CEKSCHEME_API void register_control();
-CEKSCHEME_API void register_lazy();
-CEKSCHEME_API void register_binding();
-CEKSCHEME_API void register_quotation();
-CEKSCHEME_API void register_macros();
-CEKSCHEME_API void register_modules();
-CEKSCHEME_API void register_lists();
-CEKSCHEME_API void register_arithmetic();
-CEKSCHEME_API void register_comparison();
-CEKSCHEME_API void register_predicates();
-CEKSCHEME_API void register_equivalence();
-CEKSCHEME_API void register_logical();
-CEKSCHEME_API void register_meta();
-CEKSCHEME_API void register_ports();
-CEKSCHEME_API void register_strings();
-CEKSCHEME_API void register_chars();
-CEKSCHEME_API void register_vectors();
-CEKSCHEME_API void register_bytevectors();
-CEKSCHEME_API void register_help_sys();
-CEKSCHEME_API void register_debug();
+CPPSCHEME2_API void register_control();
+CPPSCHEME2_API void register_lazy();
+CPPSCHEME2_API void register_binding();
+CPPSCHEME2_API void register_quotation();
+CPPSCHEME2_API void register_macros();
+CPPSCHEME2_API void register_modules();
+CPPSCHEME2_API void register_lists();
+CPPSCHEME2_API void register_arithmetic();
+CPPSCHEME2_API void register_comparison();
+CPPSCHEME2_API void register_predicates();
+CPPSCHEME2_API void register_equivalence();
+CPPSCHEME2_API void register_logical();
+CPPSCHEME2_API void register_meta();
+CPPSCHEME2_API void register_ports();
+CPPSCHEME2_API void register_strings();
+CPPSCHEME2_API void register_chars();
+CPPSCHEME2_API void register_vectors();
+CPPSCHEME2_API void register_bytevectors();
+CPPSCHEME2_API void register_help_sys();
+CPPSCHEME2_API void register_debug();

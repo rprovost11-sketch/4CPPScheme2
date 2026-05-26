@@ -176,21 +176,22 @@ static std::string print_list(const Value& pair);  // forward decl
 // Returns true if val contains any reference cycle in its cons/vector graph.
 
 bool scheme_has_cycle(const Value& root) {
-    std::unordered_set<uintptr_t> seen;
-    std::vector<Value> stack;
-    stack.push_back(root);
+    std::unordered_set<uintptr_t> gray;
+    std::vector<std::pair<Value, bool>> stack;
+    stack.push_back({root, false});
     while (!stack.empty()) {
-        Value v = stack.back(); stack.pop_back();
+        auto [v, exiting] = stack.back(); stack.pop_back();
+        if (!is_cons(v) && !is_vector(v)) continue;
+        auto key = reinterpret_cast<uintptr_t>(gc_value_header(v));
+        if (exiting) { gray.erase(key); continue; }
+        if (!gray.insert(key).second) return true;
+        stack.push_back({v, true});
         if (is_cons(v)) {
-            auto key = reinterpret_cast<uintptr_t>(gc_value_header(v));
-            if (!seen.insert(key).second) return true;
-            stack.push_back(car(v));
-            stack.push_back(cdr(v));
-        } else if (is_vector(v)) {
-            auto key = reinterpret_cast<uintptr_t>(gc_value_header(v));
-            if (!seen.insert(key).second) return true;
+            stack.push_back({car(v), false});
+            stack.push_back({cdr(v), false});
+        } else {
             for (const Value& item : as_vector_items_const(v))
-                stack.push_back(item);
+                stack.push_back({item, false});
         }
     }
     return false;

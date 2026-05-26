@@ -62,12 +62,12 @@ void Interpreter::reboot(std::ostream* outStrm, bool load_rc) {
         if (!home) home = std::getenv("HOME");
         if (home) {
             std::filesystem::path rc =
-                std::filesystem::path(home) / ".cekschemerc";
+                std::filesystem::path(home) / ".cppscheme2rc";
             if (std::filesystem::is_regular_file(rc)) {
                 try {
                     evalFile(rc.string());
                 } catch (const std::exception& e) {
-                    std::cerr << "cekscheme: error loading ~/.cekschemerc: "
+                    std::cerr << "cppscheme2: error loading ~/.cppscheme2rc: "
                               << e.what() << '\n';
                 }
             }

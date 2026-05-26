@@ -8,6 +8,6 @@ struct Context;
 
 // Non-interactive inspect: print structured description of val.
 // Exposed for use by the Debugger (safe_inspect command).
-CEKSCHEME_API void debug_run_inspect(const Value& val, Context* ctx);
+CPPSCHEME2_API void debug_run_inspect(const Value& val, Context* ctx);
 
-CEKSCHEME_API void register_debug();
+CPPSCHEME2_API void register_debug();

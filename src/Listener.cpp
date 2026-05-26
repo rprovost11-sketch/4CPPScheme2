@@ -790,6 +790,10 @@ void Listener::_runTestFiles(const std::vector<std::string>& filenames) {
     struct PerFile { std::string name; int p; int f; };
     std::vector<PerFile> per_file;
 
+    std::string savedCwd = fs::current_path().string();
+    if (!filenames.empty())
+        fs::current_path(fs::path(fs::absolute(filenames[0])).parent_path().parent_path());
+
     std::streambuf* original_buf = std::cout.rdbuf();
     try {
         int k = 0;
@@ -824,9 +828,11 @@ void Listener::_runTestFiles(const std::vector<std::string>& filenames) {
     } catch (...) {
         std::cout.rdbuf(original_buf);
         if (runFile) { runFile->close(); delete runFile; }
+        fs::current_path(savedCwd);
         throw;
     }
     std::cout.rdbuf(original_buf);
+    fs::current_path(savedCwd);
 
     _interp->reboot(nullptr, false);
 

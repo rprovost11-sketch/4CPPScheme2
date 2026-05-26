@@ -18,7 +18,7 @@
 #  pragma warning(disable: 4275)   // non-DLL-interface base (std::exception)
 #endif
 
-class CEKSCHEME_API PositionedSchemeError : public std::exception {
+class CPPSCHEME2_API PositionedSchemeError : public std::exception {
 public:
     std::string  msg;
     SourceInfo*  src;
@@ -34,22 +34,22 @@ public:
     std::string str() const;   // format_with_caret(msg, src) -- user-facing display
 };
 
-class CEKSCHEME_API SchemeArityError : public PositionedSchemeError {
+class CPPSCHEME2_API SchemeArityError : public PositionedSchemeError {
 public:
     using PositionedSchemeError::PositionedSchemeError;
 };
 
-class CEKSCHEME_API SchemeUnboundError : public PositionedSchemeError {
+class CPPSCHEME2_API SchemeUnboundError : public PositionedSchemeError {
 public:
     using PositionedSchemeError::PositionedSchemeError;
 };
 
-class CEKSCHEME_API SchemeTypeError : public PositionedSchemeError {
+class CPPSCHEME2_API SchemeTypeError : public PositionedSchemeError {
 public:
     using PositionedSchemeError::PositionedSchemeError;
 };
 
-class CEKSCHEME_API SchemeRaised : public PositionedSchemeError {
+class CPPSCHEME2_API SchemeRaised : public PositionedSchemeError {
 public:
     Value value;
     bool  continuable;
@@ -63,17 +63,17 @@ protected:
     SchemeRaised(std::string prebuilt_msg, Value val, SourceInfo* source, bool cont);
 };
 
-class CEKSCHEME_API SchemeRuntimeError : public PositionedSchemeError {
+class CPPSCHEME2_API SchemeRuntimeError : public PositionedSchemeError {
 public:
     using PositionedSchemeError::PositionedSchemeError;
 };
 
-class CEKSCHEME_API SchemeFileError : public SchemeRaised {
+class CPPSCHEME2_API SchemeFileError : public SchemeRaised {
 public:
     explicit SchemeFileError(const std::string& message, SourceInfo* source = nullptr);
 };
 
-class CEKSCHEME_API SchemeUserError : public SchemeRaised {
+class CPPSCHEME2_API SchemeUserError : public SchemeRaised {
 public:
     SchemeUserError(const std::string& message,
                     std::vector<Value> irritants,
@@ -90,14 +90,14 @@ public:
 // hi == lo  → exactly lo expected
 // hi == lo+1 → lo or hi expected
 // else       → lo to hi expected
-CEKSCHEME_API std::string arity_mismatch_msg(const std::string& name,
+CPPSCHEME2_API std::string arity_mismatch_msg(const std::string& name,
                                               int lo, int hi, int n_provided);
 
 // ── Environment ───────────────────────────────────────────────────────────────
 // Port of Environment.py Environment class.
 // GC-managed heap object; GcHeader must remain the first field.
 
-struct CEKSCHEME_API Environment {
+struct CPPSCHEME2_API Environment {
     GcHeader                            header{GcType::Environment};
     std::unordered_map<uint32_t, Value> _bindings;
     Environment*                        _parent;

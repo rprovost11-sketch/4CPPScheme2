@@ -24,7 +24,7 @@ int main(int argc, char* argv[]) {
 #endif
 
     if (argc > 2) {
-        std::cerr << "Usage: cekscheme [<directory> | <scheme-source-file>]\n";
+        std::cerr << "Usage: cppscheme2 [<directory> | <scheme-source-file>]\n";
         return 2;
     }
 
@@ -38,7 +38,7 @@ int main(int argc, char* argv[]) {
             try {
                 interp.evalFile(target);
             } catch (const std::exception& e) {
-                std::cerr << "cekscheme: " << e.what() << '\n';
+                std::cerr << "cppscheme2: " << e.what() << '\n';
                 std::cout.flush();
 #ifdef _WIN32
                 TerminateProcess(GetCurrentProcess(), 1);
@@ -65,7 +65,7 @@ int main(int argc, char* argv[]) {
             testdir = ".";
             // fall through to REPL
         } else {
-            std::cerr << "cekscheme: no such file or directory: " << target << '\n';
+            std::cerr << "cppscheme2: no such file or directory: " << target << '\n';
             return 1;
         }
     }
@@ -92,10 +92,10 @@ int main(int argc, char* argv[]) {
     Listener listener(
         &interp,
         testdir,
-        "cekscheme",
-        "0.1",
+        "cppscheme2",
+        "0.4.5",
         "Ron Provost/Longo",
-        "https://github.com/rprovost11/cekscheme",
+        "https://github.com/rprovost11/cppscheme2",
         compliancedir);
     listener.readEvalPrintLoop();
 

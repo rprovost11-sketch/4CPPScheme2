@@ -22,7 +22,7 @@ struct _RestartRd {};
 
 // ── StepHook ──────────────────────────────────────────────────────────────────
 // Port of Debugger.py StepHook.
-struct CEKSCHEME_API StepHook {
+struct CPPSCHEME2_API StepHook {
     std::optional<int> _skip_until_depth;  // nullopt = step every expression
     bool               _step_over_first = false;
 };
@@ -30,7 +30,7 @@ struct CEKSCHEME_API StepHook {
 // ── InnerTarget ───────────────────────────────────────────────────────────────
 // One entry in _inner_targets: breakpoint on a specific call site in a body.
 // Port of the 5-element list [display, cond, node, fn_name, fn_obj].
-struct CEKSCHEME_API InnerTarget {
+struct CPPSCHEME2_API InnerTarget {
     std::string display;   // e.g. "fib:fib:1"
     std::string cond;      // empty = no condition (Python None)
     Value       node;      // the cons-cell call node
@@ -40,7 +40,7 @@ struct CEKSCHEME_API InnerTarget {
 
 // ── Debugger ──────────────────────────────────────────────────────────────────
 // Port of Debugger.py Debugger.
-class CEKSCHEME_API Debugger {
+class CPPSCHEME2_API Debugger {
 public:
     // Public state accessed by Interpreter::set_debug_input_fn.
     std::function<std::string(const std::string&, const std::string&)> input_fn;

@@ -4,6 +4,9 @@ build3/
 build_asan/
 build_asan2/
 
+# Generated test run logs
+testing/runs/
+
 # VS / CMake artifacts
 *.user
 *.suo

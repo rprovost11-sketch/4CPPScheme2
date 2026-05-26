@@ -1,12 +1,12 @@
 cmake_minimum_required(VERSION 3.16)
-project(cekscheme C CXX)
+project(cppscheme2 C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # ── Core shared library ───────────────────────────────────────────────────────
-add_library(cekscheme_core SHARED
+add_library(cppscheme2_core SHARED
     # Vendored mini-gmp (compiled as C)
     src/mini-gmp/mini-gmp.c
     # Phase 1 undercarriage
@@ -79,40 +79,40 @@ else()
     set_source_files_properties(src/mini-gmp/mini-gmp.c PROPERTIES COMPILE_FLAGS "-w")
 endif()
 
-target_compile_definitions(cekscheme_core PRIVATE CEKSCHEME_CORE_EXPORTS)
-target_include_directories(cekscheme_core PUBLIC src)
+target_compile_definitions(cppscheme2_core PRIVATE CPPSCHEME2_CORE_EXPORTS)
+target_include_directories(cppscheme2_core PUBLIC src)
 
 if(MSVC)
-    target_compile_options(cekscheme_core PRIVATE /W4 /utf-8)
-    target_compile_options(cekscheme_core PRIVATE /wd4100 /wd4458 /wd4251 /wd4275)
-    target_compile_definitions(cekscheme_core PRIVATE _CRT_SECURE_NO_WARNINGS)
+    target_compile_options(cppscheme2_core PRIVATE /W4 /utf-8)
+    target_compile_options(cppscheme2_core PRIVATE /wd4100 /wd4458 /wd4251 /wd4275)
+    target_compile_definitions(cppscheme2_core PRIVATE _CRT_SECURE_NO_WARNINGS)
     if(ENABLE_ASAN)
-        target_compile_options(cekscheme_core PRIVATE /fsanitize=address)
-        target_link_options(cekscheme_core PRIVATE /fsanitize=address)
+        target_compile_options(cppscheme2_core PRIVATE /fsanitize=address)
+        target_link_options(cppscheme2_core PRIVATE /fsanitize=address)
     endif()
 else()
-    target_compile_options(cekscheme_core PRIVATE -Wall -Wextra -Wno-unused-parameter)
-    target_compile_options(cekscheme_core PRIVATE -fvisibility=hidden)
+    target_compile_options(cppscheme2_core PRIVATE -Wall -Wextra -Wno-unused-parameter)
+    target_compile_options(cppscheme2_core PRIVATE -fvisibility=hidden)
     if(ENABLE_ASAN)
-        target_compile_options(cekscheme_core PRIVATE -fsanitize=address -fno-omit-frame-pointer)
-        target_link_options(cekscheme_core PRIVATE -fsanitize=address)
+        target_compile_options(cppscheme2_core PRIVATE -fsanitize=address -fno-omit-frame-pointer)
+        target_link_options(cppscheme2_core PRIVATE -fsanitize=address)
     endif()
 endif()
 
 # ── Main executable ───────────────────────────────────────────────────────────
-add_executable(cekscheme src/main.cpp)
-target_link_libraries(cekscheme PRIVATE cekscheme_core)
+add_executable(cppscheme2 src/main.cpp)
+target_link_libraries(cppscheme2 PRIVATE cppscheme2_core)
 
 if(MSVC)
-    target_compile_options(cekscheme PRIVATE /W4 /utf-8 /wd4100 /wd4458 /wd4251 /wd4275)
-    target_compile_definitions(cekscheme PRIVATE _CRT_SECURE_NO_WARNINGS)
+    target_compile_options(cppscheme2 PRIVATE /W4 /utf-8 /wd4100 /wd4458 /wd4251 /wd4275)
+    target_compile_definitions(cppscheme2 PRIVATE _CRT_SECURE_NO_WARNINGS)
 else()
-    target_compile_options(cekscheme PRIVATE -Wall -Wextra -Wno-unused-parameter)
+    target_compile_options(cppscheme2 PRIVATE -Wall -Wextra -Wno-unused-parameter)
 endif()
 
 # ── GC regression test binary ─────────────────────────────────────────────────
 add_executable(gc_test tests/gc_test.cpp)
-target_link_libraries(gc_test PRIVATE cekscheme_core)
+target_link_libraries(gc_test PRIVATE cppscheme2_core)
 if(MSVC)
     target_compile_options(gc_test PRIVATE /W4 /utf-8 /wd4100 /wd4458 /wd4251 /wd4275)
     target_compile_definitions(gc_test PRIVATE _CRT_SECURE_NO_WARNINGS)
@@ -129,14 +129,14 @@ else()
 endif()
 
 # Place DLL next to the executable.
-set_target_properties(cekscheme_core PROPERTIES
+set_target_properties(cppscheme2_core PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
     ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
 )
 foreach(cfg IN ITEMS Debug Release RelWithDebInfo MinSizeRel)
     string(TOUPPER "${cfg}" CFG_UPPER)
-    set_target_properties(cekscheme_core PROPERTIES
+    set_target_properties(cppscheme2_core PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY_${CFG_UPPER} "${CMAKE_BINARY_DIR}/${cfg}"
         LIBRARY_OUTPUT_DIRECTORY_${CFG_UPPER} "${CMAKE_BINARY_DIR}/${cfg}"
         ARCHIVE_OUTPUT_DIRECTORY_${CFG_UPPER} "${CMAKE_BINARY_DIR}/${cfg}"

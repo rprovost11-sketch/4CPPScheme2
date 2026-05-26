@@ -11,7 +11,7 @@
 #include <optional>
 #include <string>
 
-class CEKSCHEME_API Interpreter : public InterpreterBase {
+class CPPSCHEME2_API Interpreter : public InterpreterBase {
 public:
     Interpreter();
     ~Interpreter();

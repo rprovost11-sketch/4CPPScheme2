@@ -26,7 +26,7 @@ enum class TokenKind {
 // src is stored by value (Token owns it — no heap ownership issues).
 // Payload fields are set only for the relevant kind.
 
-struct CEKSCHEME_API Token {
+struct CPPSCHEME2_API Token {
     TokenKind   kind;
     SourceInfo  src;
 
@@ -52,7 +52,7 @@ struct CEKSCHEME_API Token {
 // ── SchemeSyntaxError ──────────────────────────────────────────────────────────
 // Port of Parser.py SchemeSyntaxError.
 
-class CEKSCHEME_API SchemeSyntaxError : public PositionedSchemeError {
+class CPPSCHEME2_API SchemeSyntaxError : public PositionedSchemeError {
 public:
     using PositionedSchemeError::PositionedSchemeError;
 };
@@ -61,14 +61,14 @@ public:
 // Port of Parser.py parse, parse_one, tokenize.
 // filename: empty string = no filename (Python None).
 
-CEKSCHEME_API std::vector<Value> scheme_parse(const std::string& source,
+CPPSCHEME2_API std::vector<Value> scheme_parse(const std::string& source,
                                                const std::string& filename = "");
 
-CEKSCHEME_API Value scheme_parse_one(const std::string& source,
+CPPSCHEME2_API Value scheme_parse_one(const std::string& source,
                                       const std::string& filename = "");
 
-CEKSCHEME_API Value scheme_parse_first(const std::string& source,
+CPPSCHEME2_API Value scheme_parse_first(const std::string& source,
                                         const std::string& filename = "");
 
-CEKSCHEME_API std::vector<Token> scheme_tokenize(const std::string& source,
+CPPSCHEME2_API std::vector<Token> scheme_tokenize(const std::string& source,
                                                    const std::string& filename = "");

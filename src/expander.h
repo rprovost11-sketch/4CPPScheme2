@@ -6,20 +6,20 @@
 #include <string>
 
 // Install/retrieve the runtime environment for macro lookup and define-syntax.
-CEKSCHEME_API void         set_runtime_env(Environment* env);
-CEKSCHEME_API Environment* get_runtime_env();
+CPPSCHEME2_API void         set_runtime_env(Environment* env);
+CPPSCHEME2_API Environment* get_runtime_env();
 
 // Expand sugar and user macros in one S-expression.
-CEKSCHEME_API Value expand(const Value& sexpr);
+CPPSCHEME2_API Value expand(const Value& sexpr);
 
 // Set/get the fallback directory used to resolve relative include paths from REPL input.
-CEKSCHEME_API void        set_include_fallback_dir(const std::string& dir);
-CEKSCHEME_API std::string get_include_fallback_dir();
+CPPSCHEME2_API void        set_include_fallback_dir(const std::string& dir);
+CPPSCHEME2_API std::string get_include_fallback_dir();
 
 // Resolve a cond-expand feature requirement against the platform feature set.
 // Port of Expander.py _feature_req_matches.
-CEKSCHEME_API bool feature_req_matches(const Value& req);
+CPPSCHEME2_API bool feature_req_matches(const Value& req);
 
 // Return the base directory to use for relative include paths.
 // Port of Expander.py _include_base_dir.
-CEKSCHEME_API std::string include_base_dir(SourceInfo* src);
+CPPSCHEME2_API std::string include_base_dir(SourceInfo* src);

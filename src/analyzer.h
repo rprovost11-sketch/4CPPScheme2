@@ -21,7 +21,7 @@ using StaticEnv = std::unordered_map<std::string, std::optional<std::pair<int,in
 #  pragma warning(disable: 4275)
 #endif
 
-class CEKSCHEME_API SchemeAnalysisError : public PositionedSchemeError {
+class CPPSCHEME2_API SchemeAnalysisError : public PositionedSchemeError {
 public:
     using PositionedSchemeError::PositionedSchemeError;
 };
@@ -36,15 +36,15 @@ public:
 // Validate sexpr in place.  Returns sexpr unchanged on success;
 // throws SchemeAnalysisError or SchemeArityError on failure.
 // No-senv overload seeds from the registered primitive arities.
-CEKSCHEME_API Value analyze(const Value& sexpr);
-CEKSCHEME_API Value analyze(const Value& sexpr, const StaticEnv& senv);
+CPPSCHEME2_API Value analyze(const Value& sexpr);
+CPPSCHEME2_API Value analyze(const Value& sexpr, const StaticEnv& senv);
 
 // Update senv from a top-level (define name value) form.
-CEKSCHEME_API void extend_static_env_with_define(StaticEnv& senv, const Value& sexpr);
+CPPSCHEME2_API void extend_static_env_with_define(StaticEnv& senv, const Value& sexpr);
 
 // Register a primitive arity (called from Phase 11 primitives).
 // hi == -1 means variadic.
-CEKSCHEME_API void register_primitive_arity(const std::string& name, int lo, int hi);
+CPPSCHEME2_API void register_primitive_arity(const std::string& name, int lo, int hi);
 
 // Access the currently registered primitive arities.
-CEKSCHEME_API const StaticEnv& primitive_arities();
+CPPSCHEME2_API const StaticEnv& primitive_arities();

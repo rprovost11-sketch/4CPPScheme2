@@ -10,7 +10,7 @@
 
 struct Context;
 
-struct CEKSCHEME_API Tracer {
+struct CPPSCHEME2_API Tracer {
     std::unordered_set<std::string> _fns_to_trace;
     int      _depth  = 0;
     bool     _active = false;

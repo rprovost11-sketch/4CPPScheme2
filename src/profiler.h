@@ -64,7 +64,7 @@ struct ProfData
    double tsc_freq = 0.0;        // ticks per second, calibrated at startup
    };
 
-CEKSCHEME_API extern ProfData g_prof;
+CPPSCHEME2_API extern ProfData g_prof;
 
 // ── RAII scope timer ────────────────────────────────────────────────────────
 
@@ -93,13 +93,13 @@ struct ProfScope
 // ── Public interface ────────────────────────────────────────────────────────
 
 // Calibrate tsc_freq.  Call once at startup (e.g. from eval_init).
-CEKSCHEME_API void prof_init();
+CPPSCHEME2_API void prof_init();
 
 // Print a formatted report to stdout, then reset all counters.
-CEKSCHEME_API void prof_report();
+CPPSCHEME2_API void prof_report();
 
 // Reset all counters without printing.
-CEKSCHEME_API void prof_reset();
+CPPSCHEME2_API void prof_reset();
 
 #else // PROFILE_COUNTERS not defined
 

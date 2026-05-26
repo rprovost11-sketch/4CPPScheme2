@@ -89,23 +89,23 @@ using KStack = std::vector<Frame>;
 // Port of Evaluator.py cek_eval, set_global_env, _sorted_sym_list.
 
 // Evaluate expr against env.  ctx may be nullptr (a default Context is created).
-CEKSCHEME_API Value cek_eval(const Value& expr, Environment* env, Context* ctx = nullptr);
+CPPSCHEME2_API Value cek_eval(const Value& expr, Environment* env, Context* ctx = nullptr);
 
 // Global env reference for the library loader / eval primitive.
-CEKSCHEME_API void         set_global_env(Environment* env);
-CEKSCHEME_API Environment* get_global_env();
+CPPSCHEME2_API void         set_global_env(Environment* env);
+CPPSCHEME2_API Environment* get_global_env();
 
 // Synchronous procedure call: applies fn(args) via cek_eval.
 // Port of primitives/meta.py _apply_scheme_proc.
 // app_node may be nullptr.
-CEKSCHEME_API Value apply_scheme_proc(const Value& fn, std::vector<Value> args,
+CPPSCHEME2_API Value apply_scheme_proc(const Value& fn, std::vector<Value> args,
                                        Context* ctx, Environment* env,
                                        const Value* app_node);
 
 // Build a sorted Scheme proper list of symbols from a name set.
 // Port of Evaluator.py _sorted_sym_list.
-CEKSCHEME_API Value sorted_sym_list(const std::unordered_set<std::string>& fns);
+CPPSCHEME2_API Value sorted_sym_list(const std::unordered_set<std::string>& fns);
 
 // Process top-level (import ...) form.  Binds exported names into env.
 // Port of Evaluator.py _process_import.
-CEKSCHEME_API void process_import(const Value& sets_cons, Environment* env, Context* ctx);
+CPPSCHEME2_API void process_import(const Value& sets_cons, Environment* env, Context* ctx);

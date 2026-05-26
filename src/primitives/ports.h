@@ -5,4 +5,4 @@
 
 // Port of ports.py reset_current_port_params().
 // Called by the Interpreter/library layer to reset module-level port state.
-CEKSCHEME_API void reset_current_port_params();
+CPPSCHEME2_API void reset_current_port_params();

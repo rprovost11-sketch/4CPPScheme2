@@ -844,7 +844,7 @@ bool feature_req_matches(const Value& req) {
     if (is_symbol(req)) {
         static const std::unordered_set<std::string> FEATURES = {
             "r7rs", "exact-closed", "exact-rational", "ratios",
-            "ieee-float", "full-unicode", "pyscheme", "cekscheme",
+            "ieee-float", "full-unicode", "pyscheme", "cppscheme2",
 #ifdef _WIN32
             "windows",
 #else

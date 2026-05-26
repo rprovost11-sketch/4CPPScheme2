@@ -14,7 +14,7 @@ class Debugger;
 using SteadyClock   = std::chrono::steady_clock;
 using SteadyTimePoint = std::chrono::time_point<SteadyClock>;
 
-struct CEKSCHEME_API Context {
+struct CPPSCHEME2_API Context {
     std::ostream*            outStrm;
     bool                     _debugging    = false;
     bool                     _instrumented = false;

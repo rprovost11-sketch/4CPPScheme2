@@ -18,7 +18,7 @@ struct Environment;  // AST.h forward-declares Environment as struct
 // Abstract interface that the Listener expects its interpreter to provide.
 // Port of Listener.py InterpreterBase.
 
-struct CEKSCHEME_API InterpreterBase {
+struct CPPSCHEME2_API InterpreterBase {
     virtual ~InterpreterBase() = default;
 
     // Reset to a fresh global environment.
@@ -49,7 +49,7 @@ struct CEKSCHEME_API InterpreterBase {
 // ── ListenerCommandError ──────────────────────────────────────────────────────
 // Raised by listener-command bodies to signal a user-level error.
 // Port of Listener.py ListenerCommandError.
-struct CEKSCHEME_API ListenerCommandError : std::exception {
+struct CPPSCHEME2_API ListenerCommandError : std::exception {
     explicit ListenerCommandError(const std::string& msg) : _msg(msg) {}
     const char* what() const noexcept override { return _msg.c_str(); }
 private:
@@ -59,7 +59,7 @@ private:
 // ── TestResult ────────────────────────────────────────────────────────────────
 // Return container for sessionLog_test: pass/fail counts.
 // Port of Listener.py TestResult.
-struct CEKSCHEME_API TestResult {
+struct CPPSCHEME2_API TestResult {
     int n_pass;
     int n_fail;
     TestResult(int p, int f) : n_pass(p), n_fail(f) {}
@@ -69,7 +69,7 @@ struct CEKSCHEME_API TestResult {
 // Interactive REPL with session logging and log-based testing.
 // Port of Listener.py Listener.
 
-class CEKSCHEME_API Listener {
+class CPPSCHEME2_API Listener {
 public:
     // Each parsed log entry: expression, output, return value, error message.
     struct LogEntry {
@@ -81,10 +81,10 @@ public:
 
     Listener(InterpreterBase*   interp,
              const std::string& testdir       = "testing",
-             const std::string& language      = "cekscheme",
+             const std::string& language      = "cppscheme2",
              const std::string& version       = "0.1",
-             const std::string& author        = "cekscheme authors",
-             const std::string& project       = "https://example/cekscheme",
+             const std::string& author        = "cppscheme2 authors",
+             const std::string& project       = "https://example/cppscheme2",
              const std::string& compliancedir = "");
     ~Listener();
 

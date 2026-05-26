@@ -14,7 +14,7 @@
 // Uses int64_t for both fields; may lose precision for extreme double values in
 // from_float (unlike Python's arbitrary-precision int).
 
-struct CEKSCHEME_API Rat {
+struct CPPSCHEME2_API Rat {
     int64_t numerator;
     int64_t denominator;
 
@@ -83,34 +83,34 @@ struct CEKSCHEME_API Rat {
 };
 
 // Reverse binary operations (port of __radd__, __rsub__, __rmul__, __rtruediv__)
-CEKSCHEME_API Rat    operator+(int64_t n, const Rat& r);
-CEKSCHEME_API Rat    operator-(int64_t n, const Rat& r);
-CEKSCHEME_API Rat    operator*(int64_t n, const Rat& r);
-CEKSCHEME_API Rat    operator/(int64_t n, const Rat& r);
-CEKSCHEME_API double operator+(double f,  const Rat& r);
-CEKSCHEME_API double operator-(double f,  const Rat& r);
-CEKSCHEME_API double operator*(double f,  const Rat& r);
-CEKSCHEME_API double operator/(double f,  const Rat& r);
+CPPSCHEME2_API Rat    operator+(int64_t n, const Rat& r);
+CPPSCHEME2_API Rat    operator-(int64_t n, const Rat& r);
+CPPSCHEME2_API Rat    operator*(int64_t n, const Rat& r);
+CPPSCHEME2_API Rat    operator/(int64_t n, const Rat& r);
+CPPSCHEME2_API double operator+(double f,  const Rat& r);
+CPPSCHEME2_API double operator-(double f,  const Rat& r);
+CPPSCHEME2_API double operator*(double f,  const Rat& r);
+CPPSCHEME2_API double operator/(double f,  const Rat& r);
 
 // Reverse comparisons: int64_t vs Rat, double vs Rat
-CEKSCHEME_API bool operator==(int64_t n, const Rat& r);
-CEKSCHEME_API bool operator!=(int64_t n, const Rat& r);
-CEKSCHEME_API bool operator< (int64_t n, const Rat& r);
-CEKSCHEME_API bool operator<=(int64_t n, const Rat& r);
-CEKSCHEME_API bool operator> (int64_t n, const Rat& r);
-CEKSCHEME_API bool operator>=(int64_t n, const Rat& r);
-CEKSCHEME_API bool operator==(double f,  const Rat& r);
-CEKSCHEME_API bool operator!=(double f,  const Rat& r);
-CEKSCHEME_API bool operator< (double f,  const Rat& r);
-CEKSCHEME_API bool operator<=(double f,  const Rat& r);
-CEKSCHEME_API bool operator> (double f,  const Rat& r);
-CEKSCHEME_API bool operator>=(double f,  const Rat& r);
+CPPSCHEME2_API bool operator==(int64_t n, const Rat& r);
+CPPSCHEME2_API bool operator!=(int64_t n, const Rat& r);
+CPPSCHEME2_API bool operator< (int64_t n, const Rat& r);
+CPPSCHEME2_API bool operator<=(int64_t n, const Rat& r);
+CPPSCHEME2_API bool operator> (int64_t n, const Rat& r);
+CPPSCHEME2_API bool operator>=(int64_t n, const Rat& r);
+CPPSCHEME2_API bool operator==(double f,  const Rat& r);
+CPPSCHEME2_API bool operator!=(double f,  const Rat& r);
+CPPSCHEME2_API bool operator< (double f,  const Rat& r);
+CPPSCHEME2_API bool operator<=(double f,  const Rat& r);
+CPPSCHEME2_API bool operator> (double f,  const Rat& r);
+CPPSCHEME2_API bool operator>=(double f,  const Rat& r);
 
 // rat_abs (port of __abs__)
-CEKSCHEME_API Rat rat_abs(const Rat& r);
+CPPSCHEME2_API Rat rat_abs(const Rat& r);
 
 // Floor/ceil/trunc/round (port of __floor__, __ceil__, __trunc__, __round__)
-CEKSCHEME_API int64_t rat_floor(const Rat& r);
-CEKSCHEME_API int64_t rat_ceil(const Rat& r);
-CEKSCHEME_API int64_t rat_trunc(const Rat& r);
-CEKSCHEME_API int64_t rat_round(const Rat& r);  // ndigits=None (return integer)
+CPPSCHEME2_API int64_t rat_floor(const Rat& r);
+CPPSCHEME2_API int64_t rat_ceil(const Rat& r);
+CPPSCHEME2_API int64_t rat_trunc(const Rat& r);
+CPPSCHEME2_API int64_t rat_round(const Rat& r);  // ndigits=None (return integer)
