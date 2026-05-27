@@ -111,7 +111,7 @@ else()
 endif()
 
 # ── GC regression test binary ─────────────────────────────────────────────────
-add_executable(gc_test tests/gc_test.cpp)
+add_executable(gc_test undercarriage-tests/gc_test.cpp)
 target_link_libraries(gc_test PRIVATE cppscheme2_core)
 if(MSVC)
     target_compile_options(gc_test PRIVATE /W4 /utf-8 /wd4100 /wd4458 /wd4251 /wd4275)

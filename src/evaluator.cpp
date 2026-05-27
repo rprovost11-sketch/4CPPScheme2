@@ -862,6 +862,7 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
         uint32_t begin, when, unless, and_, or_;
         uint32_t cond, case_, let, let_star, letrec, letrec_star;
         uint32_t trace, untrace;
+        std::unordered_set<uint32_t> syntactic_kws;
         KW() {
             quote         = intern_symbol("quote");
             lambda        = intern_symbol("lambda");
@@ -886,6 +887,27 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
             letrec_star   = intern_symbol("letrec*");
             trace         = intern_symbol("trace");
             untrace       = intern_symbol("untrace");
+            syntactic_kws = {
+                quote, lambda, case_lambda, delay, delay_force,
+                import_, define_library, if_, define, set_,
+                begin, when, unless, and_, or_,
+                cond, case_, let, let_star, letrec, letrec_star,
+                intern_symbol("do"),
+                intern_symbol("quasiquote"),
+                intern_symbol("define-syntax"),
+                intern_symbol("let-syntax"),
+                intern_symbol("letrec-syntax"),
+                intern_symbol("syntax-rules"),
+                intern_symbol("cond-expand"),
+                intern_symbol("define-record-type"),
+                intern_symbol("define-values"),
+                intern_symbol("guard"),
+                intern_symbol("include"),
+                intern_symbol("include-ci"),
+                intern_symbol("let*-values"),
+                intern_symbol("let-values"),
+                intern_symbol("parameterize"),
+            };
         }
     };
     static const KW kw;
@@ -1279,11 +1301,19 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                     }
 
                     if (is_symbol(C)) {
+                        uint32_t sym_id = as_symbol_id(C);
                         try {
-                            V = E->lookup_id(as_symbol_id(C));
+                            V = E->lookup_id(sym_id);
                         } catch (SchemeUnboundError& e) {
                             if (!e.src) { SourceInfo* s = src_of(C); if (s) e.src = new SourceInfo(*s); }
                             throw;
+                        }
+                        if (kw.syntactic_kws.count(sym_id) &&
+                            is_primitive(V) &&
+                            as_primitive_name(V) == as_symbol(C)) {
+                            throw SchemeSyntaxError(
+                                "keyword used as expression: " + as_symbol(C),
+                                src_of(C));
                         }
                         break;
                     }

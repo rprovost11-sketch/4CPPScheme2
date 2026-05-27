@@ -337,7 +337,13 @@ static Value rename_refs_in_form(const Value& form, const RenameTable& table) {
     Value head = car(form);
     if (is_symbol(head)) {
         uint32_t hid = as_symbol_id(head);
-        if (hid == sid_quote)         return form;
+        if (hid == sid_quote) {
+            auto it = table.find(hid);
+            if (it == table.end()) return form;
+            // 'quote' is locally bound; rename head only, leave datum untouched.
+            Value new_head = make_symbol_id(it->second, src_of(head));
+            return alloc_cons(new_head, cdr(form), src_of(form));
+        }
         if (hid == sid_lambda)        return rrif_lambda(form, table);
         if (hid == sid_let   || hid == sid_let_star ||
             hid == sid_letrec || hid == sid_letrec_star)
