@@ -1028,7 +1028,12 @@ public:
         // Datum label definition #n=  R7RS §2.4
         if (kind == TokenKind::LABEL_DEF) {
             int64_t    label_n  = tok.int_val;
+            SourceInfo tok_src  = tok.src;
             _advance();
+            if (labels_.count(label_n))
+                throw SchemeSyntaxError(
+                    "duplicate datum label #" + std::to_string(label_n) + "=",
+                    new SourceInfo(tok_src));
             const Token& nxt = _peek();
             if (nxt.kind==TokenKind::LPAREN || nxt.kind==TokenKind::LBRACKET) {
                 // Lists: pre-allocate a ConsCell stub so forward #n# refs work.
