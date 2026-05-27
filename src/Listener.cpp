@@ -775,7 +775,7 @@ void Listener::_runListenerCommand(const std::string& source) {
     it->second(parts);
 }
 
-void Listener::_runTestFiles(const std::vector<std::string>& filenames) {
+void Listener::_runTestFiles(const std::vector<std::string>& filenames, const std::string& testDir) {
     bool color = _use_color();
     std::string BOLD  = color ? "\033[1;97m" : "";
     std::string GREEN = color ? "\033[92m"   : "";
@@ -801,8 +801,7 @@ void Listener::_runTestFiles(const std::vector<std::string>& filenames) {
     std::vector<PerFile> per_file;
 
     std::string savedCwd = fs::current_path().string();
-    if (!filenames.empty())
-        fs::current_path(fs::path(fs::absolute(filenames[0])).parent_path().parent_path());
+    fs::current_path(fs::absolute(fs::path(testDir)));
 
     std::streambuf* original_buf = std::cout.rdbuf();
     try {
@@ -1192,23 +1191,27 @@ void Listener::_cmd_test(std::vector<std::string>& args) {
     if (args.size() > 1) throw ListenerCommandError("Usage: ]test [<filename>]");
     if (_logStream) throw ListenerCommandError("Please close the log before running tests (]close).");
     std::vector<std::string> filenames;
+    std::string testDir;
     if (args.size() == 1) {
         const std::string& arg = args[0];
         if (fs::is_directory(arg)) {
+            testDir   = fs::absolute(fs::path(arg)).string();
             filenames = retrieveFileList(arg);
             if (filenames.empty())
                 throw ListenerCommandError("No .log files in " + arg);
         } else {
+            testDir   = fs::absolute(fs::path(arg)).parent_path().string();
             filenames.push_back(arg);
         }
     } else {
         if (!fs::is_directory(_testdir))
             throw ListenerCommandError("No test directory: " + _testdir);
+        testDir   = fs::absolute(fs::path(_testdir)).string();
         filenames = retrieveFileList(_testdir);
         if (filenames.empty())
             throw ListenerCommandError("No .log files in " + _testdir);
     }
-    _runTestFiles(filenames);
+    _runTestFiles(filenames, testDir);
 }
 
 void Listener::_cmd_cd(std::vector<std::string>& args) {

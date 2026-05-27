@@ -5,7 +5,7 @@ build_asan/
 build_asan2/
 
 # Generated test run logs
-testing/runs/
+feature-tests/runs/
 
 # VS / CMake artifacts
 *.user

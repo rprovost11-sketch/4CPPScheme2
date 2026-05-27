@@ -81,7 +81,7 @@ public:
     };
 
     Listener(InterpreterBase*   interp,
-             const std::string& testdir       = "testing",
+             const std::string& testdir       = "feature-tests",
              const std::string& language      = "cppscheme2",
              const std::string& version       = "0.1",
              const std::string& author        = "cppscheme2 authors",
@@ -146,7 +146,7 @@ private:
     std::string _prompt(const std::string& prompt  = "",
                         const std::string& prefill = "");
     void _runListenerCommand(const std::string& source);
-    void _runTestFiles(const std::vector<std::string>& filenames);
+    void _runTestFiles(const std::vector<std::string>& filenames, const std::string& testDir);
     void _runComplianceFiles(const std::vector<std::string>& filenames,
                              const std::string& compliancedir);
 

@@ -57,7 +57,7 @@ int main(int argc, char* argv[]) {
 
     Interpreter interp;
 
-    std::string testdir = "testing";
+    std::string testdir = "feature-tests";
     if (argc == 2) {
         std::string target = argv[1];
         if (std::filesystem::is_directory(target)) {
