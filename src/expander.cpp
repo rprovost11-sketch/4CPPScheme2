@@ -1272,13 +1272,28 @@ static Value expand_let_star_values(const Value& sexpr) {
         for (Value& v : body_items) items.push_back(v);
         return list_from_items(items, nullptr);
     }
-    Value inner = mv_lambda(clauses.back().first, body_items);
-    Value result = mv_cwv(mv_thunk(clauses.back().second), inner);
-    for (int i = (int)clauses.size() - 2; i >= 0; i--) {
-        Value consumer = mv_lambda(clauses[i].first, {result});
-        result = mv_cwv(mv_thunk(clauses[i].second), consumer);
+    // Build from innermost out.  Single-variable formals use (let ((v e)) ...)
+    // directly — eliminates two lambda applications per clause and lets the
+    // evaluator's native let path handle tail calls cheaply.
+    auto single_var = [](const Value& formals) {
+        return is_cons(formals) && is_symbol(car(formals)) && is_nil(cdr(formals));
+    };
+    std::vector<Value> current_items = body_items;
+    for (int i = (int)clauses.size() - 1; i >= 0; i--) {
+        const Value& formals = clauses[i].first;
+        const Value& init    = clauses[i].second;
+        if (single_var(formals)) {
+            Value binding  = list_from_items({car(formals), init}, nullptr);
+            Value bindings = list_from_items({binding}, nullptr);
+            std::vector<Value> items = {make_symbol("let", nullptr), bindings};
+            for (Value& v : current_items) items.push_back(v);
+            current_items = {list_from_items(items, nullptr)};
+        } else {
+            Value consumer = mv_lambda(formals, current_items);
+            current_items  = {mv_cwv(mv_thunk(init), consumer)};
+        }
     }
-    return result;
+    return current_items[0];
 }
 
 static Value expand_let_values(const Value& sexpr) {

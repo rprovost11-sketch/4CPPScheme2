@@ -1,6 +1,7 @@
 // Analyzer.cpp -- semantic validator.
 // Direct port of pyscheme/Analyzer.py.
 #include "Analyzer.h"
+#include "Parser.h"   // SchemeSyntaxError
 #include <algorithm>
 #include <cctype>
 #include <functional>
@@ -8,6 +9,18 @@
 #include <string>
 #include <unordered_set>
 #include <vector>
+
+// R7RS §3.1: syntactic keywords may not be used as expressions.
+// Mirrors pyscheme's _SYNTACTIC_KEYWORDS frozenset in Evaluator.py.
+static const std::unordered_set<std::string> SYNTACTIC_KEYWORDS = {
+    "and", "begin", "case", "case-lambda", "cond", "cond-expand",
+    "define", "define-library", "define-record-type", "define-syntax",
+    "define-values", "delay", "delay-force", "do", "guard", "if",
+    "import", "include", "include-ci", "lambda", "let", "let*",
+    "let*-values", "let-syntax", "let-values", "letrec", "letrec*",
+    "letrec-syntax", "or", "parameterize", "quasiquote", "quote",
+    "set!", "syntax-rules", "unless", "when",
+};
 
 // ── Primitive arities registry ────────────────────────────────────────────────
 
@@ -720,7 +733,21 @@ Value analyze(const Value& sexpr, const StaticEnv& senv) {
         throw SchemeAnalysisError(
             "empty list () is not a valid expression; use (quote ()) for the empty list",
             src_of(sexpr));
-    if (!is_cons(sexpr)) return sexpr;
+    if (!is_cons(sexpr)) {
+        // R7RS §3.1: keyword used as expression is an error, unless locally
+        // rebound (local names are stored as nullopt in senv; global stubs
+        // have a real arity pair).
+        if (is_symbol(sexpr)) {
+            const std::string& name = as_symbol(sexpr);
+            if (SYNTACTIC_KEYWORDS.count(name)) {
+                auto it = senv.find(name);
+                if (it == senv.end() || it->second.has_value())
+                    throw SchemeSyntaxError(
+                        "keyword used as expression: " + name, src_of(sexpr));
+            }
+        }
+        return sexpr;
+    }
 
     Value head = car(sexpr);
     if (is_symbol(head)) {
@@ -738,7 +765,14 @@ Value analyze(const Value& sexpr, const StaticEnv& senv) {
     std::vector<Value> args;
     Value cur = cdr(sexpr);
     while (is_cons(cur)) { args.push_back(car(cur)); cur = cdr(cur); }
-    analyze(fn_sexpr, senv);
+    // Don't fire keyword check for the fn/head position: a keyword in head
+    // position is a malformed special form; the arity check gives a better error.
+    // Keywords in arg positions are still checked.
+    bool fn_is_global_kw = is_symbol(fn_sexpr) &&
+        SYNTACTIC_KEYWORDS.count(as_symbol(fn_sexpr)) &&
+        [&]{ auto it = senv.find(as_symbol(fn_sexpr));
+             return it == senv.end() || it->second.has_value(); }();
+    if (!fn_is_global_kw) analyze(fn_sexpr, senv);
     for (const Value& arg : args) analyze(arg, senv);
     check_app_arity(fn_sexpr, args, senv, sexpr);
     return sexpr;

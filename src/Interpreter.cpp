@@ -15,19 +15,6 @@
 #include <fstream>
 #include <iostream>
 #include <string>
-#include <unordered_set>
-
-// R7RS §3.1: bare syntactic keyword used as an expression is an error.
-// Mirrors pyscheme's _SYNTACTIC_KEYWORDS frozenset in Evaluator.py.
-static const std::unordered_set<std::string> SYNTACTIC_KEYWORDS = {
-    "and", "begin", "case", "case-lambda", "cond", "cond-expand",
-    "define", "define-library", "define-record-type", "define-syntax",
-    "define-values", "delay", "delay-force", "do", "guard", "if",
-    "import", "include", "include-ci", "lambda", "let", "let*",
-    "let*-values", "let-syntax", "let-values", "letrec", "letrec*",
-    "letrec-syntax", "or", "parameterize", "quasiquote", "quote",
-    "set!", "syntax-rules", "unless", "when",
-};
 
 Interpreter::Interpreter() {
     _ctx.tracer = &_tracer;
@@ -102,12 +89,6 @@ std::optional<Value> Interpreter::rawEval(
         std::optional<Value> last;
         for (auto& form : forms) {
             Value expanded = expand(form);
-            if (is_symbol(expanded) &&
-                SYNTACTIC_KEYWORDS.count(as_symbol(expanded))) {
-                throw SchemeSyntaxError(
-                    "keyword used as expression: " + as_symbol(expanded),
-                    src_of(expanded));
-            }
             analyze(expanded, _static_env);
             extend_static_env_with_define(_static_env, expanded);
             last = cek_eval(expanded, _env, &_ctx);
