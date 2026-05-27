@@ -77,6 +77,7 @@ public:
         std::string output;
         std::string retval;
         std::string error;
+        bool        fold_case = false;
     };
 
     Listener(InterpreterBase*   interp,

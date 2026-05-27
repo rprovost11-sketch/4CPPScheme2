@@ -177,7 +177,7 @@ static char decode_symbol_simple_escape(char esc) {
     switch (esc) {
         case 'a': return '\a'; case 'b': return '\b'; case 't': return '\t';
         case 'n': return '\n'; case 'r': return '\r';
-        case '\\': return '\\'; case '|': return '|';
+        case '\\': return '\\'; case '|': return '|'; case '"': return '"';
         default: return '\0';
     }
 }

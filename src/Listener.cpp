@@ -255,13 +255,20 @@ std::vector<Listener::LogEntry> Listener::parse_log(const std::string& text) {
     };
 
     std::vector<LogEntry> entries;
-    int idx = 0, n = (int)lines.size();
+    int  idx       = 0;
+    int  n         = (int)lines.size();
+    bool fold_case = false;
 
     while (idx < n) {
-        while (idx < n && !_sw(lines[idx], ">>> ", 4)) ++idx;
+        while (idx < n && !_sw(lines[idx], ">>> ", 4)) {
+            if (rstrip_eq(lines[idx], "#!fold-case", 11))    fold_case = true;
+            else if (rstrip_eq(lines[idx], "#!no-fold-case", 14)) fold_case = false;
+            ++idx;
+        }
         if (idx >= n) break;
 
         LogEntry entry;
+        entry.fold_case = fold_case;
         entry.expr = lines[idx].substr(4);
         ++idx;
 
@@ -290,6 +297,7 @@ std::vector<Listener::LogEntry> Listener::parse_log(const std::string& text) {
                 const std::string& ln = lines[idx];
                 if (_sw(ln, "==> ", 4) || rstrip_eq(ln, "==>", 3)) break;
                 if (_sw(ln, "... ", 4) || _sw(ln, ">>> ", 4) || _sw(ln, "%%% ", 4)) break;
+                if (_sw(ln, "#!", 2)) break;  // fold-case directive
                 if (!ln.empty() && ln[0] == ';') entry.expr   += ln;
                 else                              entry.retval += ln;
                 ++idx;
@@ -609,7 +617,8 @@ void Listener::sessionLog_restore(const std::string& filename, int verbosity) {
                 std::cout << '\n' << (j == 0 ? ">>> " : "... ") << exp_lines[j];
         }
         std::string resultStr;
-        try { resultStr = _interp->eval(expr); }
+        std::string eval_expr = (entries[k].fold_case ? "#!fold-case\n" : "") + expr;
+        try { resultStr = _interp->eval(eval_expr); }
         catch (...) {}
         if (verbosity >= 3)
             std::cout << "\n==> " << resultStr;
@@ -671,6 +680,7 @@ TestResult Listener::sessionLog_test(const std::string& filename, int verbosity)
         int         i               = k + 1;
 
         std::string stripped_expr = _strip(entry.expr);
+        std::string eval_expr = (entry.fold_case ? "#!fold-case\n" : "") + stripped_expr;
 
         std::string actual_retval;
         std::string actual_error;
@@ -681,7 +691,7 @@ TestResult Listener::sessionLog_test(const std::string& filename, int verbosity)
             ctx->timeout_at     = SteadyClock::now() + std::chrono::seconds(30);
             ctx->timeout_active = true;
             try {
-                actual_retval = _interp->eval(stripped_expr, &out_capture);
+                actual_retval = _interp->eval(eval_expr, &out_capture);
             } catch (ReadlineInterruptError&) {
                 actual_error = "Interrupted.";
             } catch (std::exception& e) {
