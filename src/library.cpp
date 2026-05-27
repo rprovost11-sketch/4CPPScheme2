@@ -316,12 +316,14 @@ static const std::vector<std::string> _SCHEME_CXR_NAMES = {
 
 
 void register_standard_libraries(Environment* global_env) {
-    // Register persistent GC trace hook first so all registry environments
-    // are kept alive through subsequent collections.
-    gc_push_trace_hook([]() {
-        for (auto& [key, env] : _LIBRARY_REGISTRY)
-            if (env) gc_trace_environment(env);
-    });
+    static bool s_hook_registered = false;
+    if (!s_hook_registered) {
+        s_hook_registered = true;
+        gc_push_trace_hook([]() {
+            for (auto& [key, env] : _LIBRARY_REGISTRY)
+                if (env) gc_trace_environment(env);
+        });
+    }
 
     _register_filtered(global_env, "scheme.base", _SCHEME_BASE_NAMES);
     _register_filtered(global_env, "scheme.lazy",

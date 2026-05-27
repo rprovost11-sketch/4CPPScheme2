@@ -295,6 +295,7 @@ static Value _prim_string_ci_ge(Context*, Environment*, std::vector<Value>& a, c
 static Value _prim_string_map(Context* ctx, Environment* env, std::vector<Value>& args, const Value* app) {
     if (args.size() < 2)
         throw SchemeTypeError("string-map: at least one string is required", _src(app));
+    GcRootVec args_root(args);  // keep SchemeString objects alive across apply_scheme_proc calls
     GcRootGuard proc(args[0]);
     std::vector<const std::string*> strs;
     for (size_t i = 1; i < args.size(); ++i)
@@ -322,6 +323,7 @@ static Value _prim_string_map(Context* ctx, Environment* env, std::vector<Value>
 static Value _prim_string_for_each(Context* ctx, Environment* env, std::vector<Value>& args, const Value* app) {
     if (args.size() < 2)
         throw SchemeTypeError("string-for-each: at least one string is required", _src(app));
+    GcRootVec args_root(args);  // keep SchemeString objects alive across apply_scheme_proc calls
     GcRootGuard proc(args[0]);
     std::vector<const std::string*> strs;
     for (size_t i = 1; i < args.size(); ++i)

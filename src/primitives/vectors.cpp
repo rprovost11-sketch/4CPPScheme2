@@ -231,6 +231,7 @@ static Value _prim_string_to_vector(Context*, Environment*, std::vector<Value>& 
 static Value _prim_vector_for_each(Context* ctx, Environment* env, std::vector<Value>& args, const Value* app) {
     if (args.size() < 2)
         throw SchemeArityError(arity_mismatch_msg("vector-for-each", 2, -1, static_cast<int>(args.size())), _src(app));
+    GcRootVec args_root(args);  // keep SchemeVector objects alive across apply_scheme_proc calls
     GcRootGuard proc(args[0]);
     std::vector<std::vector<Value>*> vecs;
     for (size_t i = 1; i < args.size(); ++i)
@@ -250,6 +251,7 @@ static Value _prim_vector_for_each(Context* ctx, Environment* env, std::vector<V
 static Value _prim_vector_map(Context* ctx, Environment* env, std::vector<Value>& args, const Value* app) {
     if (args.size() < 2)
         throw SchemeArityError(arity_mismatch_msg("vector-map", 2, -1, static_cast<int>(args.size())), _src(app));
+    GcRootVec args_root(args);  // keep SchemeVector objects alive across apply_scheme_proc calls
     GcRootGuard proc(args[0]);
     std::vector<std::vector<Value>*> vecs;
     for (size_t i = 1; i < args.size(); ++i)
