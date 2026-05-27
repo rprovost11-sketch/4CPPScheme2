@@ -1000,7 +1000,7 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                 if (ctx->_timeout_step == 0 && ctx->timeout_active &&
                         SteadyClock::now() > ctx->timeout_at)
                     throw std::runtime_error("Evaluation timed out.");
-                if ((ctx->_timeout_step & 0xFFu) == 0 && gc_needs_collection())
+                if ((ctx->_timeout_step & 0x3FFu) == 0 && gc_needs_collection())
                     gc_collect();
 
                 // ── EVAL phase (loop C) ────────────────────────────────────────

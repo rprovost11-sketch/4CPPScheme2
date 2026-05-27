@@ -27,11 +27,11 @@ static size_t    g_nursery_bump = 0;
 
 static GcHeader* g_young_head      = nullptr;
 static size_t    g_young_count     = 0;
-static size_t    g_young_threshold = 256;
+static size_t    g_young_threshold = 2048;
 
 static GcHeader* g_old_head        = nullptr;
 static size_t    g_old_count       = 0;
-static size_t    g_old_threshold   = 1024;
+static size_t    g_old_threshold   = 16384;
 
 static std::unordered_set<GcHeader*> g_remembered_set;
 static bool g_minor_gc_active = false;
