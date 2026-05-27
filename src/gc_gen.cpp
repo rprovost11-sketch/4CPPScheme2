@@ -19,7 +19,7 @@
 // Fixed slab of ConsCells allocated via bump pointer.
 // Not on g_young_head and not counted in g_young_count.
 
-static constexpr size_t NURSERY_CAPACITY = 8192;
+static constexpr size_t NURSERY_CAPACITY = 65536;
 static ConsCell  g_nursery[NURSERY_CAPACITY];
 static size_t    g_nursery_bump = 0;
 
@@ -27,11 +27,11 @@ static size_t    g_nursery_bump = 0;
 
 static GcHeader* g_young_head      = nullptr;
 static size_t    g_young_count     = 0;
-static size_t    g_young_threshold = 2048;
+static size_t    g_young_threshold = 16384;
 
 static GcHeader* g_old_head        = nullptr;
 static size_t    g_old_count       = 0;
-static size_t    g_old_threshold   = 16384;
+static size_t    g_old_threshold   = 131072;
 
 static std::unordered_set<GcHeader*> g_remembered_set;
 static bool g_minor_gc_active = false;
