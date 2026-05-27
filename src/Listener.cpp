@@ -703,9 +703,9 @@ TestResult Listener::sessionLog_test(const std::string& filename, int verbosity)
         std::string actual_output = _rstrip(out_capture.str());
         expected_output           = _rstrip(expected_output);
 
-        // "%%% *" means any error is acceptable (used in compliance tests).
+        // "%%% *" or "%%% %any-error% <hint>" means any error is acceptable.
         bool error_ok;
-        if (expected_error == "*")
+        if (expected_error == "*" || _sw(expected_error, "%any-error%", 11))
             error_ok = !actual_error.empty();
         else
             error_ok = (actual_error == expected_error);
@@ -737,7 +737,7 @@ TestResult Listener::sessionLog_test(const std::string& filename, int verbosity)
                 std::cout << "         actual output:   [" << actual_output   << "]\n";
             }
             if (!error_ok) {
-                if (expected_error == "*")
+                if (expected_error == "*" || _sw(expected_error, "%any-error%", 11))
                     std::cout << "         expected an error, but none was raised\n";
                 else {
                     std::cout << "         expected error:  [" << expected_error << "]\n";

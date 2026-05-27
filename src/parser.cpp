@@ -373,6 +373,42 @@ static std::optional<Token> try_parse_polar_literal(const std::string& text,
 // Throws SchemeSyntaxError on any recognised-but-invalid form.
 // Throws SchemeSyntaxError("unknown #-syntax: ...") for unrecognised letters.
 
+// Port of _Rat(rest) for exact decimal strings: parses "0.1" -> 1/10, "1.5" -> 3/2.
+// Handles optional sign, decimal point, and e/E exponent.  Avoids double.
+static Rat decimal_str_to_rat(const std::string& s) {
+    int64_t sign = 1;
+    size_t i = 0;
+    if (!s.empty() && s[0] == '-') { sign = -1; i = 1; }
+    else if (!s.empty() && s[0] == '+') { i = 1; }
+    // Split on 'e'/'E'.
+    int64_t exp = 0;
+    size_t e_pos = s.find_first_of("eE", i);
+    std::string mantissa;
+    if (e_pos != std::string::npos) {
+        mantissa = s.substr(i, e_pos - i);
+        exp = std::stoll(s.substr(e_pos + 1));
+    } else {
+        mantissa = s.substr(i);
+    }
+    // Split mantissa on '.'.
+    size_t dot_pos = mantissa.find('.');
+    std::string int_str;
+    int64_t frac_digits = 0;
+    if (dot_pos != std::string::npos) {
+        int_str = mantissa.substr(0, dot_pos) + mantissa.substr(dot_pos + 1);
+        frac_digits = (int64_t)(mantissa.size() - dot_pos - 1);
+    } else {
+        int_str = mantissa;
+    }
+    if (int_str.empty()) int_str = "0";
+    int64_t num = std::stoll(int_str);
+    int64_t den = 1;
+    for (int64_t k = 0; k < frac_digits; ++k) den *= 10;
+    if (exp > 0) { for (int64_t k = 0; k < exp; ++k) num *= 10; }
+    else if (exp < 0) { for (int64_t k = 0; k < -exp; ++k) den *= 10; }
+    return Rat(sign * num, den);
+}
+
 // Helper: validate that a string is digits in the given radix (no sign).
 static bool valid_uint_radix(const std::string& s, int radix) {
     if (s.empty()) return false;
@@ -468,7 +504,7 @@ static Token try_parse_prefixed_number(const std::string& text, const SourceInfo
                     if (f == std::floor(f)) {
                         Token t(TokenKind::INT, src); t.int_val=(int64_t)f; return t;
                     }
-                    Rat frac = Rat::from_float(f);
+                    Rat frac = decimal_str_to_rat(rest);
                     Token t(TokenKind::RATIONAL, src);
                     t.int_val=frac.numerator; t.int_val2=frac.denominator; return t;
                 }

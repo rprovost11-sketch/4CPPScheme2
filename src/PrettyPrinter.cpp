@@ -249,26 +249,7 @@ std::string scheme_pretty_print(const Value& val) {
             return "#\\" + it->second;
         if (c >= 0x20 && c <= 0x7E)
             return std::string("#\\") + static_cast<char>(c);
-        if (c >= 0x80) {
-            // Non-ASCII: emit #\ followed by the UTF-8 encoding of the character,
-            // matching PyScheme's `'#\\' + c` behavior.
-            std::string s = "#\\";
-            if (c < 0x800) {
-                s += static_cast<char>(0xC0 | (c >> 6));
-                s += static_cast<char>(0x80 | (c & 0x3F));
-            } else if (c < 0x10000) {
-                s += static_cast<char>(0xE0 | (c >> 12));
-                s += static_cast<char>(0x80 | ((c >> 6) & 0x3F));
-                s += static_cast<char>(0x80 | (c & 0x3F));
-            } else {
-                s += static_cast<char>(0xF0 | (c >> 18));
-                s += static_cast<char>(0x80 | ((c >> 12) & 0x3F));
-                s += static_cast<char>(0x80 | ((c >> 6) & 0x3F));
-                s += static_cast<char>(0x80 | (c & 0x3F));
-            }
-            return s;
-        }
-        // Control characters (c < 0x20 or c == 0x7F): hex escape.
+        // Non-printable-ASCII and non-ASCII: hex escape.
         char buf[16];
         std::snprintf(buf, sizeof(buf), "#\\x%X", static_cast<unsigned>(c));
         return std::string(buf);
