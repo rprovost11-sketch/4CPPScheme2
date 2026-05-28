@@ -57,22 +57,32 @@ int main(int argc, char* argv[]) {
 
     Interpreter interp;
 
-    // Derive scheme-tests/ dir: 3 levels up from the exe (Release/build/4CPPScheme2)
-    // then into scheme-tests/.  Use GetModuleFileNameW (Windows) so argv[0]
-    // ambiguity doesn't break the path.  Mirrors pyscheme's __file__ approach.
+    // Derive scheme-tests/ dir by walking up from the exe until we find a directory
+    // that contains scheme-tests/ as a subdirectory.  This works for any build
+    // configuration (Release, Debug, x64/Debug, etc.) without hardcoding depth.
+    // Uses GetModuleFileNameW (Windows) so CWD and argv[0] ambiguity don't matter.
     std::string testdir, compliancedir, runsdir;
     {
         std::error_code ec;
 #ifdef _WIN32
         wchar_t exeBuf[260] = {};
         GetModuleFileNameW(nullptr, exeBuf, 260);
-        auto exeDir = std::filesystem::path(exeBuf).parent_path();
+        auto dir = std::filesystem::path(exeBuf).parent_path();
 #else
-        auto exeDir = std::filesystem::absolute(argv[0], ec).parent_path();
+        auto dir = std::filesystem::absolute(argv[0], ec).parent_path();
 #endif
-        auto scheme_tests = std::filesystem::weakly_canonical(
-            exeDir / ".." / ".." / ".." / "scheme-tests", ec);
-        if (!ec && std::filesystem::is_directory(scheme_tests)) {
+        std::filesystem::path scheme_tests;
+        for (int i = 0; i < 8; ++i) {
+            auto candidate = dir / "scheme-tests";
+            if (std::filesystem::is_directory(candidate)) {
+                scheme_tests = candidate;
+                break;
+            }
+            auto parent = dir.parent_path();
+            if (parent == dir) break;  // reached filesystem root
+            dir = parent;
+        }
+        if (!scheme_tests.empty()) {
             testdir       = (scheme_tests / "feature-tests").string();
             compliancedir = (scheme_tests / "R7RS-Compliance-Tests").string();
             runsdir       = (scheme_tests / "runs").string();
