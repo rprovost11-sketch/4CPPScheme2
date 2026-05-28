@@ -57,12 +57,34 @@ int main(int argc, char* argv[]) {
 
     Interpreter interp;
 
-    std::string testdir = "feature-tests";
+    // Derive scheme-tests/ dir: 3 levels up from the exe (Release/build/4CPPScheme2)
+    // then into scheme-tests/.  Use GetModuleFileNameW (Windows) so argv[0]
+    // ambiguity doesn't break the path.  Mirrors pyscheme's __file__ approach.
+    std::string testdir, compliancedir, runsdir;
+    {
+        std::error_code ec;
+#ifdef _WIN32
+        wchar_t exeBuf[260] = {};
+        GetModuleFileNameW(nullptr, exeBuf, 260);
+        auto exeDir = std::filesystem::path(exeBuf).parent_path();
+#else
+        auto exeDir = std::filesystem::absolute(argv[0], ec).parent_path();
+#endif
+        auto scheme_tests = std::filesystem::weakly_canonical(
+            exeDir / ".." / ".." / ".." / "scheme-tests", ec);
+        if (!ec && std::filesystem::is_directory(scheme_tests)) {
+            testdir       = (scheme_tests / "feature-tests").string();
+            compliancedir = (scheme_tests / "R7RS-Compliance-Tests").string();
+            runsdir       = (scheme_tests / "runs").string();
+        }
+    }
+
     if (argc == 2) {
         std::string target = argv[1];
         if (std::filesystem::is_directory(target)) {
+            // Directory argument overrides testdir for one-off runs.
             std::filesystem::current_path(target);
-            testdir = ".";
+            testdir = std::filesystem::current_path().string();
             // fall through to REPL
         } else {
             std::cerr << "cppscheme2: no such file or directory: " << target << '\n';
@@ -70,33 +92,15 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // Derive compliance dir: 3 levels up from the exe, then R7RS-Compliance-Tests.
-    // Use GetModuleFileNameW (Windows) so argv[0] ambiguity doesn't break the path.
-    // Mirrors pyscheme's os.path.abspath(__file__) approach.
-    std::string compliancedir;
-    {
-        std::error_code ec;
-#ifdef _WIN32
-        wchar_t exeBuf[260] = {};  // 260 == MAX_PATH
-        GetModuleFileNameW(nullptr, exeBuf, 260);
-        auto exeDir = std::filesystem::path(exeBuf).parent_path();
-#else
-        auto exeDir = std::filesystem::absolute(argv[0], ec).parent_path();
-#endif
-        auto cdir = std::filesystem::weakly_canonical(
-            exeDir / ".." / ".." / ".." / "R7RS-Compliance-Tests", ec);
-        if (!ec && std::filesystem::is_directory(cdir))
-            compliancedir = cdir.string();
-    }
-
     Listener listener(
         &interp,
         testdir,
         "cppscheme2",
-        "0.4.12",
+        "0.4.14",
         "Ron Provost/Longo",
         "https://github.com/rprovost11/cppscheme2",
-        compliancedir);
+        compliancedir,
+        runsdir);
     listener.readEvalPrintLoop();
 
     return 0;

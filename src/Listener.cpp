@@ -342,10 +342,12 @@ Listener::Listener(InterpreterBase*   interp,
                    const std::string& version,
                    const std::string& author,
                    const std::string& project,
-                   const std::string& compliancedir)
+                   const std::string& compliancedir,
+                   const std::string& runsdir)
     : _interp(interp)
     , _testdir(fs::absolute(fs::path(testdir)).string())
     , _compliancedir(compliancedir.empty() ? "" : fs::absolute(fs::path(compliancedir)).string())
+    , _runsdir(runsdir.empty() ? "" : fs::absolute(fs::path(runsdir)).string())
     , _logStream(nullptr)
     , _language(language)
     , _version(version)
@@ -785,7 +787,9 @@ void Listener::_runTestFiles(const std::vector<std::string>& filenames, const st
     std::ofstream* runFile    = nullptr;
     std::string    runFilename;
     if ((int)filenames.size() > 1) {
-        std::string runsDir = (fs::path(_testdir) / "runs").string();
+        std::string runsDir = !_runsdir.empty()
+            ? _runsdir
+            : (fs::path(fs::absolute(fs::path(testDir))) / "runs").string();
         try {
             fs::create_directories(runsDir);
             runFilename = (fs::path(runsDir) /
@@ -1020,7 +1024,9 @@ void Listener::_runComplianceFiles(const std::vector<std::string>& filenames,
     std::string RED   = color ? "\033[91m"   : "";
     std::string RESET = color ? "\033[0m"    : "";
 
-    std::string    runsDir     = (fs::path(fs::absolute(compliancedir)) / "runs").string();
+    std::string    runsDir     = !_runsdir.empty()
+        ? _runsdir
+        : (fs::path(fs::absolute(compliancedir)) / "runs").string();
     std::ofstream* runFile     = nullptr;
     std::string    runFilename;
     try {

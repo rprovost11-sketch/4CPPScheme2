@@ -86,7 +86,8 @@ public:
              const std::string& version       = "0.1",
              const std::string& author        = "cppscheme2 authors",
              const std::string& project       = "https://example/cppscheme2",
-             const std::string& compliancedir = "");
+             const std::string& compliancedir = "",
+             const std::string& runsdir       = "");
     ~Listener();
 
     // Run the interactive REPL until EOF or ]quit/]exit.
@@ -126,6 +127,7 @@ private:
     InterpreterBase* _interp;
     std::string      _testdir;
     std::string      _compliancedir;
+    std::string      _runsdir;
     std::ofstream*   _logStream;    // nullptr when not logging
     std::string      _language;
     std::string      _version;
