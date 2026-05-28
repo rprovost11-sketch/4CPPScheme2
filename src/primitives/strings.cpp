@@ -348,6 +348,8 @@ static Value _prim_string_for_each(Context* ctx, Environment* env, std::vector<V
 static Value _prim_string_set_bang(Context*, Environment*, std::vector<Value>& args, const Value* app) {
     if (!is_string(args[0]))
         throw SchemeTypeError("string-set!: argument 1 must be a string", _src(app));
+    if (is_immutable(args[0]))
+        throw SchemeTypeError("string-set!: argument is an immutable literal", _src(app));
     if (!is_integer(args[1]))
         throw SchemeTypeError("string-set!: index must be an integer", _src(app));
     if (!is_character(args[2]))
@@ -367,6 +369,8 @@ static Value _prim_string_set_bang(Context*, Environment*, std::vector<Value>& a
 static Value _prim_string_fill_bang(Context*, Environment*, std::vector<Value>& args, const Value* app) {
     if (!is_string(args[0]))
         throw SchemeTypeError("string-fill!: argument 1 must be a string", _src(app));
+    if (is_immutable(args[0]))
+        throw SchemeTypeError("string-fill!: argument is an immutable literal", _src(app));
     if (!is_character(args[1]))
         throw SchemeTypeError("string-fill!: second argument must be a character", _src(app));
     std::string& sm = as_string_mut(args[0]);

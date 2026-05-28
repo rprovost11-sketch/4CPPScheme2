@@ -428,9 +428,6 @@ static void analyze_if(const Value& sexpr, const StaticEnv& senv) {
 }
 
 static void analyze_begin(const Value& sexpr, const StaticEnv& senv) {
-    if (proper_list_length(sexpr) < 2)
-        throw SchemeAnalysisError(
-            "begin must have at least one body expression", src_of(sexpr));
     Value cur = cdr(sexpr);
     while (is_cons(cur)) { analyze(car(cur), senv); cur = cdr(cur); }
 }

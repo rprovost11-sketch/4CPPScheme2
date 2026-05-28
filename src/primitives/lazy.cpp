@@ -28,6 +28,8 @@ static Value _prim_force_unreached(Context*, Environment*, std::vector<Value>&, 
 }
 
 static Value _prim_make_promise(Context*, Environment*, std::vector<Value>& args, const Value*) {
+    if (is_promise(args[0]))
+        return args[0];
     return make_promise_done(args[0]);
 }
 

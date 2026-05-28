@@ -939,9 +939,10 @@ ConsCell* gc_alloc_cons() {
         cell->header.type    = GcType::Cons;
         cell->header.next    = nullptr;
         cell->header.forward = nullptr;
-        cell->car  = Value{};
-        cell->cdr  = Value{};
-        cell->src  = nullptr;
+        cell->car       = Value{};
+        cell->cdr       = Value{};
+        cell->src       = nullptr;
+        cell->immutable = false;
         return cell;
     }
     auto* cell = new ConsCell{};

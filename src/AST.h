@@ -257,7 +257,8 @@ struct ConsCell {
     GcHeader    header{GcType::Cons};
     Value       car{};
     Value       cdr{};
-    SourceInfo* src = nullptr;   // optional; owned by this cell
+    SourceInfo* src       = nullptr;   // optional; owned by this cell
+    bool        immutable = false;
 
     ConsCell() = default;
     ~ConsCell() { delete src; }
@@ -266,10 +267,12 @@ struct ConsCell {
 };
 
 // Port of AST.py SchemeString class.
+// C port comment: struct SchemeString { GcHeader h; char* s; size_t len; bool immutable; };
 struct SchemeString {
     GcHeader    header{GcType::String};
     std::string data;
-    SourceInfo* src = nullptr;   // optional; owned by this string
+    SourceInfo* src       = nullptr;   // optional; owned by this string
+    bool        immutable = false;
 
     explicit SchemeString(std::string content, SourceInfo* s = nullptr)
         : data(std::move(content)), src(s) {}
@@ -502,9 +505,11 @@ struct RecordMutator {
 };
 
 // Mutable vector of Values.
+// C port comment: struct SchemeVector { GcHeader h; Value* data; size_t len; bool immutable; };
 struct SchemeVector {
     GcHeader           header{GcType::Vector};
     std::vector<Value> elements;
+    bool               immutable = false;
 
     explicit SchemeVector(size_t n, Value fill = Value{}) : elements(n, fill) {}
     SchemeVector(const SchemeVector&)            = delete;
@@ -512,9 +517,11 @@ struct SchemeVector {
 };
 
 // Mutable vector of uint8 values.
+// C port comment: struct SchemeBytevector { GcHeader h; uint8_t* data; size_t len; bool immutable; };
 struct SchemeBytevector {
     GcHeader             header{GcType::Bytevector};
     std::vector<uint8_t> data;
+    bool                 immutable = false;
 
     SchemeBytevector() = default;
     explicit SchemeBytevector(size_t n, uint8_t fill = 0) : data(n, fill) {}
@@ -782,6 +789,12 @@ CPPSCHEME2_API std::vector<uint8_t>&       as_bytevector_items(Value& val);
 CPPSCHEME2_API const std::vector<uint8_t>& as_bytevector_items_const(const Value& val);
 
 CPPSCHEME2_API Port* as_port(const Value& val);
+
+// ── Immutability ──────────────────────────────────────────────────────────────
+// Port of AST.py mark_literal_immutable / is_immutable.
+
+CPPSCHEME2_API bool is_immutable(const Value& val);
+CPPSCHEME2_API void mark_literal_immutable(const Value& val);
 
 // ── Pair operations ───────────────────────────────────────────────────────────
 // Port of AST.py car, cdr, set_car, set_cdr.

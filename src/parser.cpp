@@ -901,7 +901,12 @@ class SchemeParser {
         while (true) {
             _skip_datum_comments();
             const Token& tok = _peek();
-            if (tok.kind == TokenKind::RPAREN) { _advance(); return make_bytevector(items); }
+            if (tok.kind == TokenKind::RPAREN) {
+                _advance();
+                Value bv = make_bytevector(items);
+                mark_literal_immutable(bv);
+                return bv;
+            }
             if (tok.kind == TokenKind::END_OF_FILE)
                 throw SchemeSyntaxError("unterminated bytevector literal",
                                          new SourceInfo(bv_src));
@@ -925,7 +930,12 @@ class SchemeParser {
         while (true) {
             _skip_datum_comments();
             const Token& tok = _peek();
-            if (tok.kind == TokenKind::RPAREN) { _advance(); return make_vector(items); }
+            if (tok.kind == TokenKind::RPAREN) {
+                _advance();
+                Value v = make_vector(items);
+                mark_literal_immutable(v);
+                return v;
+            }
             if (tok.kind == TokenKind::END_OF_FILE)
                 throw SchemeSyntaxError("unterminated vector literal",
                                          new SourceInfo(vec_src));
@@ -1104,7 +1114,9 @@ public:
         }
         if (kind == TokenKind::STRING) {
             std::string s = tok.str_val; SourceInfo ss = tok.src; _advance();
-            return make_string(s, new SourceInfo(ss));
+            Value sv = make_string(s, new SourceInfo(ss));
+            mark_literal_immutable(sv);
+            return sv;
         }
         if (kind == TokenKind::CHAR) {
             char32_t cv = tok.char_val; SourceInfo ss = tok.src; _advance();

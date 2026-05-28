@@ -718,6 +718,37 @@ Port* as_port(const Value& val) {
 }
 
 
+// ── Immutability ──────────────────────────────────────────────────────────────
+// Port of AST.py is_immutable / mark_literal_immutable.
+
+bool is_immutable(const Value& val) {
+    if (is_cons(val))       return std::get<ConsCell*>(val.repr)->immutable;
+    if (is_string(val))     return std::get<SchemeString*>(val.repr)->immutable;
+    if (is_vector(val))     return std::get<SchemeVector*>(val.repr)->immutable;
+    if (is_bytevector(val)) return std::get<SchemeBytevector*>(val.repr)->immutable;
+    return false;
+}
+
+void mark_literal_immutable(const Value& val) {
+    if (is_cons(val)) {
+        ConsCell* c = std::get<ConsCell*>(val.repr);
+        if (c->immutable) return;
+        c->immutable = true;
+        mark_literal_immutable(c->car);
+        mark_literal_immutable(c->cdr);
+    } else if (is_string(val)) {
+        std::get<SchemeString*>(val.repr)->immutable = true;
+    } else if (is_vector(val)) {
+        SchemeVector* v = std::get<SchemeVector*>(val.repr);
+        if (v->immutable) return;
+        v->immutable = true;
+        for (const Value& item : v->elements)
+            mark_literal_immutable(item);
+    } else if (is_bytevector(val)) {
+        std::get<SchemeBytevector*>(val.repr)->immutable = true;
+    }
+}
+
 // ── Pair operations ───────────────────────────────────────────────────────────
 
 Value car(const Value& val) {

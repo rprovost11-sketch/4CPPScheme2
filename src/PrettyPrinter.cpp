@@ -268,7 +268,7 @@ std::string scheme_pretty_print(const Value& val) {
         return as_promise_is_done(val) ? "#<promise forced>" : "#<promise>";
     if (is_multi_values(val)) {
         const std::vector<Value>& vs = as_multi_values_list(val);
-        if (vs.empty()) return "#<values>";
+        if (vs.empty()) return "";
         std::vector<std::string> parts;
         for (const Value& v : vs) parts.push_back(scheme_pretty_print(v));
         return "#<values " + join(parts) + '>';

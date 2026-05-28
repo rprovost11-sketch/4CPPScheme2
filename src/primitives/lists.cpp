@@ -280,6 +280,8 @@ static Value _prim_for_each(Context* ctx, Environment*, std::vector<Value>& args
 static Value _prim_set_car(Context*, Environment*, std::vector<Value>& args, const Value* app) {
     if (!is_cons(args[0]))
         throw SchemeTypeError("set-car!: argument must be a pair", _src(app));
+    if (is_immutable(args[0]))
+        throw SchemeTypeError("set-car!: argument is an immutable literal", _src(app));
     set_car(args[0], args[1]);
     return VOID_VALUE;
 }
@@ -287,6 +289,8 @@ static Value _prim_set_car(Context*, Environment*, std::vector<Value>& args, con
 static Value _prim_set_cdr(Context*, Environment*, std::vector<Value>& args, const Value* app) {
     if (!is_cons(args[0]))
         throw SchemeTypeError("set-cdr!: argument must be a pair", _src(app));
+    if (is_immutable(args[0]))
+        throw SchemeTypeError("set-cdr!: argument is an immutable literal", _src(app));
     set_cdr(args[0], args[1]);
     return VOID_VALUE;
 }

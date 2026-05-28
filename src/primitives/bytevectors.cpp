@@ -74,6 +74,8 @@ static Value _prim_bytevector_u8_ref(Context*, Environment*, std::vector<Value>&
 
 static Value _prim_bytevector_u8_set(Context*, Environment*, std::vector<Value>& args, const Value* app) {
     auto& bs = _check_bv(args[0], "bytevector-u8-set!", app);
+    if (is_immutable(args[0]))
+        throw SchemeTypeError("bytevector-u8-set!: argument is an immutable literal", _src(app));
     int64_t k = _check_index(args[1], "bytevector-u8-set!", bs.size(), app);
     bs[static_cast<size_t>(k)] = _check_u8(args[2], "bytevector-u8-set!", app);
     return VOID_VALUE;
@@ -97,6 +99,8 @@ static Value _prim_bytevector_copy(Context*, Environment*, std::vector<Value>& a
 
 static Value _prim_bytevector_copy_bang(Context*, Environment*, std::vector<Value>& args, const Value* app) {
     auto& dst = _check_bv(args[0], "bytevector-copy!", app, 1);
+    if (is_immutable(args[0]))
+        throw SchemeTypeError("bytevector-copy!: destination is an immutable literal", _src(app));
     if (!is_integer(args[1])) throw SchemeTypeError("bytevector-copy!: at must be an integer", _src(app));
     int64_t at = as_integer(args[1]);
     auto& src = _check_bv(args[2], "bytevector-copy!", app, 3);

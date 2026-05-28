@@ -1017,7 +1017,9 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                             uint32_t sid = as_symbol_id(head);
 
                             if (sid == kw.quote) {
-                                V = car(cdr(C)); break;
+                                V = car(cdr(C));
+                                mark_literal_immutable(V);
+                                break;
                             }
                             if (sid == kw.lambda) {
                                 V = make_closure_from_lambda(C, E); break;
@@ -1063,6 +1065,7 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                             }
                             if (sid == kw.begin) {
                                 Value body = cdr(C);
+                                if (is_nil(body)) { V = VOID_VALUE; break; }
                                 C = car(body);
                                 if (is_cons(cdr(body))) {
                                     Frame f; f.tag = FRAME_SEQ;

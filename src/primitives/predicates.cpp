@@ -177,6 +177,10 @@ static Value _prim_string_p(Context*, Environment*, std::vector<Value>& args, co
     return make_boolean(is_string(args[0]));
 }
 
+static Value _prim_immutable_p(Context*, Environment*, std::vector<Value>& args, const Value*) {
+    return make_boolean(is_immutable(args[0]));
+}
+
 void register_predicates() {
     register_primitive("number?",   1, 1, _prim_number_p,   "", "Return #t if a is any kind of number.", CATEGORY);
     register_primitive("complex?",  1, 1, _prim_complex_p,  "", "Return #t if a is a number.  In the R7RS tower, every number is complex.", CATEGORY);
@@ -199,4 +203,5 @@ void register_predicates() {
     register_primitive("finite?",   1, 1, _prim_finite_p,   "", "Return #t if z is a finite number (not +inf.0, -inf.0, or +nan.0).", CATEGORY);
     register_primitive("infinite?", 1, 1, _prim_infinite_p, "", "Return #t if z is a real infinity (+inf.0 or -inf.0).", CATEGORY);
     register_primitive("nan?",      1, 1, _prim_nan_p,      "", "Return #t if z is +nan.0.", CATEGORY);
+    register_primitive("immutable?",1, 1, _prim_immutable_p,"", "Return #t if obj is a mutable-type object (pair, string, vector, bytevector) that has been marked immutable.", CATEGORY);
 }

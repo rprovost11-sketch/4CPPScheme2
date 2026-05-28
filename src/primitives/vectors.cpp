@@ -59,6 +59,8 @@ static Value _prim_vector_ref(Context*, Environment*, std::vector<Value>& args, 
 
 static Value _prim_vector_set(Context*, Environment*, std::vector<Value>& args, const Value* app) {
     auto& items = _check_vector(args[0], "vector-set!", app);
+    if (is_immutable(args[0]))
+        throw SchemeTypeError("vector-set!: argument is an immutable literal", _src(app));
     int64_t k = _check_index(args[1], "vector-set!", items.size(), app);
     items[static_cast<size_t>(k)] = args[2];
     gc_write_barrier(gc_value_header(args[0]), gc_value_header(args[2]));
@@ -98,6 +100,8 @@ static Value _prim_list_to_vector(Context*, Environment*, std::vector<Value>& ar
 
 static Value _prim_vector_fill(Context*, Environment*, std::vector<Value>& args, const Value* app) {
     auto& items = _check_vector(args[0], "vector-fill!", app);
+    if (is_immutable(args[0]))
+        throw SchemeTypeError("vector-fill!: argument is an immutable literal", _src(app));
     Value fill = args[1];
     int64_t start = 0, end = static_cast<int64_t>(items.size());
     if (args.size() >= 3) {
@@ -133,6 +137,8 @@ static Value _prim_vector_copy(Context*, Environment*, std::vector<Value>& args,
 
 static Value _prim_vector_copy_bang(Context*, Environment*, std::vector<Value>& args, const Value* app) {
     auto& dst = _check_vector(args[0], "vector-copy!", app, 1);
+    if (is_immutable(args[0]))
+        throw SchemeTypeError("vector-copy!: destination is an immutable literal", _src(app));
     if (!is_integer(args[1])) throw SchemeTypeError("vector-copy!: at must be an integer", _src(app));
     int64_t at = as_integer(args[1]);
     auto& src = _check_vector(args[2], "vector-copy!", app, 3);
