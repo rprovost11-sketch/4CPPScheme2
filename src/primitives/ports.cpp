@@ -33,6 +33,8 @@ static bool  s_current_input_has  = false;
 static bool  s_current_output_has = false;
 static bool  s_current_error_has  = false;
 static Port* s_output_default_ptr = nullptr;
+static Value s_capture_out_port;          // one stable <capture> port (see _get_current_output)
+static bool  s_capture_out_has = false;
 static bool  s_port_roots_registered = false;
 
 static void _register_port_roots_once() {
@@ -40,6 +42,7 @@ static void _register_port_roots_once() {
     gc_root_push(&s_current_input_param);
     gc_root_push(&s_current_output_param);
     gc_root_push(&s_current_error_param);
+    gc_root_push(&s_capture_out_port);
     s_port_roots_registered = true;
 }
 
@@ -51,6 +54,8 @@ void reset_current_port_params() {
     s_current_output_has   = false;
     s_current_error_has    = false;
     s_output_default_ptr   = nullptr;
+    s_capture_out_port     = Value{};
+    s_capture_out_has      = false;
 }
 
 // ── Port construction helpers ─────────────────────────────────────────────────
@@ -85,10 +90,18 @@ static Value _get_current_output(Context* ctx) {
         s_current_output_has = true;
     }
     Value p = as_parameter_value(s_current_output_param);
-    // If ctx has a capture stream and parameter is still at the default,
-    // return a capture port so writes go through ctx->write().
+    // If ctx has a capture stream and parameter is still at the default, return
+    // a capture port so writes go through ctx->write().  Return ONE stable port
+    // object (not a fresh one each call) so (current-output-port) is eq?-
+    // consistent across calls -- otherwise (eq? (current-output-port) saved)
+    // is always #f.  The <capture> port resolves the live ctx at write time
+    // (see _emit_to_port), so a single object stays correct.  R7RS 6.13.1.
     if (ctx && ctx->outStrm && as_port(p) == s_output_default_ptr) {
-        return make_port(false, true, "<capture>");
+        if (!s_capture_out_has) {
+            s_capture_out_port = make_port(false, true, "<capture>");
+            s_capture_out_has = true;
+        }
+        return s_capture_out_port;
     }
     return p;
 }
@@ -893,6 +906,30 @@ static Value _prim_with_output_to_file(Context* ctx, Environment* env, std::vect
     return result;
 }
 
+// Common (non-R7RS) extension: like with-input-from-file but reads from a string.
+static Value _prim_with_input_from_string(Context* ctx, Environment* env, std::vector<Value>& args, const Value* app) {
+    if (!is_string(args[0]))
+        throw SchemeTypeError("with-input-from-string: first argument must be a string", _src(app));
+    GcRootGuard thunk(args[1]);
+    std::vector<Value> open_args = { args[0] };
+    GcRootGuard port_val(_prim_open_input_string(ctx, env, open_args, app));
+    _get_current_input(ctx); // ensure initialized
+    GcRootGuard old_val(as_parameter_value(s_current_input_param));
+    set_parameter_value(s_current_input_param, port_val.val);
+    Value result;
+    try {
+        std::vector<Value> thunk_args;
+        result = apply_scheme_proc(thunk.val, thunk_args, ctx, env, app);
+    } catch (...) {
+        set_parameter_value(s_current_input_param, old_val.val);
+        _close_port_impl(as_port(port_val.val));
+        throw;
+    }
+    set_parameter_value(s_current_input_param, old_val.val);
+    _close_port_impl(as_port(port_val.val));
+    return result;
+}
+
 // ── Registration ──────────────────────────────────────────────────────────────
 
 void register_ports() {
@@ -1005,6 +1042,8 @@ void register_ports() {
         "", "(with-input-from-file path thunk) binds current-input-port during thunk.  R7RS 6.13.", CATEGORY);
     register_primitive("with-output-to-file",   2, 2, _prim_with_output_to_file,
         "", "(with-output-to-file path thunk) binds current-output-port during thunk.  R7RS 6.13.", CATEGORY);
+    register_primitive("with-input-from-string", 2, 2, _prim_with_input_from_string,
+        "", "(with-input-from-string str thunk) binds current-input-port to a string port during thunk.  Common extension (not R7RS).", CATEGORY);
     register_primitive("file-exists?",        1, 1, _prim_file_exists_p,
         "", "(file-exists? path) returns #t if path names an existing file.  R7RS 6.14.", CATEGORY);
     register_primitive("delete-file",         1, 1, _prim_delete_file,

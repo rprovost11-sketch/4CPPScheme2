@@ -12,6 +12,11 @@ CPPSCHEME2_API Environment* get_runtime_env();
 // Expand sugar and user macros in one S-expression.
 CPPSCHEME2_API Value expand(const Value& sexpr);
 
+// Return the SyntaxTransformer bound to sym in the runtime env, or NIL_VALUE if
+// sym is not bound to a macro.  Used by the analyzer to flag a macro keyword
+// used as an expression (R7RS 4.3.1).
+CPPSCHEME2_API Value lookup_macro(const Value& sym);
+
 // Set/get the fallback directory used to resolve relative include paths from REPL input.
 CPPSCHEME2_API void        set_include_fallback_dir(const std::string& dir);
 CPPSCHEME2_API std::string get_include_fallback_dir();

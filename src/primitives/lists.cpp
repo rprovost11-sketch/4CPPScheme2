@@ -251,6 +251,29 @@ static Value _prim_map(Context* ctx, Environment*, std::vector<Value>& args, con
     return result;
 }
 
+static Value _prim_filter(Context* ctx, Environment*, std::vector<Value>& args, const Value* app) {
+    GcRootGuard pred(args[0]);
+    Value lst = args[1];
+    GcRootGuard lst_root(lst);
+    std::vector<Value> collected;
+    GcRootVec collected_root(collected);
+    while (is_cons(lst)) {
+        std::vector<Value> row;
+        GcRootVec row_root(row);
+        row.push_back(car(lst));
+        Value keep = apply_scheme_proc(pred.val, row, ctx, nullptr, app);
+        if (is_truthy(keep))
+            collected.push_back(car(lst));
+        lst = cdr(lst);
+    }
+    if (!is_nil(lst))
+        throw SchemeTypeError("filter: list argument must be a proper list", _src(app));
+    Value result = NIL_VALUE;
+    int i = (int)collected.size() - 1;
+    while (i >= 0) { result = alloc_cons(collected[i], result); --i; }
+    return result;
+}
+
 static Value _prim_for_each(Context* ctx, Environment*, std::vector<Value>& args, const Value* app) {
     if (args.size() < 2)
         throw SchemeArityError(arity_mismatch_msg("for-each", 2, -1, (int)args.size()), _src(app));
@@ -388,6 +411,7 @@ void register_lists() {
     register_primitive("assq",      2,  2,  _prim_assq,      "", "Like assoc but uses eq? for comparison.  R7RS 6.4.", CATEGORY);
     register_primitive("map",       2, -1,  _prim_map,       "", "(map proc list1 list2 ...) applies proc element-wise and returns a list of results.  R7RS 6.10.", CATEGORY);
     register_primitive("for-each",  2, -1,  _prim_for_each,  "", "(for-each proc list1 list2 ...) applies proc element-wise for effect and returns unspecified.  R7RS 6.10.", CATEGORY);
+    register_primitive("filter",    2,  2,  _prim_filter,    "", "(filter pred list) returns a new list of the elements of list for which pred returns a true value.  R7RS-large / SRFI-1.", CATEGORY);
     register_primitive("set-car!",  2,  2,  _prim_set_car,   "", "(set-car! pair obj) replaces the car of pair with obj.  R7RS 6.4.", CATEGORY);
     register_primitive("set-cdr!",  2,  2,  _prim_set_cdr,   "", "(set-cdr! pair obj) replaces the cdr of pair with obj.  R7RS 6.4.", CATEGORY);
     register_primitive("make-list", 1,  2,  _prim_make_list, "", "(make-list k [fill]) returns a list of length k with each element fill (default unspecified).  R7RS 6.4.", CATEGORY);

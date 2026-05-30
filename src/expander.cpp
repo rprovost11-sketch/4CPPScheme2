@@ -203,7 +203,7 @@ static bool is_head(const Value& form, uint32_t name_id) {
     return is_cons(form) && is_symbol(car(form)) && as_symbol_id(car(form)) == name_id;
 }
 
-static Value lookup_macro(const Value& sym) {
+Value lookup_macro(const Value& sym) {
     if (g_runtime_env == nullptr) return NIL_VALUE;
     auto opt = g_runtime_env->lookup_optional_id(as_symbol_id(sym));
     if (opt && is_syntax_transformer(*opt)) return *opt;
@@ -317,6 +317,7 @@ static Value rrif_let_syntax(const Value& form, const RenameTable& table, bool i
 static Value rrif_default(const Value& form, const RenameTable& table);
 static Value rrif_bindings_parallel(const Value& bindings, const RenameTable& table);
 static Value rrif_bindings_let_star(const Value& bindings, RenameTable table);
+static Value rrif_quasiquote_template(const Value& tmpl, const RenameTable& table, int level);
 
 static Value rename_refs_in_form(const Value& form, const RenameTable& table) {
     if (table.empty()) return form;
@@ -343,6 +344,18 @@ static Value rename_refs_in_form(const Value& form, const RenameTable& table) {
             // 'quote' is locally bound; rename head only, leave datum untouched.
             Value new_head = make_symbol_id(it->second, src_of(head));
             return alloc_cons(new_head, cdr(form), src_of(form));
+        }
+        if (hid == sid_quasiquote && table.find(hid) == table.end() &&
+            is_cons(cdr(form)) && is_nil(cdr(cdr(form)))) {
+            // Walk the template with quasiquote-level tracking so that only
+            // *active* (unquoted) references are renamed; quoted template data
+            // is left untouched.  A plain (quote ...) inside a template must not
+            // short-circuit a deeper (unquote ...) — cf. `,'<var>` patterns.
+            Value tmpl     = car(cdr(form));
+            Value new_tmpl = rrif_quasiquote_template(tmpl, table, 1);
+            return alloc_cons(head,
+                              alloc_cons(new_tmpl, NIL_VALUE, src_of(cdr(form))),
+                              src_of(form));
         }
         if (hid == sid_lambda)        return rrif_lambda(form, table);
         if (hid == sid_let   || hid == sid_let_star ||
@@ -477,6 +490,53 @@ static Value rrif_bindings_let_star(const Value& bindings, RenameTable table) {
         return pair;
     };
     return map_list_cars(bindings, rename_pair);
+}
+
+// Walks a quasiquote template at nesting `level` (>= 1), renaming only the
+// active (unquoted) sub-expressions per `table` and leaving quoted template
+// data untouched.  Mirrors the level logic in qq_walk: quasiquote raises the
+// level, unquote/unquote-splicing lower it, and an expression becomes active
+// when it reaches level 0.
+static Value rrif_quasiquote_template(const Value& tmpl, const RenameTable& table, int level) {
+    if (is_cons(tmpl)) {
+        Value head = car(tmpl);
+        if (is_symbol(head)) {
+            uint32_t hid = as_symbol_id(head);
+            if ((hid == sid_unquote || hid == sid_unquote_splicing) &&
+                is_cons(cdr(tmpl)) && is_nil(cdr(cdr(tmpl)))) {
+                Value e = car(cdr(tmpl));
+                Value new_e = (level == 1)
+                    ? rename_refs_in_form(e, table)                  // active code
+                    : rrif_quasiquote_template(e, table, level - 1); // still nested
+                return alloc_cons(head,
+                                  alloc_cons(new_e, NIL_VALUE, src_of(cdr(tmpl))),
+                                  src_of(tmpl));
+            }
+            if (hid == sid_quasiquote &&
+                is_cons(cdr(tmpl)) && is_nil(cdr(cdr(tmpl)))) {
+                Value e = car(cdr(tmpl));
+                Value new_e = rrif_quasiquote_template(e, table, level + 1);
+                return alloc_cons(head,
+                                  alloc_cons(new_e, NIL_VALUE, src_of(cdr(tmpl))),
+                                  src_of(tmpl));
+            }
+        }
+        // Ordinary template list (incl. dotted tails): recurse car and cdr at
+        // the same level so nested unquotes are still found.
+        Value new_car = rrif_quasiquote_template(car(tmpl), table, level);
+        Value new_cdr = rrif_quasiquote_template(cdr(tmpl), table, level);
+        return alloc_cons(new_car, new_cdr, src_of(tmpl));
+    }
+    if (is_vector(tmpl)) {
+        const auto& items = as_vector_items_const(tmpl);
+        std::vector<Value> new_items;
+        new_items.reserve(items.size());
+        for (const Value& item : items)
+            new_items.push_back(rrif_quasiquote_template(item, table, level));
+        return make_vector(std::move(new_items));
+    }
+    // Atom (including symbols appearing as template data): unchanged.
+    return tmpl;
 }
 
 // ── Body expansion ────────────────────────────────────────────────────────────
@@ -729,10 +789,19 @@ static Value qq_walk(const Value& x, int level, SourceInfo* /*default_src*/) {
                 return qq_make_list(qq_quote(make_symbol("quasiquote", nullptr)),
                                     qq_walk(e, level + 1, nullptr));
             }
-            if (hid == sid_unquote_splicing)
-                throw SchemeSyntaxError(
-                    "unquote-splicing must appear inside a list, not at the top of a template",
-                    src_of(x));
+            if (hid == sid_unquote_splicing) {
+                // unquote-splicing at the top of a template is unspecified in
+                // R7RS (cf. §4.2.8 footnote); we evaluate the argument and
+                // return its value as-is, matching the "whole list" behavior
+                // used by several Schemes (e.g., Chez, Gauche).
+                if (!is_cons(cdr(x)) || !is_nil(cdr(cdr(x))))
+                    throw SchemeSyntaxError("unquote-splicing requires exactly one argument",
+                                            src_of(x));
+                Value e = car(cdr(x));
+                if (level == 1) return expand(e);
+                return qq_make_list(qq_quote(make_symbol("unquote-splicing", nullptr)),
+                                    qq_walk(e, level - 1, nullptr));
+            }
         }
         // Splicing in element position: car is (unquote-splicing e)
         if (is_cons(head) && is_symbol(car(head)) &&

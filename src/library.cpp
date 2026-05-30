@@ -212,7 +212,7 @@ static const std::vector<std::string> _SCHEME_BASE_NAMES = {
     "append", "assoc", "assq", "assv",
     "caar", "cadr", "cdar", "cddr",
     "car", "cdr", "cons",
-    "for-each", "length", "list", "list->string", "list->vector",
+    "filter", "for-each", "length", "list", "list->string", "list->vector",
     "list-copy", "list-ref", "list-set!", "list-tail", "list?",
     "make-list", "map", "member", "memq", "memv",
     "null?", "pair?", "reverse", "set-car!", "set-cdr!",

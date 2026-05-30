@@ -944,9 +944,20 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
         Value handler_val;
         bool found = false;
         bool is_guard_handler = false;
+        // A raise-continuable pops its handler off handler_stack but leaves the
+        // handler's FRAME_POP_HANDLER / FRAME_GUARD on K, with a
+        // FRAME_REINSTALL_HANDLER above it.  When the handler then raises and we
+        // unwind, those orphaned frames must be skipped WITHOUT popping
+        // handler_stack, or K frames and handler_stack drift out of alignment and
+        // we pair a frame with the wrong handler (e.g. treat a guard handler as a
+        // plain one and spuriously raise "exception handler returned").  Count
+        // the FRAME_REINSTALL_HANDLER frames and skip that many handler frames.
+        int pending_reinstalls = 0;
         while (!K.empty()) {
             Frame f = std::move(K.back()); K.pop_back();
+            if (f.tag == FRAME_REINSTALL_HANDLER) { ++pending_reinstalls; continue; }
             if (f.tag == FRAME_POP_HANDLER) {
+                if (pending_reinstalls > 0) { --pending_reinstalls; continue; }
                 if (!ctx->handler_stack.empty()) {
                     handler_val = std::move(ctx->handler_stack.back());
                     ctx->handler_stack.pop_back();
@@ -955,6 +966,7 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                 break;
             }
             if (f.tag == FRAME_GUARD) {
+                if (pending_reinstalls > 0) { --pending_reinstalls; continue; }
                 if (!ctx->handler_stack.empty()) {
                     handler_val = std::move(ctx->handler_stack.back());
                     ctx->handler_stack.pop_back();
@@ -963,7 +975,6 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                 }
                 break;
             }
-            if (f.tag == FRAME_REINSTALL_HANDLER) continue;
             if (f.tag == FRAME_DYNAMIC_WIND_AFTER) {
                 if (!ctx->wind_stack.empty()) ctx->wind_stack.pop_back();
                 try {

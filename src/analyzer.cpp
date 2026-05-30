@@ -2,6 +2,7 @@
 // Direct port of pyscheme/Analyzer.py.
 #include "Analyzer.h"
 #include "Parser.h"   // SchemeSyntaxError
+#include "expander.h" // lookup_macro
 #include <algorithm>
 #include <cctype>
 #include <functional>
@@ -368,8 +369,8 @@ static void analyze_lambda(const Value& sexpr, const StaticEnv& senv) {
 }
 
 static void analyze_case_lambda(const Value& sexpr, const StaticEnv& senv) {
-    if (proper_list_length(sexpr) < 2)
-        throw SchemeAnalysisError("case-lambda requires at least one clause", src_of(sexpr));
+    // Zero clauses is permitted by R7RS §4.2.9; the resulting procedure raises
+    // a SchemeArityError on any call (no matching clause).
     Value cur = cdr(sexpr);
     while (is_cons(cur)) {
         Value clause = car(cur);
@@ -736,12 +737,20 @@ Value analyze(const Value& sexpr, const StaticEnv& senv) {
         // have a real arity pair).
         if (is_symbol(sexpr)) {
             const std::string& name = as_symbol(sexpr);
-            if (SYNTACTIC_KEYWORDS.count(name)) {
-                auto it = senv.find(name);
-                if (it == senv.end() || it->second.has_value())
-                    throw SchemeSyntaxError(
-                        "keyword used as expression: " + name, src_of(sexpr));
-            }
+            auto it = senv.find(name);
+            // A FREE reference (absent, or a global stub with a real arity) vs a
+            // locally rebound name (stored as nullopt by the shadow mechanism).
+            bool free_ref = (it == senv.end() || it->second.has_value());
+            if (SYNTACTIC_KEYWORDS.count(name) && free_ref)
+                throw SchemeSyntaxError(
+                    "keyword used as expression: " + name, src_of(sexpr));
+            // A user-defined macro keyword (define-syntax / let-syntax) used as
+            // an expression is likewise an error (R7RS 4.3.1).  Only a free
+            // reference that resolves to a transformer fires, so lexical
+            // shadowing keeps working; quoted data never reaches here.
+            if (free_ref && is_syntax_transformer(lookup_macro(sexpr)))
+                throw SchemeSyntaxError(
+                    "keyword used as expression: " + name, src_of(sexpr));
         }
         return sexpr;
     }

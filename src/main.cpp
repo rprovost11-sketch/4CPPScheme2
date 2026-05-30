@@ -61,7 +61,7 @@ int main(int argc, char* argv[]) {
     // that contains scheme-tests/ as a subdirectory.  This works for any build
     // configuration (Release, Debug, x64/Debug, etc.) without hardcoding depth.
     // Uses GetModuleFileNameW (Windows) so CWD and argv[0] ambiguity don't matter.
-    std::string testdir, compliancedir, runsdir;
+    std::string testdir, compliancedir, regressiondir, runsdir;
     {
         std::error_code ec;
 #ifdef _WIN32
@@ -85,6 +85,7 @@ int main(int argc, char* argv[]) {
         if (!scheme_tests.empty()) {
             testdir       = (scheme_tests / "feature-tests").string();
             compliancedir = (scheme_tests / "R7RS-Compliance-Tests").string();
+            regressiondir = (scheme_tests / "regression-tests").string();
             runsdir       = (scheme_tests / "runs").string();
         }
     }
@@ -106,10 +107,11 @@ int main(int argc, char* argv[]) {
         &interp,
         testdir,
         "cppscheme2",
-        "0.4.14",
+        "0.4.15",
         "Ron Provost/Longo",
         "https://github.com/rprovost11/cppscheme2",
         compliancedir,
+        regressiondir,
         runsdir);
     listener.readEvalPrintLoop();
 

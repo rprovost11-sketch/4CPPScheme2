@@ -343,10 +343,12 @@ Listener::Listener(InterpreterBase*   interp,
                    const std::string& author,
                    const std::string& project,
                    const std::string& compliancedir,
+                   const std::string& regressiondir,
                    const std::string& runsdir)
     : _interp(interp)
     , _testdir(fs::absolute(fs::path(testdir)).string())
     , _compliancedir(compliancedir.empty() ? "" : fs::absolute(fs::path(compliancedir)).string())
+    , _regressiondir(regressiondir.empty() ? "" : fs::absolute(fs::path(regressiondir)).string())
     , _runsdir(runsdir.empty() ? "" : fs::absolute(fs::path(runsdir)).string())
     , _logStream(nullptr)
     , _language(language)
@@ -376,6 +378,7 @@ Listener::Listener(InterpreterBase*   interp,
     _commands["debug"]    = [this](std::vector<std::string>& a) { _cmd_debug(a); };
     _commands["profile"]    = [this](std::vector<std::string>& a) { _cmd_profile(a); };
     _commands["compliance"] = [this](std::vector<std::string>& a) { _cmd_compliance(a); };
+    _commands["regression"] = [this](std::vector<std::string>& a) { _cmd_regression(a); };
 
     _help["help"]     = "Usage: ]help [command]\nList every listener command, or show detailed help for one.";
     _help["quit"]     = "Usage: ]quit\nExit the listener.";
@@ -394,6 +397,7 @@ Listener::Listener(InterpreterBase*   interp,
     _help["debug"]    = "Usage: ]debug\nOpen the interactive debugger.";
     _help["profile"]    = "Usage: ]profile [reset]\nPrint profiling report (call counts + times) and reset counters.\nWith 'reset', reset counters without printing.\n(Requires build with -DPROFILE_COUNTERS.)";
     _help["compliance"] = "Usage: ]compliance [<file.log> | <start> [<end>]]\nRun the R7RS compliance test suite against the configured directory.\n  ]compliance              -- run all tests\n  ]compliance 3            -- run tests with filename >= \"3\"\n  ]compliance 3 4          -- run tests with \"3\" <= filename < \"4\"\n  ]compliance 3.1 Booleans.log  -- run that one file\nFilename comparison is case-insensitive.  The interpreter is rebooted\nbefore each file.  Supports '==> X or ==> Y' alternatives and\n'%%% error' to accept any non-empty error string.";
+    _help["regression"] = "Usage: ]regression [<file.log> | <start> [<end>]]\nRun the regression test suite (Scheme-observable, non-spec tripwires) against\nthe configured directory.\n  ]regression                  -- run all regression files\n  ]regression 03               -- run files with filename >= \"03\"\n  ]regression 03 06            -- run files with \"03\" <= filename < \"06\"\n  ]regression 03-evaluator.log -- run that one file\nSpec deviations are guarded by ]compliance instead.  Files are grouped by\nsubsystem; see regression-tests/00-conventions.md.  The interpreter is\nrebooted before each file.";
 
     _banner();
 }
@@ -417,7 +421,7 @@ void Listener::_init_readline() {
 
 // ── I/O helpers ───────────────────────────────────────────────────────────────
 
-bool Listener::_use_color() const { return IS_STDOUT_TTY(); }
+bool Listener::_use_color() const { return IS_STDOUT_TTY() && !_output_to_file; }
 
 void Listener::_banner() {
     bool color = _use_color();
@@ -777,23 +781,25 @@ void Listener::_runListenerCommand(const std::string& source) {
     it->second(parts);
 }
 
-void Listener::_runTestFiles(const std::vector<std::string>& filenames, const std::string& testDir) {
+void Listener::_runTestFiles(const std::vector<std::string>& filenames, const std::string& testDir,
+                             const std::string& suite) {
     bool color = _use_color();
     std::string BOLD  = color ? "\033[1;97m" : "";
     std::string GREEN = color ? "\033[92m"   : "";
     std::string RED   = color ? "\033[91m"   : "";
     std::string RESET = color ? "\033[0m"    : "";
 
+    // Prepare a run report file for every run.
     std::ofstream* runFile    = nullptr;
     std::string    runFilename;
-    if ((int)filenames.size() > 1) {
+    {
         std::string runsDir = !_runsdir.empty()
             ? _runsdir
             : (fs::path(fs::absolute(fs::path(testDir))) / "runs").string();
         try {
             fs::create_directories(runsDir);
             runFilename = (fs::path(runsDir) /
-                           ("test-" + _timestamp_file() + ".run")).string();
+                           (_timestamp_file() + "-" + suite + "-CPPScheme2.run")).string();
             auto* rf = new std::ofstream(runFilename, std::ios::out);
             if (!rf->is_open()) { delete rf; runFile = nullptr; runFilename = ""; }
             else                runFile = rf;
@@ -814,13 +820,15 @@ void Listener::_runTestFiles(const std::vector<std::string>& filenames, const st
             std::string filename = filenames[k];
             _interp->reboot(nullptr, false);
             std::string base   = fs::path(filename).filename().string();
-            std::string padded = _ljust(base, 40);
+            std::string padded = _ljust(base, 56);
 
             std::cout.rdbuf(original_buf);
             std::cout << padded << ' ' << std::flush;
 
             if (runFile) std::cout.rdbuf(runFile->rdbuf());
+            _output_to_file = (runFile != nullptr);
             TestResult r = sessionLog_test(filename, 3);
+            _output_to_file = false;
             std::cout.rdbuf(original_buf);
 
             grand_pass += r.n_pass;
@@ -839,6 +847,7 @@ void Listener::_runTestFiles(const std::vector<std::string>& filenames, const st
             ++k;
         }
     } catch (...) {
+        _output_to_file = false;
         std::cout.rdbuf(original_buf);
         if (runFile) { runFile->close(); delete runFile; }
         fs::current_path(savedCwd);
@@ -849,15 +858,16 @@ void Listener::_runTestFiles(const std::vector<std::string>& filenames, const st
 
     _interp->reboot(nullptr, false);
 
-    if ((int)filenames.size() > 1) {
+    // Grand-total screen summary (only for multi-file runs).
+    if (filenames.size() > 1) {
         std::cout << '\n';
         int total = grand_pass + grand_fail;
         if (grand_fail == 0)
-            std::cout << GREEN << total << " TESTS PASSED across "
+            std::cout << GREEN << "all " << total << " test cases passed across "
                       << filenames.size() << " files" << RESET << '\n';
         else
-            std::cout << RED << grand_fail << " of " << total
-                      << " FAILED across " << filenames.size() << " files" << RESET << '\n';
+            std::cout << RED << grand_fail << " of " << total << " tests failed across "
+                      << filenames.size() << " files" << RESET << '\n';
 
         if (runFile) {
             std::vector<std::string> report;
@@ -874,7 +884,7 @@ void Listener::_runTestFiles(const std::vector<std::string>& filenames, const st
                     int tot = pf.p + pf.f;
                     msg = "(" + std::to_string(pf.f) + "/" + std::to_string(tot) + ") Failed.";
                 }
-                report.push_back(_ljust(sn, 40) + " " + msg);
+                report.push_back(_ljust(sn, 56) + " " + msg);
             }
             report.push_back("");
             report.push_back("Total test files: " + std::to_string(filenames.size()) + ".");
@@ -1014,112 +1024,6 @@ void Listener::_cmd_resume(std::vector<std::string>& args) {
     _writeLn("");
 }
 
-
-
-void Listener::_runComplianceFiles(const std::vector<std::string>& filenames,
-                                   const std::string& compliancedir) {
-    bool color = _use_color();
-    std::string BOLD  = color ? "\033[1;97m" : "";
-    std::string GREEN = color ? "\033[92m"   : "";
-    std::string RED   = color ? "\033[91m"   : "";
-    std::string RESET = color ? "\033[0m"    : "";
-
-    std::string    runsDir     = !_runsdir.empty()
-        ? _runsdir
-        : (fs::path(fs::absolute(compliancedir)) / "runs").string();
-    std::ofstream* runFile     = nullptr;
-    std::string    runFilename;
-    try {
-        fs::create_directories(runsDir);
-        runFilename = (fs::path(runsDir) /
-                       (_timestamp_file() + "-" + _language + ".run")).string();
-        auto* rf = new std::ofstream(runFilename, std::ios::out);
-        if (!rf->is_open()) { delete rf; runFile = nullptr; runFilename = ""; }
-        else                runFile = rf;
-    } catch (...) { runFile = nullptr; runFilename = ""; }
-
-    int grand_pass = 0, grand_fail = 0;
-    struct PerFile { std::string name; int p; int f; };
-    std::vector<PerFile> per_file;
-
-    std::string savedCwd = fs::current_path().string();
-    std::streambuf* original_buf = std::cout.rdbuf();
-    try {
-        fs::current_path(fs::absolute(compliancedir));
-        int k = 0;
-        while (k < (int)filenames.size()) {
-            std::string filename = filenames[k];
-            _interp->reboot(nullptr, false);
-            std::string base   = fs::path(filename).filename().string();
-            std::string padded = _ljust(base, 56);
-
-            std::cout.rdbuf(original_buf);
-            std::cout << padded << ' ' << std::flush;
-
-            if (runFile) std::cout.rdbuf(runFile->rdbuf());
-            TestResult r = sessionLog_test(filename, 3);
-            std::cout.rdbuf(original_buf);
-
-            grand_pass += r.n_pass;
-            grand_fail += r.n_fail;
-            per_file.push_back({filename, r.n_pass, r.n_fail});
-
-            std::string status;
-            if (r.n_fail == 0)
-                status = GREEN + std::to_string(r.n_pass) + " passed" + RESET;
-            else {
-                int tot = r.n_pass + r.n_fail;
-                status = RED + std::to_string(r.n_fail) + " of " +
-                         std::to_string(tot) + " failed" + RESET;
-            }
-            std::cout << status << '\n' << std::flush;
-            ++k;
-        }
-    } catch (...) {
-        std::cout.rdbuf(original_buf);
-        fs::current_path(savedCwd);
-        if (runFile) { runFile->close(); delete runFile; }
-        throw;
-    }
-    std::cout.rdbuf(original_buf);
-    fs::current_path(savedCwd);
-
-    _interp->reboot(nullptr, false);
-
-    std::cout << '\n';
-    int total = grand_pass + grand_fail;
-    if (grand_fail == 0)
-        std::cout << GREEN << "all " << total << " test cases passed" << RESET << '\n';
-    else
-        std::cout << RED << grand_fail << " of " << total << " tests failed" << RESET << '\n';
-
-    if (runFile) {
-        std::vector<std::string> report;
-        report.push_back("");
-        report.push_back("");
-        report.push_back("Test Report");
-        report.push_back("===========");
-        for (const auto& pf : per_file) {
-            std::string sn = fs::path(pf.name).filename().string();
-            std::string msg;
-            if (pf.f == 0)
-                msg = std::to_string(pf.p) + " TESTS PASSED!";
-            else {
-                int tot = pf.p + pf.f;
-                msg = "(" + std::to_string(pf.f) + "/" + std::to_string(tot) + ") Failed.";
-            }
-            report.push_back(_ljust(sn, 56) + " " + msg);
-        }
-        report.push_back("");
-        report.push_back("Total test files: " + std::to_string(filenames.size()) + ".");
-        report.push_back("Total test cases: " + std::to_string(total) + ".");
-        for (const auto& ln : report) *runFile << ln << '\n';
-        runFile->close();
-        delete runFile;
-        std::cout << '\n' << "Compliance output: " << runFilename << '\n';
-    }
-}
-
 void Listener::_cmd_compliance(std::vector<std::string>& args) {
     if (_logStream) throw ListenerCommandError("Please close the log before running compliance (]close).");
 
@@ -1146,7 +1050,7 @@ void Listener::_cmd_compliance(std::vector<std::string>& args) {
         std::string fpath = (fs::path(compdir) / fname).string();
         if (!fs::is_regular_file(fpath))
             throw ListenerCommandError("File not found: " + fname);
-        _runComplianceFiles({fpath}, compdir);
+        _runTestFiles({fpath}, compdir, "compliance");
         return;
     }
 
@@ -1160,7 +1064,7 @@ void Listener::_cmd_compliance(std::vector<std::string>& args) {
         throw ListenerCommandError("No .log files in " + compdir);
 
     if (args.empty()) {
-        _runComplianceFiles(all_files, compdir);
+        _runTestFiles(all_files, compdir, "compliance");
         return;
     }
 
@@ -1190,7 +1094,77 @@ void Listener::_cmd_compliance(std::vector<std::string>& args) {
             ? "No .log files in range [" + args[0] + ", " + args[1] + ")"
             : "No .log files at or after \"" + args[0] + "\"");
 
-    _runComplianceFiles(filtered, compdir);
+    _runTestFiles(filtered, compdir, "compliance");
+}
+
+void Listener::_cmd_regression(std::vector<std::string>& args) {
+    if (_logStream) throw ListenerCommandError("Please close the log before running regressions (]close).");
+
+    std::string regdir = _regressiondir;
+    if (regdir.empty())
+        throw ListenerCommandError(
+            "No regression directory configured.  Set regressiondir at startup.");
+    if (!fs::is_directory(regdir))
+        throw ListenerCommandError("Regression directory not found: " + regdir);
+
+    // Detect single-file mode: last token ends with ".log".
+    bool single_file_mode = !args.empty() &&
+        args.back().size() >= 4 &&
+        args.back().substr(args.back().size() - 4) == ".log";
+
+    if (single_file_mode) {
+        std::string fname;
+        for (size_t i = 0; i < args.size(); ++i) {
+            if (i) fname += ' ';
+            fname += args[i];
+        }
+        std::string fpath = (fs::path(regdir) / fname).string();
+        if (!fs::is_regular_file(fpath))
+            throw ListenerCommandError("File not found: " + fname);
+        _runTestFiles({fpath}, regdir, "regression");
+        return;
+    }
+
+    // Range mode: 0 args = all, 1 arg = [start, inf), 2 args = [start, end).
+    if (args.size() > 2)
+        throw ListenerCommandError(
+            "Usage: ]regression [<file.log> | <start> [<end>]]");
+
+    std::vector<std::string> all_files = retrieveFileList(regdir);
+    if (all_files.empty())
+        throw ListenerCommandError("No .log files in " + regdir);
+
+    if (args.empty()) {
+        _runTestFiles(all_files, regdir, "regression");
+        return;
+    }
+
+    auto ci_lower = [](const std::string& s) {
+        std::string r = s;
+        std::transform(r.begin(), r.end(), r.begin(),
+                       [](unsigned char c){ return std::tolower(c); });
+        return r;
+    };
+
+    std::string start_lc = ci_lower(args[0]);
+    std::string end_lc   = args.size() == 2 ? ci_lower(args[1]) : "";
+    bool        has_end  = args.size() == 2;
+
+    std::vector<std::string> filtered;
+    for (const std::string& fpath : all_files) {
+        std::string fname_lc = ci_lower(fs::path(fpath).filename().string());
+        if (fname_lc < start_lc) continue;
+        if (has_end && fname_lc >= end_lc) continue;
+        filtered.push_back(fpath);
+    }
+
+    if (filtered.empty())
+        throw ListenerCommandError(
+            has_end
+            ? "No .log files in range [" + args[0] + ", " + args[1] + ")"
+            : "No .log files at or after \"" + args[0] + "\"");
+
+    _runTestFiles(filtered, regdir, "regression");
 }
 
 void Listener::_cmd_test(std::vector<std::string>& args) {
@@ -1217,7 +1191,7 @@ void Listener::_cmd_test(std::vector<std::string>& args) {
         if (filenames.empty())
             throw ListenerCommandError("No .log files in " + _testdir);
     }
-    _runTestFiles(filenames, testDir);
+    _runTestFiles(filenames, testDir, "feature");
 }
 
 void Listener::_cmd_cd(std::vector<std::string>& args) {

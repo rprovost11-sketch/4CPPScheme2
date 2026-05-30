@@ -87,6 +87,7 @@ public:
              const std::string& author        = "cppscheme2 authors",
              const std::string& project       = "https://example/cppscheme2",
              const std::string& compliancedir = "",
+             const std::string& regressiondir = "",
              const std::string& runsdir       = "");
     ~Listener();
 
@@ -127,12 +128,17 @@ private:
     InterpreterBase* _interp;
     std::string      _testdir;
     std::string      _compliancedir;
+    std::string      _regressiondir;
     std::string      _runsdir;
     std::ofstream*   _logStream;    // nullptr when not logging
     std::string      _language;
     std::string      _version;
     std::string      _author;
     std::string      _project;
+    // True while a test run is redirecting std::cout to a run-report file.
+    // Suppresses ANSI color so run files are clean text (cout's rdbuf swap is
+    // invisible to isatty(); pyscheme gets this free via sys.stdout.isatty()).
+    bool             _output_to_file = false;
 
     std::unordered_map<std::string, std::function<void(std::vector<std::string>&)>> _commands;
     std::unordered_map<std::string, std::string> _help;
@@ -148,9 +154,12 @@ private:
     std::string _prompt(const std::string& prompt  = "",
                         const std::string& prefill = "");
     void _runListenerCommand(const std::string& source);
-    void _runTestFiles(const std::vector<std::string>& filenames, const std::string& testDir);
-    void _runComplianceFiles(const std::vector<std::string>& filenames,
-                             const std::string& compliancedir);
+    // Single test runner for all suites (feature / compliance / regression),
+    // mirroring pyscheme's _runTestFiles.  `suite` is "feature" | "compliance"
+    // | "regression"; it becomes part of the run-report filename:
+    // yyyy-mm-dd-hhmmss-<suite>-CPPScheme2.run.
+    void _runTestFiles(const std::vector<std::string>& filenames, const std::string& testDir,
+                       const std::string& suite);
 
     // Command handlers -- each corresponds to a ]command.
     void _cmd_help    (std::vector<std::string>& args);
@@ -170,4 +179,5 @@ private:
     void _cmd_debug   (std::vector<std::string>& args);
     void _cmd_profile    (std::vector<std::string>& args);
     void _cmd_compliance (std::vector<std::string>& args);
+    void _cmd_regression (std::vector<std::string>& args);
 };
