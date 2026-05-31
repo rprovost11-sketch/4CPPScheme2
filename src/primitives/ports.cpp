@@ -267,6 +267,17 @@ static std::string _render_display(const Value& val) {
         }
         return result;
     }
+    if (is_vector(val)) {
+        if (scheme_has_cycle(val)) return scheme_pretty_print(val);
+        std::string result = "#(";
+        const std::vector<Value>& items = as_vector_items_const(val);
+        for (size_t i = 0; i < items.size(); ++i) {
+            if (i) result += " ";
+            result += _render_display(items[i]);
+        }
+        result += ")";
+        return result;
+    }
     return scheme_pretty_print(val);
 }
 

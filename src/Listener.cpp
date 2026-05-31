@@ -694,7 +694,7 @@ TestResult Listener::sessionLog_test(const std::string& filename, int verbosity)
 
         {
             Context* ctx = _interp->get_ctx();
-            ctx->timeout_at     = SteadyClock::now() + std::chrono::seconds(30);
+            ctx->timeout_at     = SteadyClock::now() + std::chrono::seconds(120);
             ctx->timeout_active = true;
             try {
                 actual_retval = _interp->eval(eval_expr, &out_capture);

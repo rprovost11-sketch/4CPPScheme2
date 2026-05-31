@@ -356,6 +356,30 @@ Value apply_scheme_proc(const Value& fn, std::vector<Value> args,
         return cek_eval(bf, r.new_env, ctx);
     }
     SourceInfo* src = app_node ? src_of(*app_node) : nullptr;
+    // Record accessors / mutators are first-class procedures too (R7RS 5.5), so
+    // map / for-each / apply / call-with-values must apply them, matching the
+    // eval loop's application dispatch.
+    if (is_record_accessor(fn)) {
+        if (args.size() != 1)
+            throw SchemeArityError(
+                arity_mismatch_msg(as_record_accessor_name(fn), 1, 1, (int)args.size()), src);
+        RecordType* rt = as_record_accessor_type(fn);
+        if (!is_record(args[0]) || as_record_type(args[0]) != rt)
+            throw SchemeTypeError(
+                as_record_accessor_name(fn) + ": argument is not a " + rt->name, src);
+        return as_record_fields_const(args[0])[as_record_accessor_index(fn)];
+    }
+    if (is_record_mutator(fn)) {
+        if (args.size() != 2)
+            throw SchemeArityError(
+                arity_mismatch_msg(as_record_mutator_name(fn), 2, 2, (int)args.size()), src);
+        RecordType* rt = as_record_mutator_type(fn);
+        if (!is_record(args[0]) || as_record_type(args[0]) != rt)
+            throw SchemeTypeError(
+                as_record_mutator_name(fn) + ": first argument is not a " + rt->name, src);
+        as_record_fields(args[0])[as_record_mutator_index(fn)] = args[1];
+        return VOID_VALUE;
+    }
     throw SchemeTypeError("expected a procedure", src);
 }
 
@@ -1561,7 +1585,8 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                             auto [proc, flat] = unpack_apply_args(new_collected, &app_node);
                             if (!is_primitive(proc) && !is_closure(proc) &&
                                 !is_case_closure(proc) && !is_continuation(proc) &&
-                                !is_parameter(proc)) {
+                                !is_parameter(proc) && !is_record_accessor(proc) &&
+                                !is_record_mutator(proc)) {
                                 throw SchemeTypeError("apply: first argument must be a procedure", src_of(app_node));
                             }
                             fn_value = proc;

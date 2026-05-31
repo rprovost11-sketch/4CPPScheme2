@@ -679,6 +679,9 @@ static Value expand_body(const Value& body_cons) {
                     body_items.push_back(list_from_items(
                         {make_symbol("set!", fsrc), make_symbol(rest_name, fsrc),
                          tmp_rest_sym}, fsrc));
+                if (body_items.empty())
+                    // (define-values () <expr>): consumer lambda still needs a body.
+                    body_items.push_back(VOID_VALUE);
                 Value consumer_formals;
                 if (!has_rest)
                     consumer_formals = list_from_items(tmp_fixed_syms, fsrc);
@@ -700,6 +703,16 @@ static Value expand_body(const Value& body_cons) {
             i++; continue;
         }
         break;
+    }
+
+    // R7RS 5.3.2: a body is <definition>* <expression>+ -- once the leading run
+    // of internal definitions ends (at index i), no further definition may
+    // appear.  A define / define-values after an expression is an error.
+    for (size_t k = i; k < forms.size(); k++) {
+        if (is_head(forms[k], sid_define) || is_head(forms[k], sid_define_values))
+            throw SchemeSyntaxError(
+                "definition not allowed after an expression in a body",
+                src_of(forms[k]));
     }
 
     if (bindings.empty()) {
@@ -898,6 +911,10 @@ static Value dv_build_setter(const std::vector<std::string>& fixed,
         body_items.push_back(list_from_items(
             {make_symbol("set!", src), make_symbol(rest_name, src), tmp_rest},
             src));
+    if (body_items.empty())
+        // (define-values () <expr>): no set!s, but the consumer lambda still
+        // needs a body expression.  Yield the unspecified value.
+        body_items.push_back(VOID_VALUE);
     Value consumer_formals;
     if (!has_rest)
         consumer_formals = list_from_items(tmp_fixed, src);
