@@ -914,7 +914,23 @@ static void process_define_library(const Value& C, Context* ctx) {
                 "define-library: exported name not defined: " + internal_name,
                 src_of(C));
         }
-        exports_env->bind(external_name, lib_env->lookup(internal_name));
+        Value val = lib_env->lookup(internal_name);
+        exports_env->bind(external_name, val);
+        // A macro's free-identifier aliases (gensyms bound to the library's
+        // def-time values in lib_env, the library's parentless "global") are
+        // part of its hygiene closure.  Carry them into the exports env so they
+        // travel with the import and the macro's template references resolve at
+        // the use site (R7RS 4.3 referential transparency; mirrors pyScheme).
+        if (is_syntax_transformer(val)) {
+            SyntaxTransformer* t = std::get<SyntaxTransformer*>(val.repr);
+            for (const auto& kv : t->free_id_map) {
+                uint32_t gs_sid = kv.second;
+                if (lib_env->_bindings.count(gs_sid)
+                        && exports_env->_bindings.count(gs_sid) == 0) {
+                    exports_env->bind(symbol_name(gs_sid), lib_env->_bindings.at(gs_sid));
+                }
+            }
+        }
         i = i + 1;
     }
     exports_env->freeze();

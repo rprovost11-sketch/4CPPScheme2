@@ -697,8 +697,15 @@ static Value expand_body(const Value& body_cons) {
                 Value consumer = list_from_items(consumer_items, fsrc);
                 Value producer = list_from_items(
                     {make_symbol("lambda", fsrc), NIL_VALUE, expanded_expr}, fsrc);
-                body_prefix.push_back(list_from_items(
-                    {make_symbol("call-with-values", fsrc), producer, consumer}, fsrc));
+                Value dv_setter = list_from_items(
+                    {make_symbol("call-with-values", fsrc), producer, consumer}, fsrc);
+                // Run the multi-value setter IN SOURCE ORDER within the letrec*,
+                // as a fresh dummy binding, rather than hoisting it into the body.
+                // The body ran after every binding initializer, so a following
+                // (define s (+ p q)) evaluated its init while p/q were still
+                // unset.  As an in-order binding, letrec* runs the setter before
+                // later initializers, so they observe the values (R7RS 5.3.2).
+                bindings.emplace_back(make_symbol(hygiene_gensym("dv-set"), fsrc), dv_setter);
             }
             i++; continue;
         }
