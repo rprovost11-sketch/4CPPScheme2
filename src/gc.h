@@ -1,6 +1,6 @@
 #pragma once
 // gc.h -- generational GC interface.
-// Adapted from CPPScheme's gc.h/gc_gen.cpp for CEKScheme's type set.
+// Adapted from CPPScheme's gc.h/gc_gen.cpp for CPPScheme2's type set.
 // GcType and GcHeader are defined in AST.h (tight coupling to Value layout).
 
 #include "AST.h"
@@ -16,7 +16,7 @@ CPPSCHEME2_API ConsCell*          gc_alloc_cons();
 CPPSCHEME2_API SchemeString*      gc_alloc_string(const std::string& content);
 CPPSCHEME2_API SchemeClosure*     gc_alloc_closure();
 CPPSCHEME2_API CaseClosure*       gc_alloc_case_closure();
-CPPSCHEME2_API Promise*           gc_alloc_promise(Value payload, bool is_done);
+CPPSCHEME2_API Promise*           gc_alloc_promise(Value payload, bool is_done, bool iterative = false);
 CPPSCHEME2_API MultiValues*       gc_alloc_multi_values();
 CPPSCHEME2_API Record*            gc_alloc_record();
 CPPSCHEME2_API RecordType*        gc_alloc_record_type();

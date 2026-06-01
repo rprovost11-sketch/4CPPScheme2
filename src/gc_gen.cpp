@@ -1,5 +1,5 @@
 // gc_gen.cpp -- Generational GC: bump-pointer nursery + concurrent tri-color major GC.
-// Adapted from CPPScheme's gc_gen.cpp for CEKScheme's type set.
+// Adapted from CPPScheme's gc_gen.cpp for CPPScheme2's type set.
 // Environment internals are opaque here; tracing/forwarding delegated to
 // gc_trace_environment_children / gc_forward_environment_children (Environment.cpp).
 // Continuation frame tracing/forwarding delegated to gc_trace/forward_continuation_frames
@@ -747,7 +747,13 @@ static void minor_collect() {
     std::vector<GcHeader*> freshly_promoted;
     {
         GcHeader** prev = &g_young_head;
+        unsigned long long _minguard = 0;  // TEMP DEBUG runaway guard
         while (*prev) {
+            if (++_minguard > 20000000ull) {
+                fprintf(stderr, "[GCGUARD] minor young-walk runaway: young=%zu old=%zu\n",
+                        g_young_count, g_old_count);
+                fflush(stderr); abort();
+            }
             GcHeader* obj = *prev;
             if (obj->marked.load(std::memory_order_relaxed)) {
                 obj->marked.store(false, std::memory_order_relaxed);
@@ -902,7 +908,13 @@ void gc_collect() {
         // Full stop-the-world mark.  shade_gray skips gen!=1 objects, so the
         // minor collection above is required to ensure all live roots are old-gen.
         gc_major_start();
+        unsigned long long _majguard = 0;  // TEMP DEBUG runaway guard
         while (!g_gray_stack.empty()) {
+            if (++_majguard > 20000000ull) {
+                fprintf(stderr, "[GCGUARD] major-mark loop runaway: gray=%zu old=%zu young=%zu\n",
+                        g_gray_stack.size(), g_old_count, g_young_count);
+                fflush(stderr); abort();
+            }
             GcHeader* obj = g_gray_stack.back();
             g_gray_stack.pop_back();
             process_gray_object(obj);
@@ -968,8 +980,8 @@ CaseClosure* gc_alloc_case_closure() {
     return cc;
 }
 
-Promise* gc_alloc_promise(Value payload, bool is_done) {
-    auto* p   = new Promise{is_done, std::move(payload)};
+Promise* gc_alloc_promise(Value payload, bool is_done, bool iterative) {
+    auto* p   = new Promise{is_done, std::move(payload), iterative};
     register_young(&p->header);
     return p;
 }

@@ -136,11 +136,11 @@ static Value _prim_digit_value(Context*, Environment*, std::vector<Value>& args,
 
 void register_chars() {
     register_primitive("char?",          1, 1,  _prim_char_p,          "", "Return #t if obj is a character.  R7RS 6.6.", CATEGORY);
-    register_primitive("char=?",         2, -1, _prim_char_eq,         "", "Return #t if all character arguments compare equal.  R7RS 6.6.", CATEGORY);
-    register_primitive("char<?",         2, -1, _prim_char_lt,         "", "Return #t if characters are in strictly ascending order.  R7RS 6.6.", CATEGORY);
-    register_primitive("char<=?",        2, -1, _prim_char_le,         "", "Return #t if characters are in non-descending order.  R7RS 6.6.", CATEGORY);
-    register_primitive("char>?",         2, -1, _prim_char_gt,         "", "Return #t if characters are in strictly descending order.  R7RS 6.6.", CATEGORY);
-    register_primitive("char>=?",        2, -1, _prim_char_ge,         "", "Return #t if characters are in non-ascending order.  R7RS 6.6.", CATEGORY);
+    register_primitive("char=?",         1, -1, _prim_char_eq,         "", "Return #t if all character arguments compare equal.  R7RS 6.6.", CATEGORY);
+    register_primitive("char<?",         1, -1, _prim_char_lt,         "", "Return #t if characters are in strictly ascending order.  R7RS 6.6.", CATEGORY);
+    register_primitive("char<=?",        1, -1, _prim_char_le,         "", "Return #t if characters are in non-descending order.  R7RS 6.6.", CATEGORY);
+    register_primitive("char>?",         1, -1, _prim_char_gt,         "", "Return #t if characters are in strictly descending order.  R7RS 6.6.", CATEGORY);
+    register_primitive("char>=?",        1, -1, _prim_char_ge,         "", "Return #t if characters are in non-ascending order.  R7RS 6.6.", CATEGORY);
     register_primitive("char-alphabetic?",1, 1, _prim_char_alphabetic, "", "Return #t if char is a letter.  R7RS 6.6.", CATEGORY);
     register_primitive("char-numeric?",  1, 1,  _prim_char_numeric,    "", "Return #t if char is a digit.  R7RS 6.6.", CATEGORY);
     register_primitive("char-whitespace?",1, 1, _prim_char_whitespace, "", "Return #t if char is whitespace.  R7RS 6.6.", CATEGORY);
@@ -149,11 +149,11 @@ void register_chars() {
     register_primitive("char-upcase",    1, 1,  _prim_char_upcase,     "", "Return char's upper-case equivalent.  R7RS 6.6.", CATEGORY);
     register_primitive("char-downcase",  1, 1,  _prim_char_downcase,   "", "Return char's lower-case equivalent.  R7RS 6.6.", CATEGORY);
     register_primitive("char-foldcase",  1, 1,  _prim_char_foldcase,   "", "Return char's case-folded equivalent (Unicode full case folding).  R7RS 6.6.", CATEGORY);
-    register_primitive("char-ci=?",      2, -1, _prim_char_ci_eq,      "", "Case-insensitive char=?.  R7RS 6.6.", CATEGORY);
-    register_primitive("char-ci<?",      2, -1, _prim_char_ci_lt,      "", "Case-insensitive char<?.  R7RS 6.6.", CATEGORY);
-    register_primitive("char-ci<=?",     2, -1, _prim_char_ci_le,      "", "Case-insensitive char<=?.  R7RS 6.6.", CATEGORY);
-    register_primitive("char-ci>?",      2, -1, _prim_char_ci_gt,      "", "Case-insensitive char>?.  R7RS 6.6.", CATEGORY);
-    register_primitive("char-ci>=?",     2, -1, _prim_char_ci_ge,      "", "Case-insensitive char>=?.  R7RS 6.6.", CATEGORY);
+    register_primitive("char-ci=?",      1, -1, _prim_char_ci_eq,      "", "Case-insensitive char=?.  R7RS 6.6.", CATEGORY);
+    register_primitive("char-ci<?",      1, -1, _prim_char_ci_lt,      "", "Case-insensitive char<?.  R7RS 6.6.", CATEGORY);
+    register_primitive("char-ci<=?",     1, -1, _prim_char_ci_le,      "", "Case-insensitive char<=?.  R7RS 6.6.", CATEGORY);
+    register_primitive("char-ci>?",      1, -1, _prim_char_ci_gt,      "", "Case-insensitive char>?.  R7RS 6.6.", CATEGORY);
+    register_primitive("char-ci>=?",     1, -1, _prim_char_ci_ge,      "", "Case-insensitive char>=?.  R7RS 6.6.", CATEGORY);
     register_primitive("char->integer",  1, 1,  _prim_char_to_integer, "", "Return char's Unicode code point as an integer.  R7RS 6.6.", CATEGORY);
     register_primitive("integer->char",  1, 1,  _prim_integer_to_char, "", "Return the character with the given Unicode code point.  R7RS 6.6.", CATEGORY);
     register_primitive("digit-value",    1, 1,  _prim_digit_value,     "",

@@ -396,7 +396,7 @@ Listener::Listener(InterpreterBase*   interp,
     _help["lhistory"] = "Usage: ]lhistory [<n>]\nQuery or set the maximum readline history size.";
     _help["debug"]    = "Usage: ]debug\nOpen the interactive debugger.";
     _help["profile"]    = "Usage: ]profile [reset]\nPrint profiling report (call counts + times) and reset counters.\nWith 'reset', reset counters without printing.\n(Requires build with -DPROFILE_COUNTERS.)";
-    _help["compliance"] = "Usage: ]compliance [<file.log> | <start> [<end>]]\nRun the R7RS compliance test suite against the configured directory.\n  ]compliance              -- run all tests\n  ]compliance 3            -- run tests with filename >= \"3\"\n  ]compliance 3 4          -- run tests with \"3\" <= filename < \"4\"\n  ]compliance 3.1 Booleans.log  -- run that one file\nFilename comparison is case-insensitive.  The interpreter is rebooted\nbefore each file.  Supports '==> X or ==> Y' alternatives and\n'%%% error' to accept any non-empty error string.";
+    _help["compliance"] = "Usage: ]compliance [<file.log> | <start> [<end>]]\nRun the R7RS compliance test suite against the configured directory.\n  ]compliance              -- run all tests\n  ]compliance 3            -- run tests with filename >= \"3\"\n  ]compliance 3 4          -- run tests with \"3\" <= filename < \"4\"\n  ]compliance 3.1 Booleans.log  -- run that one file\nFilename comparison is case-insensitive.  The interpreter is rebooted\nbefore each file.  Supports '==> X or ==> Y' alternatives;\n'%%% *' / '%%% %any-error%' require any error to be raised (R7RS\n'an error is signaled'); '%%% %optional-error%' models R7RS\n'it is an error' -- passes whether an error is raised or the form\nreturns (asserts only that evaluation terminates).";
     _help["regression"] = "Usage: ]regression [<file.log> | <start> [<end>]]\nRun the regression test suite (Scheme-observable, non-spec tripwires) against\nthe configured directory.\n  ]regression                  -- run all regression files\n  ]regression 03               -- run files with filename >= \"03\"\n  ]regression 03 06            -- run files with \"03\" <= filename < \"06\"\n  ]regression 03-evaluator.log -- run that one file\nSpec deviations are guarded by ]compliance instead.  Files are grouped by\nsubsystem; see regression-tests/00-conventions.md.  The interpreter is\nrebooted before each file.";
 
     _banner();
@@ -710,14 +710,22 @@ TestResult Listener::sessionLog_test(const std::string& filename, int verbosity)
         expected_output           = _rstrip(expected_output);
 
         // "%%% *" or "%%% %any-error% <hint>" means any error is acceptable.
-        bool error_ok;
-        if (expected_error == "*" || _sw(expected_error, "%any-error%", 11))
-            error_ok = !actual_error.empty();
-        else
-            error_ok = (actual_error == expected_error);
-
-        bool retval_ok = compliance_match_retval(actual_retval, expected_retval);
-        bool output_ok = (actual_output == expected_output);
+        // "%%% %optional-error% <hint>" models R7RS "it is an error" (undefined
+        // behavior): the test passes whether an error is signaled OR the form
+        // returns normally -- only termination is asserted.  The retval/output
+        // checks are bypassed too, since the outcome is unspecified.
+        bool optional_error = _sw(expected_error, "%optional-error%", 16);
+        bool error_ok, retval_ok, output_ok;
+        if (optional_error) {
+            error_ok = retval_ok = output_ok = true;
+        } else {
+            if (expected_error == "*" || _sw(expected_error, "%any-error%", 11))
+                error_ok = !actual_error.empty();
+            else
+                error_ok = (actual_error == expected_error);
+            retval_ok = compliance_match_retval(actual_retval, expected_retval);
+            output_ok = (actual_output == expected_output);
+        }
 
         std::string label = stripped_expr;
         size_t nl = label.find('\n');

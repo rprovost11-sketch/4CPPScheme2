@@ -205,8 +205,8 @@ Value make_case_closure(std::vector<CaseClosure::Clause> clauses,
     return Value{ Value::Repr(cc) };
 }
 
-Value make_promise_lazy(Value thunk) {
-    Promise* p = gc_alloc_promise(std::move(thunk), false);
+Value make_promise_lazy(Value thunk, bool iterative) {
+    Promise* p = gc_alloc_promise(std::move(thunk), false, iterative);
     return Value{ Value::Repr(p) };
 }
 
@@ -263,12 +263,14 @@ Value make_read_error_object(const std::string& message,
 Value make_continuation(void* frames_ptr,
                         std::vector<WindFrame> wind_snapshot,
                         std::vector<Value>     handler_snapshot,
-                        std::vector<Value>     shadow_snapshot) {
+                        std::vector<Value>     shadow_snapshot,
+                        uint64_t               owner_eval_id) {
     Continuation* k      = gc_alloc_continuation();
     k->frames_ptr        = frames_ptr;
     k->wind_snapshot     = std::move(wind_snapshot);
     k->handler_snapshot  = std::move(handler_snapshot);
     k->shadow_snapshot   = std::move(shadow_snapshot);
+    k->owner_eval_id     = owner_eval_id;
     return Value{ Value::Repr(k) };
 }
 
@@ -552,6 +554,10 @@ bool as_promise_is_done(const Value& val) {
     return std::get<Promise*>(val.repr)->is_done;
 }
 
+bool as_promise_is_iterative(const Value& val) {
+    return std::get<Promise*>(val.repr)->iterative;
+}
+
 Value as_promise_payload(const Value& val) {
     return std::get<Promise*>(val.repr)->payload;
 }
@@ -566,8 +572,9 @@ void promise_resolve(Value& promise_val, Value result) {
 void promise_become(Value& dst, const Value& src_val) {
     Promise* d       = std::get<Promise*>(dst.repr);
     const Promise* s = std::get<Promise*>(src_val.repr);
-    d->is_done  = s->is_done;
-    d->payload  = s->payload;
+    d->is_done   = s->is_done;
+    d->iterative = s->iterative;  // inherit chase/no-chase of the link we became
+    d->payload   = s->payload;
     gc_write_barrier(&d->header, gc_value_header(d->payload));
 }
 
@@ -639,6 +646,10 @@ const std::vector<Value>& as_continuation_handlers(const Value& val) {
 
 const std::vector<Value>& as_continuation_shadow(const Value& val) {
     return std::get<Continuation*>(val.repr)->shadow_snapshot;
+}
+
+uint64_t as_continuation_owner(const Value& val) {
+    return std::get<Continuation*>(val.repr)->owner_eval_id;
 }
 
 const std::string& as_syntax_transformer_name(const Value& val) {

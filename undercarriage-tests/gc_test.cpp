@@ -640,7 +640,7 @@ TEST(reboot_after_one_compliance_file) {
     check_invariants("after reboot+eval");
 }
 
-// KNOWN BUG: reproduces the same heap corruption that the real cekscheme
+// KNOWN BUG: reproduces the same heap corruption that the real CPPScheme2
 // binary hits in 4.1.3 of the compliance suite.  The bug requires:
 //   (a) the listener-style sequence of reboot-then-many-evals across many
 //       compliance files (single files don't trigger it -- see

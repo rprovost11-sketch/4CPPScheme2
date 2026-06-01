@@ -352,10 +352,8 @@ static bool match_list_pattern(Value pat_list, Value form_list,
             Value suffix_pat = cdr(pat_rest);
             int   suffix_need = list_length_approx(suffix_pat);
             std::vector<Value> form_vec;
-            {
-                Value tmp = form_list;
-                while (is_cons(tmp)) { form_vec.push_back(car(tmp)); tmp = cdr(tmp); }
-            }
+            Value form_tail = form_list;
+            while (is_cons(form_tail)) { form_vec.push_back(car(form_tail)); form_tail = cdr(form_tail); }
             int total = (int)form_vec.size();
             if (total < suffix_need) return false;
             int n_ellipsis = total - suffix_need;
@@ -374,7 +372,9 @@ static bool match_list_pattern(Value pat_list, Value form_list,
                 for (auto& [k, vlist] : sub.ellipsis)
                     out.ellipsis[k].push_back(make_vector(vlist));
             }
-            Value suffix_form = NIL_VALUE;
+            // Preserve any improper (dotted) tail so a trailing pattern var
+            // like `rest` in (a ... . rest) binds to it (R7RS 4.3.2).
+            Value suffix_form = form_tail;
             for (int j = total - 1; j >= n_ellipsis; --j)
                 suffix_form = alloc_cons(form_vec[j], suffix_form);
             return match_list_pattern(suffix_pat, suffix_form, literals, ellipsis_id, out);
@@ -466,6 +466,43 @@ static Value instantiate_list(Value tmpl_list, const SyntaxMatch& match,
                                uint32_t ellipsis_id, SourceInfo* use_src,
                                const std::unordered_map<uint32_t, uint32_t>& free_id_map);
 
+// Expand a subtemplate `elem` followed by `num_ell` (>= 1) ellipses, appending
+// the results to `output`.  num_ell == 1 is the ordinary case (one value per
+// match); num_ell >= 2 flattens that many nested levels, e.g. (x ... ...)
+// collapses ((1 2) (3) (4 5 6)) to 1 2 3 4 5 6 (R7RS 4.3.2).
+static void expand_ellipsis_run(const Value& elem, const SyntaxMatch& match,
+                                 int num_ell, uint32_t ellipsis_id, SourceInfo* use_src,
+                                 const std::unordered_map<uint32_t, uint32_t>& free_id_map,
+                                 std::vector<Value>& output) {
+    std::vector<uint32_t> ell_syms;
+    collect_ell_refs(elem, match, ell_syms);
+    if (ell_syms.empty()) return;
+    int count = (int)match.ellipsis.at(ell_syms[0]).size();
+    for (int k = 0; k < count; ++k) {
+        SyntaxMatch sub;
+        sub.scalars   = match.scalars;
+        sub.ellipsis  = match.ellipsis;
+        sub.ell_depth = match.ell_depth;
+        for (uint32_t sv : ell_syms) {
+            int d = match.ell_depth.count(sv) ? match.ell_depth.at(sv) : 0;
+            const Value& peeled = match.ellipsis.at(sv)[k];
+            if (d == 1) {
+                sub.scalars[sv] = peeled;
+                sub.ellipsis.erase(sv);
+                sub.ell_depth.erase(sv);
+            } else {
+                sub.ellipsis[sv]  = as_vector_items_const(peeled);
+                sub.ell_depth[sv] = d - 1;
+            }
+        }
+        if (num_ell == 1)
+            output.push_back(instantiate(elem, sub, ellipsis_id, use_src, free_id_map));
+        else
+            expand_ellipsis_run(elem, sub, num_ell - 1, ellipsis_id, use_src,
+                                free_id_map, output);
+    }
+}
+
 [[noreturn]] static void raise_syntax_error(
     const Value& args_tail, const SyntaxMatch& match,
     uint32_t ellipsis_id, SourceInfo* use_src,
@@ -508,31 +545,13 @@ static Value instantiate_vector(const std::vector<Value>& tmpl_items,
         const Value& elem = tmpl_items[i];
         bool has_ell = (i + 1 < n && is_ellipsis_sym(tmpl_items[i + 1], ellipsis_id));
         if (has_ell) {
-            std::vector<uint32_t> ell_syms;
-            collect_ell_refs(elem, match, ell_syms);
-            if (!ell_syms.empty()) {
-                int count = (int)match.ellipsis.at(ell_syms[0]).size();
-                for (int k = 0; k < count; ++k) {
-                    SyntaxMatch sub;
-                    sub.scalars   = match.scalars;
-                    sub.ellipsis  = match.ellipsis;
-                    sub.ell_depth = match.ell_depth;
-                    for (uint32_t sv : ell_syms) {
-                        int d = match.ell_depth.count(sv) ? match.ell_depth.at(sv) : 0;
-                        const Value& peeled = match.ellipsis.at(sv)[k];
-                        if (d == 1) {
-                            sub.scalars[sv] = peeled;
-                            sub.ellipsis.erase(sv);
-                            sub.ell_depth.erase(sv);
-                        } else {
-                            sub.ellipsis[sv]  = as_vector_items_const(peeled);
-                            sub.ell_depth[sv] = d - 1;
-                        }
-                    }
-                    output.push_back(instantiate(elem, sub, ellipsis_id, use_src, free_id_map));
-                }
-            }
-            i += 2;
+            // Count the run of consecutive ellipses (x ... ... flattens levels).
+            int num_ell = 0;
+            int j = i + 1;
+            while (j < n && is_ellipsis_sym(tmpl_items[j], ellipsis_id)) { ++num_ell; ++j; }
+            expand_ellipsis_run(elem, match, num_ell, ellipsis_id, use_src,
+                                free_id_map, output);
+            i = j;
             continue;
         }
         output.push_back(instantiate(elem, match, ellipsis_id, use_src, free_id_map));
@@ -551,31 +570,13 @@ static Value instantiate_list(Value tmpl_list, const SyntaxMatch& match,
         Value rest = cdr(cur);
         bool has_ell = is_cons(rest) && is_ellipsis_sym(car(rest), ellipsis_id);
         if (has_ell) {
-            std::vector<uint32_t> ell_syms;
-            collect_ell_refs(elem, match, ell_syms);
-            if (!ell_syms.empty()) {
-                int n = (int)match.ellipsis.at(ell_syms[0]).size();
-                for (int idx = 0; idx < n; ++idx) {
-                    SyntaxMatch sub;
-                    sub.scalars   = match.scalars;
-                    sub.ellipsis  = match.ellipsis;
-                    sub.ell_depth = match.ell_depth;
-                    for (uint32_t sv : ell_syms) {
-                        int d = match.ell_depth.count(sv) ? match.ell_depth.at(sv) : 0;
-                        const Value& peeled = match.ellipsis.at(sv)[idx];
-                        if (d == 1) {
-                            sub.scalars[sv] = peeled;
-                            sub.ellipsis.erase(sv);
-                            sub.ell_depth.erase(sv);
-                        } else {
-                            sub.ellipsis[sv]  = as_vector_items_const(peeled);
-                            sub.ell_depth[sv] = d - 1;
-                        }
-                    }
-                    output.push_back(instantiate(elem, sub, ellipsis_id, use_src, free_id_map));
-                }
-            }
-            cur = cdr(rest);
+            // Count the run of consecutive ellipses (x ... ... flattens levels).
+            int   num_ell = 0;
+            Value e = rest;
+            while (is_cons(e) && is_ellipsis_sym(car(e), ellipsis_id)) { ++num_ell; e = cdr(e); }
+            expand_ellipsis_run(elem, match, num_ell, ellipsis_id, use_src,
+                                free_id_map, output);
+            cur = e;
             continue;
         }
         output.push_back(instantiate(elem, match, ellipsis_id, use_src, free_id_map));

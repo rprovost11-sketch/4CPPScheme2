@@ -105,6 +105,20 @@ std::string Interpreter::eval(const std::string& source, std::ostream* outStrm) 
     auto raw = rawEval(source, outStrm);
     if (!raw || is_void(*raw))
         return "";
+    // A top-level expression that yields multiple values is displayed as each
+    // value (write form) separated by a space -- the REPL is showing the values
+    // returned, not a single datum, so the internal #<values ...> object
+    // notation is not used here.  Matches R7RS REPL conventions and compliance
+    // 6.12 (e.g. (eval '(floor/ 17 5) ...) => "3 2").  Zero values => "".
+    if (is_multi_values(*raw)) {
+        const std::vector<Value>& vs = as_multi_values_list(*raw);
+        std::string out;
+        for (size_t i = 0; i < vs.size(); ++i) {
+            if (i) out += ' ';
+            out += scheme_pretty_print(vs[i]);
+        }
+        return out;
+    }
     return scheme_pretty_print(*raw);
 }
 

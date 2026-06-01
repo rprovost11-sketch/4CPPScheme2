@@ -241,8 +241,12 @@ static Value _prim_map(Context* ctx, Environment*, std::vector<Value>& args, con
         collected.push_back(apply_scheme_proc(proc.val, row, ctx, nullptr, app));
         lists = std::move(next_lists);
     }
+    // R7RS 6.10: if the lists are of unequal length, map terminates when the
+    // shortest runs out, so leftover cons cells in longer lists are fine.  An
+    // improper list (a non-nil, non-pair tail) reached during traversal is an
+    // error.
     for (auto& lst : lists) {
-        if (!is_nil(lst))
+        if (!is_cons(lst) && !is_nil(lst))
             throw SchemeTypeError("map: list arguments must be proper lists", _src(app));
     }
     Value result = NIL_VALUE;
@@ -291,8 +295,10 @@ static Value _prim_for_each(Context* ctx, Environment*, std::vector<Value>& args
         apply_scheme_proc(proc.val, row, ctx, nullptr, app);
         lists = std::move(next_lists);
     }
+    // R7RS 6.10: unequal-length lists terminate at the shortest; only a
+    // genuinely improper (non-nil, non-pair) tail is an error.
     for (auto& lst : lists) {
-        if (!is_nil(lst))
+        if (!is_cons(lst) && !is_nil(lst))
             throw SchemeTypeError("for-each: list arguments must be proper lists", _src(app));
     }
     return VOID_VALUE;

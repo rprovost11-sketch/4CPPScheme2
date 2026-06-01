@@ -295,7 +295,7 @@ void register_debug() {
         "Show a structured inspection view with numbered child elements.",
         CATEGORY);
     register_primitive("debug",    0, 0, _prim_debug,    "",
-        "Open the interactive debugger.  (Not yet implemented in CEKScheme.)",
+        "Open the interactive debugger.  (Not yet implemented in CPPScheme2.)",
         CATEGORY);
     register_primitive("trace",    0, -1, _stub_trace,
         "(trace . names)",

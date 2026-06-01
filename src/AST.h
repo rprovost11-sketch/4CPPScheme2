@@ -321,9 +321,12 @@ struct CaseClosure {
 struct Promise {
     GcHeader header{GcType::Promise};
     bool     is_done;
+    bool     iterative; // delay-force: force tail-chases into a promise result;
+                        // plain delay: force resolves to the value as-is
     Value    payload;   // thunk (CLOSURE) if !is_done; memoized result if is_done
 
-    Promise(bool done, Value p) : is_done(done), payload(std::move(p)) {}
+    Promise(bool done, Value p, bool iter = false)
+        : is_done(done), iterative(iter), payload(std::move(p)) {}
     Promise(const Promise&)            = delete;
     Promise& operator=(const Promise&) = delete;
 };
@@ -396,6 +399,11 @@ struct Continuation {
     std::vector<WindFrame> wind_snapshot;
     std::vector<Value>     handler_snapshot;
     std::vector<Value>     shadow_snapshot;
+    // Identity of the cek_loop invocation that captured this continuation.
+    // Used to decide whether invoking it can replace K in the current loop or
+    // must throw a ContinuationEscape to unwind native frames back to the
+    // owning loop (e.g. when invoked from inside a for-each / map callback).
+    uint64_t               owner_eval_id = 0;
 
     Continuation() = default;
     ~Continuation();
@@ -617,7 +625,7 @@ CPPSCHEME2_API Value make_closure(std::vector<uint32_t> params, Value body,
 CPPSCHEME2_API Value make_primitive(const std::string& name, BuiltinFn fn);
 CPPSCHEME2_API Value make_case_closure(std::vector<CaseClosure::Clause> clauses,
                                        Environment* env, std::string docstring);
-CPPSCHEME2_API Value make_promise_lazy(Value thunk);
+CPPSCHEME2_API Value make_promise_lazy(Value thunk, bool iterative = false);
 CPPSCHEME2_API Value make_promise_done(Value val);
 CPPSCHEME2_API Value make_multi_values(std::vector<Value> vals, SourceInfo* src = nullptr);
 CPPSCHEME2_API Value make_record_type(const std::string& name,
@@ -633,7 +641,8 @@ CPPSCHEME2_API Value make_read_error_object(const std::string& message,
 CPPSCHEME2_API Value make_continuation(void* frames_ptr,
                                        std::vector<WindFrame> wind_snapshot,
                                        std::vector<Value>     handler_snapshot,
-                                       std::vector<Value>     shadow_snapshot);
+                                       std::vector<Value>     shadow_snapshot,
+                                       uint64_t               owner_eval_id);
 CPPSCHEME2_API Value make_syntax_transformer(
     const std::string& name,
     std::vector<uint32_t> literals,
@@ -737,6 +746,7 @@ CPPSCHEME2_API Environment*                            as_case_closure_env(const
 CPPSCHEME2_API const std::string&                      as_case_closure_docstring(const Value& val);
 
 CPPSCHEME2_API bool  as_promise_is_done(const Value& val);
+CPPSCHEME2_API bool  as_promise_is_iterative(const Value& val);
 CPPSCHEME2_API Value as_promise_payload(const Value& val);
 CPPSCHEME2_API void  promise_resolve(Value& promise_val, Value result);
 CPPSCHEME2_API void  promise_become(Value& dst, const Value& src_val);
@@ -763,6 +773,7 @@ CPPSCHEME2_API void*                         as_continuation_frames(const Value&
 CPPSCHEME2_API const std::vector<WindFrame>& as_continuation_wind(const Value& val);
 CPPSCHEME2_API const std::vector<Value>&     as_continuation_handlers(const Value& val);
 CPPSCHEME2_API const std::vector<Value>&     as_continuation_shadow(const Value& val);
+CPPSCHEME2_API uint64_t                      as_continuation_owner(const Value& val);
 
 CPPSCHEME2_API const std::string&  as_syntax_transformer_name(const Value& val);
 CPPSCHEME2_API const std::vector<uint32_t>& as_syntax_transformer_literals(const Value& val);

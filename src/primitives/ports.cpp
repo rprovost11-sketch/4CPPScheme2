@@ -75,7 +75,7 @@ static Value _stderr_port() { return _make_stdio_port(false, true,  stderr, "<st
 static Value _get_current_input(Context*) {
     _register_port_roots_once();
     if (!s_current_input_has) {
-        s_current_input_param = make_parameter(_stdin_port(), VOID_VALUE);
+        s_current_input_param = make_parameter(_stdin_port(), NIL_VALUE);
         s_current_input_has = true;
     }
     return as_parameter_value(s_current_input_param);
@@ -86,7 +86,7 @@ static Value _get_current_output(Context* ctx) {
     if (!s_current_output_has) {
         Value default_port = _stdout_port();
         s_output_default_ptr = as_port(default_port);
-        s_current_output_param = make_parameter(default_port, VOID_VALUE);
+        s_current_output_param = make_parameter(default_port, NIL_VALUE);
         s_current_output_has = true;
     }
     Value p = as_parameter_value(s_current_output_param);
@@ -109,10 +109,23 @@ static Value _get_current_output(Context* ctx) {
 static Value _get_current_error(Context*) {
     _register_port_roots_once();
     if (!s_current_error_has) {
-        s_current_error_param = make_parameter(_stderr_port(), VOID_VALUE);
+        s_current_error_param = make_parameter(_stderr_port(), NIL_VALUE);
         s_current_error_has = true;
     }
     return as_parameter_value(s_current_error_param);
+}
+
+// Return the internal parameter object backing a current-*-port accessor
+// primitive, or VOID_VALUE if `name` is not one of them.  R7RS 6.13.1 specifies
+// current-output-port / current-input-port / current-error-port as parameter
+// objects; they are exposed as 0-arg accessor primitives (so the harness can
+// redirect output), but parameterize must be able to rebind them.  Called by
+// the evaluator's parameterize wind builder.  (Declared extern in Evaluator.cpp.)
+Value port_parameter_for_accessor(const std::string& name, Context* ctx) {
+    if (name == "current-output-port") { _get_current_output(ctx); return s_current_output_param; }
+    if (name == "current-input-port")  { _get_current_input(ctx);  return s_current_input_param;  }
+    if (name == "current-error-port")  { _get_current_error(ctx);  return s_current_error_param;  }
+    return VOID_VALUE;
 }
 
 // ── Port check helpers ────────────────────────────────────────────────────────
@@ -492,13 +505,23 @@ static Value _prim_close_port(Context*, Environment*, std::vector<Value>& args, 
 }
 
 static Value _prim_close_input_port(Context*, Environment*, std::vector<Value>& args, const Value* app) {
-    _check_input_port(args[0], "close-input-port", app);
+    // R7RS 6.13.1: close-input-port has no effect on an already-closed port,
+    // so check the port TYPE (must be an input port) without requiring it to
+    // be open, then delegate to the idempotent _close_port_impl.
+    if (!is_port(args[0]))
+        throw SchemeTypeError("close-input-port: argument must be a port", _src(app));
+    if (!as_port(args[0])->is_input)
+        throw SchemeTypeError("close-input-port: argument must be an input port", _src(app));
     _close_port_impl(as_port(args[0]));
     return VOID_VALUE;
 }
 
 static Value _prim_close_output_port(Context*, Environment*, std::vector<Value>& args, const Value* app) {
-    _check_output_port(args[0], "close-output-port", app);
+    // R7RS 6.13.1: close-output-port has no effect on an already-closed port.
+    if (!is_port(args[0]))
+        throw SchemeTypeError("close-output-port: argument must be a port", _src(app));
+    if (as_port(args[0])->is_input)
+        throw SchemeTypeError("close-output-port: argument must be an output port", _src(app));
     _close_port_impl(as_port(args[0]));
     return VOID_VALUE;
 }
@@ -570,14 +593,23 @@ static Value _prim_read_line(Context* ctx, Environment*, std::vector<Value>& arg
     Value port_val = args.empty() ? _get_current_input(ctx) : args[0];
     Port* p = _check_textual_input(port_val, "read-line", app);
     if (p->pos >= p->buf_text.size()) return make_eof();
-    auto nl = p->buf_text.find('\n', p->pos);
+    // R7RS 6.13.2: an end of line is a linefeed, a carriage return, or a
+    // carriage return followed by a linefeed (CRLF counts as one ending).
+    // CR/LF are ASCII and never occur as UTF-8 continuation bytes, so scanning
+    // by byte is safe.
+    size_t n = p->buf_text.size();
+    size_t i = p->pos;
+    while (i < n && p->buf_text[i] != '\n' && p->buf_text[i] != '\r') ++i;
     std::string line;
-    if (nl == std::string::npos) {
+    if (i >= n) {
         line = p->buf_text.substr(p->pos);
-        p->pos = p->buf_text.size();
+        p->pos = n;
     } else {
-        line = p->buf_text.substr(p->pos, nl - p->pos);
-        p->pos = nl + 1;
+        line = p->buf_text.substr(p->pos, i - p->pos);
+        if (p->buf_text[i] == '\r' && i + 1 < n && p->buf_text[i + 1] == '\n')
+            p->pos = i + 2;   // CRLF
+        else
+            p->pos = i + 1;   // lone LF or lone CR
     }
     return make_string(line);
 }

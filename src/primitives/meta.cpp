@@ -107,6 +107,10 @@ static Value _prim_environment(Context*, Environment*, std::vector<Value>& args,
 static Value _prim_null_environment(Context*, Environment*, std::vector<Value>& args, const Value* app) {
     if (!is_integer(args[0]))
         throw SchemeTypeError("null-environment: version must be an integer", _src(app));
+    // R7RS 6.12: version 5 (R5RS) must be supported; if version is neither 5
+    // nor another value supported by the implementation, an error is signaled.
+    if (as_integer(args[0]) != 5)
+        throw SchemeTypeError("null-environment: unsupported version (only 5 is supported)", _src(app));
     Environment* e = gc_alloc_environment(nullptr);
     e->freeze();
     return make_environment(e);
@@ -115,6 +119,9 @@ static Value _prim_null_environment(Context*, Environment*, std::vector<Value>& 
 static Value _prim_scheme_report_environment(Context*, Environment* env, std::vector<Value>& args, const Value* app) {
     if (!is_integer(args[0]))
         throw SchemeTypeError("scheme-report-environment: version must be an integer", _src(app));
+    // R7RS 6.12: only version 5 (R5RS) is required; signal an error otherwise.
+    if (as_integer(args[0]) != 5)
+        throw SchemeTypeError("scheme-report-environment: unsupported version (only 5 is supported)", _src(app));
     return make_environment(env->getGlobalEnv());
 }
 
@@ -240,6 +247,15 @@ static Value _prim_with_parameters_unreached(Context*, Environment*, std::vector
 static Value _prim_load(Context* ctx, Environment* env, std::vector<Value>& args, const Value* app) {
     if (!is_string(args[0]))
         throw SchemeTypeError("load: filename must be a string", _src(app));
+    // R7RS 6.14: (load filename [environment-specifier]).  Evaluate the file's
+    // forms in the supplied environment if given, else the current (interaction)
+    // environment.
+    Environment* eval_env = env;
+    if (args.size() >= 2) {
+        if (!is_environment(args[1]))
+            throw SchemeTypeError("load: second argument must be an environment specifier", _src(app));
+        eval_env = as_environment(args[1]);
+    }
     const std::string path = as_string(args[0]);
     std::ifstream f(path);
     if (!f.is_open())
@@ -249,7 +265,7 @@ static Value _prim_load(Context* ctx, Environment* env, std::vector<Value>& args
     std::vector<Value> forms = scheme_parse(source, path);
     for (const Value& raw : forms) {
         Value expanded = expand(raw);
-        cek_eval(expanded, env, ctx);
+        cek_eval(expanded, eval_env, ctx);
     }
     return VOID_VALUE;
 }
@@ -429,7 +445,7 @@ void register_meta() {
         "", "(scheme-report-environment version) returns an environment with standard procedures.  R7RS 6.12.",
         CATEGORY);
 
-    register_primitive("load",                     1,  1, _prim_load,
+    register_primitive("load",                     1,  2, _prim_load,
         "", "(load filename) reads and evaluates all forms in filename.  R7RS 6.14.", CATEGORY);
 
     register_primitive("command-line",             0,  0, _prim_command_line,
