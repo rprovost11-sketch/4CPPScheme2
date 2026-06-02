@@ -890,6 +890,7 @@ TestResult Listener::sessionLog_test(const std::string& filename, int verbosity)
 
       std::string actual_retval;
       std::string actual_error;
+      bool timed_out = false;
       std::ostringstream out_capture;
 
          {
@@ -907,6 +908,8 @@ TestResult Listener::sessionLog_test(const std::string& filename, int verbosity)
          catch (std::exception& e)
             {
             actual_error = format_error(e);
+            if (actual_error.find("Evaluation timed out.") != std::string::npos)
+               timed_out = true;
             }
          ctx->timeout_active = false;
          }
@@ -921,7 +924,15 @@ TestResult Listener::sessionLog_test(const std::string& filename, int verbosity)
       // checks are bypassed too, since the outcome is unspecified.
       bool optional_error = _sw(expected_error, "%optional-error%", 16);
       bool error_ok, retval_ok, output_ok;
-      if (optional_error)
+      if (timed_out)
+         {
+         // A timeout is a hang, never a legitimate "an error is signaled": force
+         // a failure regardless of the expected-error marker (otherwise a hang on
+         // a '%%% *' / '%any-error%' / '%optional-error%' test would be silently
+         // scored as a pass).
+         error_ok = retval_ok = output_ok = false;
+         }
+      else if (optional_error)
          {
          error_ok = retval_ok = output_ok = true;
          }
@@ -955,6 +966,8 @@ TestResult Listener::sessionLog_test(const std::string& filename, int verbosity)
          {
          ++n_fail;
          std::cout << RED << "  " << lbuf << ". FAIL  " << label << RESET << '\n';
+         if (timed_out)
+            std::cout << "         *** evaluation timed out (treated as failure) ***\n";
          if (!retval_ok)
             {
             std::cout << "         expected return: [" << expected_retval << "]\n";
