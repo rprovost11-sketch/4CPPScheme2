@@ -11,23 +11,24 @@
 // Static arity environment: name -> optional(lo, hi).
 // hi == -1 means variadic (no upper bound).  nullopt means arity unknown
 // (suppresses static arity checking for that name).
-using StaticEnv = std::unordered_map<std::string, std::optional<std::pair<int,int>>>;
+using StaticEnv = std::unordered_map<std::string, std::optional<std::pair<int, int>>>;
 
 // ── SchemeAnalysisError ───────────────────────────────────────────────────────
 // Port of Analyzer.py SchemeAnalysisError.
 
 #ifdef _MSC_VER
-#  pragma warning(push)
-#  pragma warning(disable: 4275)
+#pragma warning(push)
+#pragma warning(disable : 4275)
 #endif
 
-class CPPSCHEME2_API SchemeAnalysisError : public PositionedSchemeError {
-public:
-    using PositionedSchemeError::PositionedSchemeError;
-};
+class CPPSCHEME2_API SchemeAnalysisError : public PositionedSchemeError
+   {
+ public:
+   using PositionedSchemeError::PositionedSchemeError;
+   };
 
 #ifdef _MSC_VER
-#  pragma warning(pop)
+#pragma warning(pop)
 #endif
 
 // ── Public API ────────────────────────────────────────────────────────────────

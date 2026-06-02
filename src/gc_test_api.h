@@ -18,12 +18,12 @@ CPPSCHEME2_API size_t gc_test_nursery_capacity();
 CPPSCHEME2_API size_t gc_test_remembered_set_size();
 
 // 0 = Idle, 1 = Marking, 2 = Sweeping.
-CPPSCHEME2_API int    gc_test_gc_phase();
+CPPSCHEME2_API int gc_test_gc_phase();
 
 CPPSCHEME2_API size_t gc_test_young_threshold();
 CPPSCHEME2_API size_t gc_test_old_threshold();
-CPPSCHEME2_API void   gc_test_set_young_threshold(size_t v);
-CPPSCHEME2_API void   gc_test_set_old_threshold(size_t v);
+CPPSCHEME2_API void gc_test_set_young_threshold(size_t v);
+CPPSCHEME2_API void gc_test_set_old_threshold(size_t v);
 
 // ── Heap walking ──────────────────────────────────────────────────────────────
 // Invoke fn for every header in the young (g_young_head) or old (g_old_head)
@@ -36,31 +36,31 @@ CPPSCHEME2_API size_t gc_test_walk_nursery(std::function<void(GcHeader*)> fn);
 
 // True iff header is reachable via g_young_head list, g_old_head list, or the
 // active nursery prefix.  Used to verify "object survived this GC cycle."
-CPPSCHEME2_API bool   gc_test_in_heap(GcHeader* header);
-CPPSCHEME2_API bool   gc_test_in_remembered_set(GcHeader* header);
+CPPSCHEME2_API bool gc_test_in_heap(GcHeader* header);
+CPPSCHEME2_API bool gc_test_in_remembered_set(GcHeader* header);
 
 // Reset all GC state to a freshly-initialized condition.  Frees all live
 // objects.  Tests call this between cases for isolation.
-CPPSCHEME2_API void   gc_test_reset();
+CPPSCHEME2_API void gc_test_reset();
 
 // Unconditionally run a minor collection (mark young from roots, promote
 // survivors, evacuate nursery, forward pointers).  Bypasses the threshold
 // checks in gc_collect() so tests can control timing precisely.
-CPPSCHEME2_API void   gc_test_force_minor();
+CPPSCHEME2_API void gc_test_force_minor();
 
 // Unconditionally run a complete major collection: forced minor first, then
 // full stop-the-world mark, then synchronous sweep to completion.  Phase
 // returns to Idle on success.
-CPPSCHEME2_API void   gc_test_force_major();
+CPPSCHEME2_API void gc_test_force_major();
 
 CPPSCHEME2_API size_t gc_test_trace_hook_count();
 
 // DEBUG: turn off free_object.  Used to confirm whether a crash is caused by
 // use-after-free of an object the GC collected (i.e. a missing root).
-CPPSCHEME2_API void   gc_test_set_leak_instead_of_free(bool on);
+CPPSCHEME2_API void gc_test_set_leak_instead_of_free(bool on);
 // DEBUG: when leak mode is on, leak only objects of this GcType.  Set to -1
 // to leak all types.
-CPPSCHEME2_API void   gc_test_set_leak_only_type(int gc_type_int);
+CPPSCHEME2_API void gc_test_set_leak_only_type(int gc_type_int);
 
 // DEBUG: returns the count of objects that would have been freed by type
 // (indexed by GcType-as-int).  Only populated while leak mode is on.

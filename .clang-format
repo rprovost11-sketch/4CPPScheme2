@@ -1,0 +1,27 @@
+---
+Language:        Cpp
+BasedOnStyle:    LLVM
+# Whitesmiths braces + 3-space indentation (project C++ style).
+BreakBeforeBraces: Whitesmiths
+IndentWidth:     3
+TabWidth:        3
+UseTab:          Never
+# Preserve existing line breaks -- this pass is about braces+indent, not rewrapping.
+ColumnLimit:     0
+PointerAlignment: Left
+ReferenceAlignment: Left
+# Don't reorder includes (order can matter) or reflow the box-drawing comments.
+SortIncludes:    false
+ReflowComments:  false
+# One statement per line: expand non-empty function bodies (keep empty {} inline).
+# Lambdas stay inline (they mirror Python lambdas, which are single expressions).
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortLambdasOnASingleLine: All
+AllowShortBlocksOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+IndentCaseLabels: false
+NamespaceIndentation: None
+KeepEmptyLinesAtTheStartOfBlocks: true
+SpaceBeforeParens: ControlStatements
+...

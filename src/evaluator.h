@@ -13,33 +13,33 @@
 // ── Frame tag constants ───────────────────────────────────────────────────────
 // Direct port of Evaluator.py FRAME_* constants.
 
-constexpr int FRAME_DEFINE               = 0;
-constexpr int FRAME_SET                  = 1;
-constexpr int FRAME_IF                   = 2;
-constexpr int FRAME_ARG                  = 3;
-constexpr int FRAME_CALL                 = 4;
-constexpr int FRAME_SEQ                  = 5;
-constexpr int FRAME_WHEN                 = 6;
-constexpr int FRAME_UNLESS               = 7;
-constexpr int FRAME_AND                  = 8;
-constexpr int FRAME_OR                   = 9;
-constexpr int FRAME_COND                 = 10;
-constexpr int FRAME_COND_ARROW           = 11;
-constexpr int FRAME_LET                  = 12;
-constexpr int FRAME_LET_STAR             = 13;
-constexpr int FRAME_LETREC               = 14;
-constexpr int FRAME_CASE                 = 15;
-constexpr int FRAME_DYNAMIC_WIND_AFTER   = 16;
-constexpr int FRAME_CWV_CONSUMER         = 17;
-constexpr int FRAME_FORCE_RESULT         = 18;
-constexpr int FRAME_MAKE_PARAMETER       = 19;
-constexpr int FRAME_POP_HANDLER          = 20;
-constexpr int FRAME_REINSTALL_HANDLER    = 21;
-constexpr int FRAME_CASE_ARROW           = 22;
-constexpr int FRAME_SHADOW_POP           = 23;
-constexpr int FRAME_TRACE_EXIT           = 24;
-constexpr int FRAME_NONCONTIN_RETURN     = 25;
-constexpr int FRAME_GUARD                = 26;
+constexpr int FRAME_DEFINE = 0;
+constexpr int FRAME_SET = 1;
+constexpr int FRAME_IF = 2;
+constexpr int FRAME_ARG = 3;
+constexpr int FRAME_CALL = 4;
+constexpr int FRAME_SEQ = 5;
+constexpr int FRAME_WHEN = 6;
+constexpr int FRAME_UNLESS = 7;
+constexpr int FRAME_AND = 8;
+constexpr int FRAME_OR = 9;
+constexpr int FRAME_COND = 10;
+constexpr int FRAME_COND_ARROW = 11;
+constexpr int FRAME_LET = 12;
+constexpr int FRAME_LET_STAR = 13;
+constexpr int FRAME_LETREC = 14;
+constexpr int FRAME_CASE = 15;
+constexpr int FRAME_DYNAMIC_WIND_AFTER = 16;
+constexpr int FRAME_CWV_CONSUMER = 17;
+constexpr int FRAME_FORCE_RESULT = 18;
+constexpr int FRAME_MAKE_PARAMETER = 19;
+constexpr int FRAME_POP_HANDLER = 20;
+constexpr int FRAME_REINSTALL_HANDLER = 21;
+constexpr int FRAME_CASE_ARROW = 22;
+constexpr int FRAME_SHADOW_POP = 23;
+constexpr int FRAME_TRACE_EXIT = 24;
+constexpr int FRAME_NONCONTIN_RETURN = 25;
+constexpr int FRAME_GUARD = 26;
 
 // ── Frame struct (runtime continuation entries) ───────────────────────────────
 // Port of Evaluator.py frame tuples.  Each tag uses a subset of fields:
@@ -68,20 +68,21 @@ constexpr int FRAME_GUARD                = 26;
 //   FRAME_NONCONTIN_RETURN:     v1=raised_value
 //   FRAME_GUARD:                (empty) -- like FRAME_POP_HANDLER but for %guard-eval
 
-struct Frame {
-    int          tag      = 0;
-    Value        v1;
-    Value        v2;
-    Environment* env      = nullptr;
-    SourceInfo*  src_ptr  = nullptr;
-    std::vector<Value>                     list1;
-    std::vector<Value>                     list2;
-    std::vector<uint32_t>                  ids;
-    std::vector<std::pair<uint32_t,Value>> pairs;
-    uint32_t     uid      = 0;
-    int          depth    = 0;
-    std::string  str1;
-};
+struct Frame
+   {
+   int tag = 0;
+   Value v1;
+   Value v2;
+   Environment* env = nullptr;
+   SourceInfo* src_ptr = nullptr;
+   std::vector<Value> list1;
+   std::vector<Value> list2;
+   std::vector<uint32_t> ids;
+   std::vector<std::pair<uint32_t, Value>> pairs;
+   uint32_t uid = 0;
+   int depth = 0;
+   std::string str1;
+   };
 
 using KStack = std::vector<Frame>;
 
@@ -92,7 +93,7 @@ using KStack = std::vector<Frame>;
 CPPSCHEME2_API Value cek_eval(const Value& expr, Environment* env, Context* ctx = nullptr);
 
 // Global env reference for the library loader / eval primitive.
-CPPSCHEME2_API void         set_global_env(Environment* env);
+CPPSCHEME2_API void set_global_env(Environment* env);
 CPPSCHEME2_API Environment* get_global_env();
 
 // Synchronous procedure call: applies fn(args) via cek_eval.

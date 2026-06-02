@@ -8,14 +8,22 @@
 #include <vector>
 
 // Raised when the user presses Ctrl-D/Ctrl-Z on an empty line (port of EOFError).
-struct CPPSCHEME2_API ReadlineEOFError : std::exception {
-    const char* what() const noexcept override { return "readline EOF"; }
-};
+struct CPPSCHEME2_API ReadlineEOFError : std::exception
+   {
+   const char* what() const noexcept override
+      {
+      return "readline EOF";
+      }
+   };
 
 // Raised when the user presses Ctrl-C (port of KeyboardInterrupt).
-struct CPPSCHEME2_API ReadlineInterruptError : std::exception {
-    const char* what() const noexcept override { return "readline interrupt"; }
-};
+struct CPPSCHEME2_API ReadlineInterruptError : std::exception
+   {
+   const char* what() const noexcept override
+      {
+      return "readline interrupt";
+      }
+   };
 
 // Read one line of input with full line editing and history navigation.
 // prompt:               displayed before the first (or only) input line.
@@ -24,9 +32,9 @@ struct CPPSCHEME2_API ReadlineInterruptError : std::exception {
 // Throws ReadlineEOFError on Ctrl-D/Ctrl-Z when buffer is empty.
 // Throws ReadlineInterruptError on Ctrl-C.
 CPPSCHEME2_API std::string readline_win_input_line(
-    const std::string& prompt               = "",
-    const std::string& continuation_prompt  = "... ",
-    const std::string& prefill              = "");
+    const std::string& prompt = "",
+    const std::string& continuation_prompt = "... ",
+    const std::string& prefill = "");
 
 // Append entry to history (skips empty and exact duplicates of most recent).
 CPPSCHEME2_API void readline_win_add_history(const std::string& entry);

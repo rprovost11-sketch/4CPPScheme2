@@ -27,11 +27,12 @@ CPPSCHEME2_API void columnize(const std::vector<std::string>& lst,
 // Net paren depth + in_string flag after scanning a chunk of text.
 // stack holds each unclosed delimiter ('(' or '[') in open order.
 
-struct CPPSCHEME2_API ParenState {
-    int               depth;
-    bool              in_string;
-    std::vector<char> stack;
-};
+struct CPPSCHEME2_API ParenState
+   {
+   int depth;
+   bool in_string;
+   std::vector<char> stack;
+   };
 
 // Port of Utils.py paren_state.
 // Scans text ignoring string contents and ; comments.

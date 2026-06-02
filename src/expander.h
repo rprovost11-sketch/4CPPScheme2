@@ -6,7 +6,7 @@
 #include <string>
 
 // Install/retrieve the runtime environment for macro lookup and define-syntax.
-CPPSCHEME2_API void         set_runtime_env(Environment* env);
+CPPSCHEME2_API void set_runtime_env(Environment* env);
 CPPSCHEME2_API Environment* get_runtime_env();
 
 // Expand sugar and user macros in one S-expression.
@@ -18,7 +18,7 @@ CPPSCHEME2_API Value expand(const Value& sexpr);
 CPPSCHEME2_API Value lookup_macro(const Value& sym);
 
 // Set/get the fallback directory used to resolve relative include paths from REPL input.
-CPPSCHEME2_API void        set_include_fallback_dir(const std::string& dir);
+CPPSCHEME2_API void set_include_fallback_dir(const std::string& dir);
 CPPSCHEME2_API std::string get_include_fallback_dir();
 
 // Resolve a cond-expand feature requirement against the platform feature set.

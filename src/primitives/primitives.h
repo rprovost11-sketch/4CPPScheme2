@@ -9,12 +9,13 @@
 #include <vector>
 
 // Port of __init__.py PrimitiveHelp entry: (kind, usage, doc, category).
-struct PrimitiveHelp {
-    std::string kind;
-    std::string usage;
-    std::string doc;
-    std::string category;
-};
+struct PrimitiveHelp
+   {
+   std::string kind;
+   std::string usage;
+   std::string doc;
+   std::string category;
+   };
 
 // Port of PRIMITIVE_HELP dict.
 CPPSCHEME2_API const std::unordered_map<std::string, PrimitiveHelp>& primitive_help();
@@ -31,9 +32,9 @@ CPPSCHEME2_API void register_primitive(
     const std::string& name, int lo, int hi,
     BuiltinFn fn,
     const std::string& usage = "",
-    const std::string& doc   = "",
+    const std::string& doc = "",
     const std::string& category = "",
-    const std::string& kind  = "primitive");
+    const std::string& kind = "primitive");
 
 // Port of install_primitives(env).
 // Calls all module register_xxx() functions (once), then binds every

@@ -12,13 +12,13 @@
 
 #include "scheme_export.h"
 #include <cstdint>
-#include <intrin.h>   // __rdtsc, __cpuid
+#include <intrin.h> // __rdtsc, __cpuid
 
 // ── Per-function entry ──────────────────────────────────────────────────────
 
 struct ProfEntry
    {
-   uint64_t count     = 0;
+   uint64_t count = 0;
    uint64_t total_tsc = 0;
    };
 
@@ -27,8 +27,8 @@ struct ProfEntry
 struct ProfData
    {
    // CEK loop
-   ProfEntry cek_eval_step;      // one Eval iteration
-   ProfEntry cek_apply_step;     // one Apply iteration (frame pop)
+   ProfEntry cek_eval_step;  // one Eval iteration
+   ProfEntry cek_apply_step; // one Apply iteration (frame pop)
 
    // apply_procedure dispatch
    ProfEntry apply_builtin;
@@ -61,7 +61,7 @@ struct ProfData
    // eval_compound (special form dispatch)
    ProfEntry eval_compound;
 
-   double tsc_freq = 0.0;        // ticks per second, calibrated at startup
+   double tsc_freq = 0.0; // ticks per second, calibrated at startup
    };
 
 CPPSCHEME2_API extern ProfData g_prof;
@@ -71,7 +71,7 @@ CPPSCHEME2_API extern ProfData g_prof;
 struct ProfScope
    {
    ProfEntry& entry;
-   uint64_t   start;
+   uint64_t start;
 
    ProfScope(ProfEntry& e) : entry(e), start(__rdtsc())
       {
@@ -83,12 +83,12 @@ struct ProfScope
       }
    };
 
-// ── Macros ──────────────────────────────────────────────────────────────────
-// PROF_SCOPE(name) — starts timing; accumulates on scope exit.
-// PROF_COUNT(name) — count-only bump, no timing.
+   // ── Macros ──────────────────────────────────────────────────────────────────
+   // PROF_SCOPE(name) — starts timing; accumulates on scope exit.
+   // PROF_COUNT(name) — count-only bump, no timing.
 
-#define PROF_SCOPE(name)  ProfScope _prof_scope_##name(g_prof.name)
-#define PROF_COUNT(name)  (++g_prof.name.count)
+#define PROF_SCOPE(name) ProfScope _prof_scope_##name(g_prof.name)
+#define PROF_COUNT(name) (++g_prof.name.count)
 
 // ── Public interface ────────────────────────────────────────────────────────
 
@@ -104,11 +104,11 @@ CPPSCHEME2_API void prof_reset();
 #else // PROFILE_COUNTERS not defined
 
 // All macros expand to nothing.
-#define PROF_SCOPE(name)  ((void)0)
-#define PROF_COUNT(name)  ((void)0)
+#define PROF_SCOPE(name) ((void)0)
+#define PROF_COUNT(name) ((void)0)
 
-inline void prof_init()   {}
+inline void prof_init() {}
 inline void prof_report() {}
-inline void prof_reset()  {}
+inline void prof_reset() {}
 
 #endif // PROFILE_COUNTERS
