@@ -33,6 +33,18 @@ static GcHeader* g_old_head        = nullptr;
 static size_t    g_old_count       = 0;
 static size_t    g_old_threshold   = 131072;
 
+// ── GC-stress mode (the ]gc-stress listener command) ──────────────────────────
+// When enabled, the collection thresholds and the *effective* nursery limit are
+// slashed so minor collections fire constantly -- exercising the moving GC (and
+// surfacing any missing-root bug) on whatever workload is running, with no
+// recompile.  GC is invisible to Scheme semantics, so results are unchanged; the
+// run just gets much slower and much more thorough.  Toggled at runtime; the
+// pre-stress thresholds are saved so they can be restored on disable.
+static bool   g_gc_stress             = false;
+static size_t g_nursery_limit         = NURSERY_CAPACITY;  // collect when bump hits this
+static size_t g_saved_young_threshold = 0;
+static size_t g_saved_old_threshold   = 0;
+
 static std::unordered_set<GcHeader*> g_remembered_set;
 static bool g_minor_gc_active = false;
 
@@ -873,7 +885,7 @@ static void gc_sweep_step() {
 // ── Public collection entry point ─────────────────────────────────────────────
 
 bool gc_needs_collection() {
-    return (g_nursery_bump >= NURSERY_CAPACITY)
+    return (g_nursery_bump >= g_nursery_limit)
         || (g_young_threshold > 0 && g_young_count >= g_young_threshold)
         || (g_old_threshold > 0   && g_old_count   >= g_old_threshold)
         || (g_gc_phase == GcPhase::Sweeping);
@@ -883,7 +895,7 @@ void gc_collect() {
     PROF_SCOPE(gc_collect);
 
     if (g_gc_phase == GcPhase::Sweeping) {
-        if (g_nursery_bump >= NURSERY_CAPACITY
+        if (g_nursery_bump >= g_nursery_limit
                 || (g_young_threshold > 0 && g_young_count >= g_young_threshold))
             minor_collect();
         gc_sweep_step();
@@ -1128,8 +1140,12 @@ void gc_init() {
     g_nursery_bump    = 0;
     g_young_head = g_old_head = nullptr;
     g_young_count = g_old_count = 0;
-    g_young_threshold = 256;
-    g_old_threshold   = 1024;
+    // Preserve an active ]gc-stress setting across (re)initialization: the
+    // stressed thresholds persist until the listener command toggles them back.
+    if (!g_gc_stress) {
+        g_young_threshold = 256;
+        g_old_threshold   = 1024;
+    }
     g_gc_phase        = GcPhase::Idle;
     g_sweep_cursor    = nullptr;
     g_gray_stack.clear();
@@ -1168,6 +1184,31 @@ void gc_shutdown() {
     g_young_head = g_old_head = nullptr;
     g_young_count = g_old_count = 0;
 }
+
+// ── GC-stress toggle (see gc.h; exposed via the ]gc-stress listener command) ──
+
+void gc_set_stress(bool on)
+   {
+   if (on == g_gc_stress) return;
+   if (on)
+      {
+      g_saved_young_threshold = g_young_threshold;
+      g_saved_old_threshold   = g_old_threshold;
+      g_young_threshold = 64;     // minor GC after a trickle of young objects
+      g_old_threshold   = 1024;   // (auto-grows during majors; that's fine)
+      g_nursery_limit   = 256;    // evacuate the nursery far more often
+      g_gc_stress       = true;
+      }
+   else
+      {
+      g_young_threshold = g_saved_young_threshold;
+      g_old_threshold   = g_saved_old_threshold;
+      g_nursery_limit   = NURSERY_CAPACITY;
+      g_gc_stress       = false;
+      }
+   }
+
+bool gc_stress_enabled() { return g_gc_stress; }
 
 // ── Test-only API (see gc_test_api.h) ─────────────────────────────────────────
 
@@ -1231,6 +1272,8 @@ bool gc_test_in_remembered_set(GcHeader* header) {
 void gc_test_reset() {
     gc_shutdown();
     // Restore defaults that gc_shutdown leaves alone.
+    g_gc_stress       = false;   // never let GC-stress leak between tests
+    g_nursery_limit   = NURSERY_CAPACITY;
     g_young_threshold = 256;
     g_old_threshold   = 1024;
     // Tests run sequentially in one binary; ensure no lingering hooks from a

@@ -564,6 +564,12 @@ static std::pair<Value,Value> build_parameterize_winds(
     }
 
     std::vector<Value> new_vals_raw;
+    // Rooted: new_vals_raw and installed (below) hold user values across the
+    // converter's apply_scheme_proc re-entry, which can trigger a moving minor
+    // GC.  A fresh nursery value (e.g. a converter or parameterize value that is
+    // a young cons) would otherwise be left stale.  (params holds Parameter
+    // objects, which are promoted in place and need no root.)
+    GcRootVec new_vals_raw_root(new_vals_raw);
     cur = values_list;
     while (is_cons(cur)) { new_vals_raw.push_back(car(cur)); cur = cdr(cur); }
     if (!is_nil(cur)) {
@@ -576,6 +582,7 @@ static std::pair<Value,Value> build_parameterize_winds(
     }
 
     std::vector<Value> installed;
+    GcRootVec installed_root(installed);
     for (size_t i = 0; i < params.size(); ++i) {
         Value conv = as_parameter_converter(params[i]);
         if (is_nil(conv)) {
@@ -1050,6 +1057,11 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
     // Helper: dispatch handler on exception.
     // Returns true if handler found + state updated; false = re-raise.
     auto dispatch_exc = [&](Value raised_value, bool is_scheme_raised, bool continuable) -> bool {
+        // The condition object is held across the dynamic-wind after-thunks run
+        // during unwind (apply_scheme_proc below), each of which can trigger a
+        // moving minor GC.  Root it so it isn't left stale before it is stored
+        // into the FRAME_NONCONTIN_RETURN frame / passed to the handler.
+        GcRootGuard raised_root(raised_value);
         Value handler_val;
         bool found = false;
         bool is_guard_handler = false;
@@ -1094,10 +1106,10 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
         }
         if (!found) return false;
         if (is_scheme_raised && !continuable && !is_guard_handler) {
-            Frame nf; nf.tag = FRAME_NONCONTIN_RETURN; nf.v1 = raised_value;
+            Frame nf; nf.tag = FRAME_NONCONTIN_RETURN; nf.v1 = raised_root.val;
             K.push_back(std::move(nf));
         }
-        std::vector<Value> hargs = { raised_value };
+        std::vector<Value> hargs = { raised_root.val };
         EnterResult result = enter_proc(handler_val, hargs, ctx, E, nullptr);
         if (result.kind == EnterResult::IsValue) {
             V = result.v; skip_eval = true;
@@ -1457,12 +1469,17 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
 
                     // ── FRAME_DYNAMIC_WIND_AFTER ──────────────────────────────
                     if (ftag == FRAME_DYNAMIC_WIND_AFTER) {
-                        Value after = frame.v1;
-                        Value body_result = V;
+                        // Both `after` and the body's result are held across the
+                        // after-thunk's re-entry into the evaluator, which can
+                        // trigger a moving minor GC.  Root them so the forwarded
+                        // pointers are not left stale (mirrors the before-thunk
+                        // path's GcRootGuards).
+                        GcRootGuard after(frame.v1);
+                        GcRootGuard body_result(V);
                         if (!ctx->wind_stack.empty()) ctx->wind_stack.pop_back();
                         std::vector<Value> ea;
-                        apply_scheme_proc(after, ea, ctx, nullptr, nullptr);
-                        V = body_result; continue;
+                        apply_scheme_proc(after.val, ea, ctx, nullptr, nullptr);
+                        V = body_result.val; continue;
                     }
 
                     // ── FRAME_CWV_CONSUMER ────────────────────────────────────

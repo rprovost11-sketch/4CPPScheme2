@@ -180,4 +180,5 @@ private:
     void _cmd_profile    (std::vector<std::string>& args);
     void _cmd_compliance (std::vector<std::string>& args);
     void _cmd_regression (std::vector<std::string>& args);
+    void _cmd_gc_stress  (std::vector<std::string>& args);
 };

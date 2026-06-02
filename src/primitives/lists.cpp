@@ -193,7 +193,11 @@ static Value _assoc_search(const char* name, _EqFn eq_pred,
             std::vector<Value> call_args = {target.val, car(pair)};
             GcRootVec call_args_root(call_args);
             Value res = apply_scheme_proc(cmp_proc.val, call_args, ctx, nullptr, app);
-            if (is_truthy(res)) return pair;
+            // Re-fetch the entry from the rooted cursor: `pair` is a bare snapshot
+            // of car(cur.val) taken before the comparator re-entered the evaluator
+            // (which can move it via a minor GC).  cur is rooted, so car(cur.val)
+            // is the forwarded, live pointer.
+            if (is_truthy(res)) return car(cur.val);
             cur.val = cdr(cur.val);
         }
     } else {

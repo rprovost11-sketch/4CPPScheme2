@@ -841,6 +841,206 @@ TEST(compliance_421_timing) {
     run("(any-negative? (make-list 1000000 1))", "any-negative? 1M list");
 }
 
+// ── REPL-level GC correctness + missing-root regressions ─────────────────────
+// These drive the real interpreter and assert Scheme-observable results.
+//
+// The general gc_* tests force collections *between* evals (gc_test_force_*) and
+// verify that values, identity (eq?), sharing, and cycles survive intact.
+//
+// The gc_regression_* tests reproduce the four missing-GC-root sites found by
+// the 2026-06-02 audit: a Value / interior pointer held across an evaluator
+// re-entry (apply_scheme_proc) without a root guard.  A collection can only fire
+// when control re-enters the evaluator, so each test (a) lowers the young
+// threshold so gc_needs_collection() is ~always true, and (b) makes the
+// re-entered thunk run >1024 eval steps of cons-allocating `churn`, guaranteeing
+// the evaluator's GC checkpoint (every 0x3FF steps, Evaluator.cpp) fires while
+// the formerly-unrooted value is live.  Before the fixes these mis-evaluate or
+// crash with heap corruption; after, they are stable.
+
+static void check_eval(Interpreter& interp, const char* expr,
+                       const char* expected, const char* label)
+   {
+   std::string got;
+   try
+      {
+      got = interp.eval(expr);
+      }
+   catch (const std::exception& e)
+      {
+      std::fprintf(stderr, "  FAIL [%s] %s threw: %s\n",
+                   g_current_test, label, e.what());
+      ++g_failures;
+      return;
+      }
+   if (got != expected)
+      {
+      std::fprintf(stderr, "  FAIL [%s] %s: got \"%s\" expected \"%s\"\n",
+                   g_current_test, label, got.c_str(), expected);
+      ++g_failures;
+      }
+   }
+
+// RAII helper: lower the minor-GC threshold for a torture test, restore after.
+struct YoungThresholdGuard
+   {
+   size_t saved;
+   explicit YoungThresholdGuard(size_t v) : saved(gc_test_young_threshold())
+      {
+      gc_test_set_young_threshold(v);
+      }
+   ~YoungThresholdGuard() { gc_test_set_young_threshold(saved); }
+   };
+
+// A Scheme loop that runs >1024 eval steps and allocates a cons per step, so a
+// minor GC is guaranteed to fire while it runs (used inside re-entrant thunks).
+static const char* CHURN_DEF =
+    "(define (churn n acc) (if (= n 0) acc (churn (- n 1) (cons n acc))))";
+
+// ── General GC correctness (independent of the four fixes) ───────────────────
+
+TEST(gc_eval_value_survives_forced_gc)
+   {
+   gc_test_reset();
+   Interpreter interp;
+   interp.eval("(define lst (list 1 2 3 4 5))");
+   interp.eval("(define vec (vector 'a 'b 'c))");
+   interp.eval("(define str (string-append \"hel\" \"lo\"))");
+   force_minor_gc(); check_invariants("after minor");
+   force_major_gc(); check_invariants("after major");
+   check_eval(interp, "(equal? lst '(1 2 3 4 5))", "#t", "list survived");
+   check_eval(interp, "(equal? vec #(a b c))",     "#t", "vector survived");
+   check_eval(interp, "(equal? str \"hello\")",    "#t", "string survived");
+   }
+
+TEST(gc_eq_identity_preserved_across_gc)
+   {
+   gc_test_reset();
+   Interpreter interp;
+   interp.eval("(define p (cons 1 2))");
+   interp.eval("(define q p)");
+   force_minor_gc(); force_major_gc();
+   check_invariants("after gc");
+   check_eval(interp, "(eq? p q)", "#t", "identity preserved");
+   }
+
+TEST(gc_shared_structure_preserved_across_gc)
+   {
+   gc_test_reset();
+   Interpreter interp;
+   interp.eval("(define tail (list 'x 'y 'z))");
+   interp.eval("(define a (cons 1 tail))");
+   interp.eval("(define b (cons 2 tail))");
+   force_minor_gc(); force_major_gc();
+   check_invariants("after gc");
+   check_eval(interp, "(eq? (cdr a) (cdr b))", "#t", "sharing preserved");
+   check_eval(interp, "(equal? a '(1 x y z))", "#t", "a intact");
+   check_eval(interp, "(equal? b '(2 x y z))", "#t", "b intact");
+   }
+
+TEST(gc_cyclic_structure_survives_gc)
+   {
+   gc_test_reset();
+   Interpreter interp;
+   interp.eval("(define c (list 1 2 3))");
+   interp.eval("(set-cdr! (cddr c) c)");   // close the cycle: (cdddr c) == c
+   force_minor_gc(); check_invariants("after minor on cycle");
+   force_major_gc(); check_invariants("after major on cycle");
+   check_eval(interp, "(car c)",   "1", "car intact");
+   check_eval(interp, "(cadr c)",  "2", "cadr intact");
+   check_eval(interp, "(caddr c)", "3", "caddr intact");
+   check_eval(interp, "(eq? (cdddr c) c)", "#t", "cycle still closed");
+   }
+
+TEST(gc_allocation_churn_major_collection)
+   {
+   gc_test_reset();
+   Interpreter interp;
+   interp.eval("(define big (make-list 100000 'x))");
+   force_minor_gc(); force_major_gc(); check_invariants("after big alloc");
+   check_eval(interp, "(length big)", "100000", "big length");
+   interp.eval("(set! big '())");            // drop the big list
+   force_major_gc(); check_invariants("after drop");
+   interp.eval("(define big2 (make-list 50000 'y))");
+   force_major_gc(); check_invariants("after realloc");
+   check_eval(interp, "(length big2)", "50000", "big2 length");
+   }
+
+// ── Missing-root regressions (mis-evaluate / crash before the fixes) ─────────
+
+// Bug 1: FRAME_DYNAMIC_WIND_AFTER held the body result in an unrooted copy
+// across the after-thunk's apply_scheme_proc (Evaluator.cpp).
+TEST(gc_regression_dynamic_wind_after_result)
+   {
+   gc_test_reset();
+   YoungThresholdGuard yt(1);
+   Interpreter interp;
+   interp.eval(CHURN_DEF);
+   for (int i = 0; i < 30; ++i)
+      check_eval(interp,
+         "(dynamic-wind (lambda () #f)"
+         "              (lambda () (list 'a 'b 'c))"
+         "              (lambda () (churn 1500 '()) #f))",
+         "(a b c)", "wind after result");
+   check_invariants("after dynamic-wind torture");
+   }
+
+// Bug 2: dispatch_exc held the raised condition unrooted across dynamic-wind
+// after-thunks run during the unwind to the handler (Evaluator.cpp).
+TEST(gc_regression_exception_condition_survives_unwind)
+   {
+   gc_test_reset();
+   YoungThresholdGuard yt(1);
+   Interpreter interp;
+   interp.eval(CHURN_DEF);
+   for (int i = 0; i < 30; ++i)
+      check_eval(interp,
+         "(guard (e (#t (equal? e '(oops 42))))"
+         "  (dynamic-wind (lambda () #f)"
+         "                (lambda () (raise (list 'oops 42)))"
+         "                (lambda () (churn 1500 '()) #f)))",
+         "#t", "raised condition survived");
+   check_invariants("after exception torture");
+   }
+
+// Bug 3: build_parameterize_winds held new_vals_raw / installed unrooted across
+// the converter's apply_scheme_proc (Evaluator.cpp).  Two parameters so an
+// already-installed fresh value is held across the next converter's GC.
+TEST(gc_regression_parameterize_converter_value)
+   {
+   gc_test_reset();
+   YoungThresholdGuard yt(1);
+   Interpreter interp;
+   interp.eval(CHURN_DEF);
+   interp.eval("(define p1 (make-parameter 'i1 (lambda (v) (churn 1500 '()) v)))");
+   interp.eval("(define p2 (make-parameter 'i2 (lambda (v) (churn 1500 '()) v)))");
+   for (int i = 0; i < 30; ++i)
+      check_eval(interp,
+         "(parameterize ((p1 (list 1 2 3)) (p2 (list 4 5 6)))"
+         "  (list (p1) (p2)))",
+         "((1 2 3) (4 5 6))", "parameterize converter values");
+   check_invariants("after parameterize torture");
+   }
+
+// Bug 4: _assoc_search returned `pair`, a snapshot of the matching entry taken
+// before the custom comparator's apply_scheme_proc moved it (lists.cpp).
+TEST(gc_regression_assoc_custom_comparator_result)
+   {
+   gc_test_reset();
+   YoungThresholdGuard yt(1);
+   Interpreter interp;
+   interp.eval(CHURN_DEF);
+   // Match the FIRST entry: its snapshot (`pair`) is taken while it is still a
+   // nursery cons, so the comparator's GC evacuates it and the bare snapshot
+   // goes stale.  (Matching a later entry would not reproduce: earlier
+   // comparator GCs promote the whole alist to old-gen, where it stops moving.)
+   for (int i = 0; i < 30; ++i)
+      check_eval(interp,
+         "(assoc 'a (list (cons 'a 1) (cons 'b 2) (cons 'c 3) (cons 'd 4))"
+         "          (lambda (x y) (churn 1500 '()) (eq? x y)))",
+         "(a . 1)", "assoc comparator entry");
+   check_invariants("after assoc torture");
+   }
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 int main(int argc, char** argv) {

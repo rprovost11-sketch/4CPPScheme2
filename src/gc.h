@@ -120,6 +120,15 @@ CPPSCHEME2_API void   gc_collect();
 CPPSCHEME2_API void   gc_set_threshold(size_t threshold);
 CPPSCHEME2_API size_t gc_object_count();
 
+// ── GC-stress toggle ──────────────────────────────────────────────────────────
+// Slash the collection thresholds / effective nursery so collections fire
+// constantly (exercises the moving GC; surfaces missing-root bugs).  GC is
+// invisible to Scheme semantics, so results are unchanged -- runs just get
+// slower and far more thorough.  Persists until disabled (nothing else resets
+// it).  Exposed to the user via the ]gc-stress listener command.
+CPPSCHEME2_API void gc_set_stress(bool on);
+CPPSCHEME2_API bool gc_stress_enabled();
+
 // ── Init / shutdown ───────────────────────────────────────────────────────────
 CPPSCHEME2_API void gc_init();
 CPPSCHEME2_API void gc_shutdown();

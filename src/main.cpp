@@ -107,7 +107,7 @@ int main(int argc, char* argv[]) {
         &interp,
         testdir,
         "cppscheme2",
-        "0.4.16",
+        "0.4.20",
         "Ron Provost/Longo",
         "https://github.com/rprovost11/cppscheme2",
         compliancedir,

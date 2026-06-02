@@ -10,7 +10,9 @@
 #include "Expander.h"
 #include "Parser.h"
 #include "Utils.h"
+#include "gc.h"
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -382,6 +384,7 @@ Listener::Listener(InterpreterBase*   interp,
     _commands["profile"]    = [this](std::vector<std::string>& a) { _cmd_profile(a); };
     _commands["compliance"] = [this](std::vector<std::string>& a) { _cmd_compliance(a); };
     _commands["regression"] = [this](std::vector<std::string>& a) { _cmd_regression(a); };
+    _commands["gc-stress"]  = [this](std::vector<std::string>& a) { _cmd_gc_stress(a); };
 
     _help["help"]     = "Usage: ]help [command]\nList every listener command, or show detailed help for one.";
     _help["quit"]     = "Usage: ]quit\nExit the listener.";
@@ -401,6 +404,7 @@ Listener::Listener(InterpreterBase*   interp,
     _help["profile"]    = "Usage: ]profile [reset]\nPrint profiling report (call counts + times) and reset counters.\nWith 'reset', reset counters without printing.\n(Requires build with -DPROFILE_COUNTERS.)";
     _help["compliance"] = "Usage: ]compliance [<file.log> | <start> [<end>]]\nRun the R7RS compliance test suite against the configured directory.\n  ]compliance              -- run all tests\n  ]compliance 3            -- run tests with filename >= \"3\"\n  ]compliance 3 4          -- run tests with \"3\" <= filename < \"4\"\n  ]compliance 3.1 Booleans.log  -- run that one file\nFilename comparison is case-insensitive.  The interpreter is rebooted\nbefore each file.  Supports '==> X or ==> Y' alternatives;\n'%%% *' / '%%% %any-error%' require any error to be raised (R7RS\n'an error is signaled'); '%%% %optional-error%' models R7RS\n'it is an error' -- passes whether an error is raised or the form\nreturns (asserts only that evaluation terminates).";
     _help["regression"] = "Usage: ]regression [<file.log> | <start> [<end>]]\nRun the regression test suite (Scheme-observable, non-spec tripwires) against\nthe configured directory.\n  ]regression                  -- run all regression files\n  ]regression 03               -- run files with filename >= \"03\"\n  ]regression 03 06            -- run files with \"03\" <= filename < \"06\"\n  ]regression 03-evaluator.log -- run that one file\nSpec deviations are guarded by ]compliance instead.  Files are grouped by\nsubsystem; see regression-tests/00-conventions.md.  The interpreter is\nrebooted before each file.";
+    _help["gc-stress"]  = "Usage: ]gc-stress [on|off|status]\nToggle GC-stress mode.  When ON, the garbage collector's thresholds and\neffective nursery are slashed so minor collections fire constantly -- this\nexercises the moving GC and surfaces any missing-root bug on whatever you\nthen run (e.g. ]compliance or ]test).  GC is invisible to Scheme semantics,\nso results are unchanged; runs just get much slower and far more thorough.\nThe setting persists (across reboots) until you toggle it off.\nWith no argument, prints the current state.";
 
     _banner();
 }
@@ -1196,6 +1200,43 @@ void Listener::_cmd_regression(std::vector<std::string>& args) {
 
     _runTestFiles(filtered, regdir, "regression");
 }
+
+void Listener::_cmd_gc_stress(std::vector<std::string>& args)
+   {
+   if (args.size() > 1)
+      throw ListenerCommandError("Usage: ]gc-stress [on|off|status]");
+
+   if (args.empty())
+      {
+      std::cout << "GC-stress is " << (gc_stress_enabled() ? "ON" : "off")
+                << ".  (Usage: ]gc-stress on|off|status)\n";
+      return;
+      }
+
+   std::string a = args[0];
+   for (char& ch : a) ch = (char)std::tolower((unsigned char)ch);
+
+   if (a == "on" || a == "1" || a == "true")
+      {
+      gc_set_stress(true);
+      std::cout << "GC-stress ON: collections now fire constantly (slow but "
+                   "thorough).\nRuns such as ]compliance / ]test will exercise "
+                   "the GC heavily.\nThe setting persists until ]gc-stress off.\n";
+      }
+   else if (a == "off" || a == "0" || a == "false")
+      {
+      gc_set_stress(false);
+      std::cout << "GC-stress off: normal collection thresholds restored.\n";
+      }
+   else if (a == "status")
+      {
+      std::cout << "GC-stress is " << (gc_stress_enabled() ? "ON" : "off") << ".\n";
+      }
+   else
+      {
+      throw ListenerCommandError("Usage: ]gc-stress [on|off|status]");
+      }
+   }
 
 void Listener::_cmd_test(std::vector<std::string>& args) {
     if (args.size() > 1) throw ListenerCommandError("Usage: ]test [<filename>]");
