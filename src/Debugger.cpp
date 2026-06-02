@@ -188,8 +188,9 @@ Debugger::_parse_bp_args(const std::string& rest)
          cond = rest.substr(i, j - i);
          i = j;
          }
-      if (!name.empty())
-         pairs.push_back({name, cond});
+      // Append unconditionally (matching Python `pairs.append([name, cond])`);
+      // an empty name from a token like "(foo)" is preserved, as in pyScheme.
+      pairs.push_back({name, cond});
       }
    return pairs;
    }
@@ -530,17 +531,38 @@ void Debugger::_set_inner_breakpoint(const std::string& spec, const std::string&
 
    std::string fn_name, call_name;
    std::string index_str;
+   int idx = 1; // validated numeric index (for the 2-part and 3-part numeric cases)
    if (parts.size() == 2)
       {
       fn_name = parts[0];
       call_name = parts[1];
       index_str = "1";
+      idx = 1;
       }
    else if (parts.size() == 3)
       {
       fn_name = parts[0];
       call_name = parts[1];
       index_str = parts[2];
+      // Validate the numeric index HERE (before the env/lookup/closure checks),
+      // matching Python; '?' and '*' are selection modes handled later.
+      if (index_str != "?" && index_str != "*")
+         {
+         try
+            {
+            idx = std::stoi(index_str);
+            }
+         catch (...)
+            {
+            std::cout << "Invalid index: " << index_str << '\n';
+            return;
+            }
+         if (idx < 1)
+            {
+            std::cout << "Index must be >= 1.\n";
+            return;
+            }
+         }
       }
    else
       {
@@ -667,22 +689,7 @@ void Debugger::_set_inner_breakpoint(const std::string& spec, const std::string&
       return;
       }
 
-   // Single-index mode.
-   int idx;
-   try
-      {
-      idx = std::stoi(index_str);
-      }
-   catch (...)
-      {
-      std::cout << "Invalid index: " << index_str << '\n';
-      return;
-      }
-   if (idx < 1)
-      {
-      std::cout << "Index must be >= 1.\n";
-      return;
-      }
+   // Single-index mode.  idx was validated in the spec-parsing block above.
    auto target_opt = _find_nth_call(body, call_name, idx);
    if (!target_opt)
       {
@@ -1221,8 +1228,12 @@ void Debugger::_cmd_h(const std::string&, const std::string& rest,
       size_t e = base.find_last_not_of(" \t");
       if (e != std::string::npos)
          base = base.substr(0, e + 1);
+      // Gate on _commands membership (Python looks up self._commands, which
+      // deliberately EXCLUDES the flow-control commands s/n/o/c/abort/q), then
+      // use its help text from _cmd_help.
+      auto cmd_it = _commands.find(base);
       auto it = _cmd_help.find(base);
-      if (it != _cmd_help.end())
+      if (cmd_it != _commands.end() && it != _cmd_help.end())
          {
          auto entries = _parse_help_entries(it->second);
          if (!entries.empty())
@@ -1481,6 +1492,16 @@ void Debugger::print_watch(Environment* env, Context* ctx)
    _step_hook = saved_hook;
    }
 
+// Port of Python `str(ex)` for debugger error display: positioned Scheme errors
+// render with their source position + caret (PositionedSchemeError::str), other
+// exceptions render their plain message.
+static std::string _debug_err_str(const std::exception& ex)
+   {
+   if (auto* p = dynamic_cast<const PositionedSchemeError*>(&ex))
+      return p->str();
+   return ex.what();
+   }
+
 void Debugger::safe_eval(Context* ctx, Environment* env, const std::string& source)
    {
    auto saved_hook = _step_hook;
@@ -1498,11 +1519,16 @@ void Debugger::safe_eval(Context* ctx, Environment* env, const std::string& sour
          }
       std::cout << "==> " << scheme_pretty_print(result) << '\n';
       }
+   catch (_RestartRd&)
+      {
+      // Python's `except Exception` catches _RestartRd (str() is empty).
+      std::cout << "%%% " << '\n';
+      }
    catch (const std::exception& ex)
       {
-      std::cout << "%%% " << ex.what() << '\n';
+      std::cout << "%%% " << _debug_err_str(ex) << '\n';
       }
-   _step_hook = saved_hook;
+   _step_hook = saved_hook; // finally
    }
 
 void Debugger::safe_inspect(Context* ctx, Environment* env, const std::string& source)
@@ -1522,11 +1548,15 @@ void Debugger::safe_inspect(Context* ctx, Environment* env, const std::string& s
          }
       debug_run_inspect(result, ctx);
       }
+   catch (_RestartRd&)
+      {
+      std::cout << "%%% " << '\n';
+      }
    catch (const std::exception& ex)
       {
-      std::cout << "%%% " << ex.what() << '\n';
+      std::cout << "%%% " << _debug_err_str(ex) << '\n';
       }
-   _step_hook = saved_hook;
+   _step_hook = saved_hook; // finally
    }
 
 void Debugger::debug_eval(Context* ctx, Environment* env, const std::string& source)
@@ -1550,7 +1580,7 @@ void Debugger::debug_eval(Context* ctx, Environment* env, const std::string& sou
       }
    catch (const std::exception& ex)
       {
-      std::cout << "%%% " << ex.what() << '\n';
+      std::cout << "%%% " << _debug_err_str(ex) << '\n';
       }
    }
 
@@ -1633,7 +1663,10 @@ std::string Debugger::_prompt_loop(Context* ctx, Environment* env,
                std::cout << "Not in execution.  Use rd to run.\n";
                continue;
                }
-            if (!_step_hook)
+            // Test the PARAMETER step_hook (matching Python `if step_hook is None`
+            // and the sibling n/o branches), so a fresh StepHook resets any
+            // residual _skip_until_depth when 's' is pressed in breakpoint mode.
+            if (!step_hook)
                _step_hook = StepHook{};
             _swap_history_out();
             return "step";

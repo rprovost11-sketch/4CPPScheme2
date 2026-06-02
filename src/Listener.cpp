@@ -501,13 +501,13 @@ Listener::Listener(InterpreterBase* interp,
    _help["log"] = "Usage: ]log <filename>\nBegin a new session-log (dribble) file.  Stop with ]close.";
    _help["close"] = "Usage: ]close\nClose the current logging session.";
    _help["resume"] = "Usage: ]resume <filename>\nReplay an existing log file to restore its state, then reopen it for append.";
-   _help["test"] = "Usage: ]test [<filename>]\nRun one log file or all *.log files under testing/.";
+   _help["test"] = "Usage: ]test [<filename>]\nRun one log file or all *.log files under testing/.\nAutomatically runs under GC-stress, which is forced OFF when the run finishes.";
    _help["cd"] = "Usage: ]cd <directory>\nChange the process working directory.";
    _help["pwd"] = "Usage: ]pwd\nPrint the current working directory.";
    _help["lhistory"] = "Usage: ]lhistory [<n>]\nQuery or set the maximum readline history size.";
    _help["debug"] = "Usage: ]debug\nOpen the interactive debugger.";
    _help["profile"] = "Usage: ]profile [reset]\nPrint profiling report (call counts + times) and reset counters.\nWith 'reset', reset counters without printing.\n(Requires build with -DPROFILE_COUNTERS.)";
-   _help["compliance"] = "Usage: ]compliance [<file.log> | <start> [<end>]]\nRun the R7RS compliance test suite against the configured directory.\n  ]compliance              -- run all tests\n  ]compliance 3            -- run tests with filename >= \"3\"\n  ]compliance 3 4          -- run tests with \"3\" <= filename < \"4\"\n  ]compliance 3.1 Booleans.log  -- run that one file\nFilename comparison is case-insensitive.  The interpreter is rebooted\nbefore each file.  Supports '==> X or ==> Y' alternatives;\n'%%% *' / '%%% %any-error%' require any error to be raised (R7RS\n'an error is signaled'); '%%% %optional-error%' models R7RS\n'it is an error' -- passes whether an error is raised or the form\nreturns (asserts only that evaluation terminates).";
+   _help["compliance"] = "Usage: ]compliance [<file.log> | <start> [<end>]]\nRun the R7RS compliance test suite against the configured directory.\n  ]compliance              -- run all tests\n  ]compliance 3            -- run tests with filename >= \"3\"\n  ]compliance 3 4          -- run tests with \"3\" <= filename < \"4\"\n  ]compliance 3.1 Booleans.log  -- run that one file\nFilename comparison is case-insensitive.  The interpreter is rebooted\nbefore each file.  Supports '==> X or ==> Y' alternatives;\n'%%% *' / '%%% %any-error%' require any error to be raised (R7RS\n'an error is signaled'); '%%% %optional-error%' models R7RS\n'it is an error' -- passes whether an error is raised or the form\nreturns (asserts only that evaluation terminates).\nAutomatically runs under GC-stress, which is forced OFF when the run finishes.";
    _help["regression"] = "Usage: ]regression [<file.log> | <start> [<end>]]\nRun the regression test suite (Scheme-observable, non-spec tripwires) against\nthe configured directory.\n  ]regression                  -- run all regression files\n  ]regression 03               -- run files with filename >= \"03\"\n  ]regression 03 06            -- run files with \"03\" <= filename < \"06\"\n  ]regression 03-evaluator.log -- run that one file\nSpec deviations are guarded by ]compliance instead.  Files are grouped by\nsubsystem; see regression-tests/00-conventions.md.  The interpreter is\nrebooted before each file.";
    _help["gc-stress"] = "Usage: ]gc-stress [on|off|status]\nToggle GC-stress mode.  When ON, the garbage collector's thresholds and\neffective nursery are slashed so minor collections fire constantly -- this\nexercises the moving GC and surfaces any missing-root bug on whatever you\nthen run (e.g. ]compliance or ]test).  GC is invisible to Scheme semantics,\nso results are unchanged; runs just get much slower and far more thorough.\nThe setting persists (across reboots) until you toggle it off.\nWith no argument, prints the current state.";
 
@@ -1007,9 +1007,38 @@ void Listener::_runListenerCommand(const std::string& source)
    it->second(parts);
    }
 
+// RAII: force GC-stress ON for the duration of a suite run (when `active`), and
+// force it OFF when the run ends.  Used so ]compliance and ]test automatically
+// exercise the GC and always leave GC-stress OFF afterward -- on all exit paths,
+// including an exception propagating out of the run.  These are absolute sets,
+// not a relative toggle: ON at the start, OFF at the end, regardless of the
+// prior state.
+namespace
+   {
+struct GcStressRunGuard
+   {
+   bool active;
+
+   explicit GcStressRunGuard(bool on) : active(on)
+      {
+      if (active)
+         gc_set_stress(true);
+      }
+   ~GcStressRunGuard()
+      {
+      if (active)
+         gc_set_stress(false);
+      }
+   };
+   } // namespace
+
 void Listener::_runTestFiles(const std::vector<std::string>& filenames, const std::string& testDir,
                              const std::string& suite)
    {
+   // ]compliance (suite "compliance") and ]test (suite "feature") auto-run under
+   // GC-stress; ]regression and others are unaffected.
+   GcStressRunGuard stress_guard(suite == "compliance" || suite == "feature");
+
    bool color = _use_color();
    std::string BOLD = color ? "\033[1;97m" : "";
    std::string GREEN = color ? "\033[92m" : "";

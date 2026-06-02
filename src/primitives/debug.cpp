@@ -5,6 +5,7 @@
 #include "../AST.h"
 #include "../Environment.h"
 #include "../Context.h"
+#include "../Debugger.h"
 #include "../PrettyPrinter.h"
 #include <string>
 #include <sstream>
@@ -426,9 +427,10 @@ static Value _prim_inspect(Context* ctx, Environment*, std::vector<Value>& args,
    return VOID_VALUE;
    }
 
-static Value _prim_debug(Context*, Environment*, std::vector<Value>&, const Value* app)
+static Value _prim_debug(Context* ctx, Environment* env, std::vector<Value>&, const Value*)
    {
-   throw SchemeTypeError("debug: debugger not implemented (Phase 0 stub)", _src(app));
+   ctx->debugger->run_debugger_repl(ctx, env);
+   return VOID_VALUE;
    }
 
 // ── Registration ──────────────────────────────────────────────────────────────
@@ -442,7 +444,9 @@ void register_debug()
                       "Show a structured inspection view with numbered child elements.",
                       CATEGORY);
    register_primitive("debug", 0, 0, _prim_debug, "",
-                      "Open the interactive debugger.  (Not yet implemented in CPPScheme2.)",
+                      "Opens the interactive debugger.  Set breakpoints and watches, then use\n"
+                      "rd to run expressions with debugging active.  Type h at the debug> prompt\n"
+                      "for a full command reference.",
                       CATEGORY);
    register_primitive("trace", 0, -1, _stub_trace,
                       "(trace . names)",
