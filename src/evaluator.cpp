@@ -765,6 +765,9 @@ static void _process_one_lib_decl(
 
     if (dsym == "begin") {
         Value forms = dbody;
+        // Root the remaining body forms: evaluating one can GC and would
+        // otherwise leave the unprocessed tail dangling.
+        GcRootGuard forms_root(forms);
         while (is_cons(forms)) {
             cek_eval(expand(car(forms)), lib_env, ctx);
             forms = cdr(forms);
@@ -795,6 +798,7 @@ static void _process_one_lib_decl(
                                std::istreambuf_iterator<char>());
             f.close();
             std::vector<Value> inner_forms = scheme_parse(source, resolved);
+            GcRootVec inner_root(inner_forms);  // keep pending forms alive across GC
             for (const Value& inner : inner_forms)
                 _process_one_lib_decl(inner, lib_env, export_names, ctx);
         }
@@ -1906,6 +1910,12 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                             Value before = new_collected[0];
                             Value thunk  = new_collected[1];
                             Value after  = new_collected[2];
+                            // Root all three across the before-thunk call: it can
+                            // trigger GC, and thunk/after are not yet on the wind
+                            // stack (after is pushed below).  Without rooting, a
+                            // collection during `before` relocates/reclaims them,
+                            // leaving stale closures (garbage arity, corrupt body).
+                            GcRootGuard rg_before(before), rg_thunk(thunk), rg_after(after);
                             std::vector<Value> ea;
                             apply_scheme_proc(before, ea, ctx, saved_env, &app_node);
                             WindFrame wf; wf.before = before; wf.after = after;

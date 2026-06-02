@@ -263,6 +263,9 @@ static Value _prim_load(Context* ctx, Environment* env, std::vector<Value>& args
     std::string source((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     f.close();
     std::vector<Value> forms = scheme_parse(source, path);
+    // Root the form list: evaluating an earlier form can GC, which would
+    // otherwise evacuate the pending forms' AST and leave dangling pointers.
+    GcRootVec forms_root(forms);
     for (const Value& raw : forms) {
         Value expanded = expand(raw);
         cek_eval(expanded, eval_env, ctx);

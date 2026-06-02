@@ -209,6 +209,9 @@ std::string Listener::format_error(const std::exception& exc) {
     // Listener-level error.
     if (dynamic_cast<const ListenerCommandError*>(&exc))           return exc.what();
 
+    // Out-of-memory: report cleanly rather than as a cryptic internal error.
+    if (dynamic_cast<const std::bad_alloc*>(&exc))                 return "out of memory";
+
     std::string msg = exc.what();
     if (!msg.empty()) return "internal error: " + msg;
     return "internal error";
@@ -821,6 +824,7 @@ void Listener::_runTestFiles(const std::vector<std::string>& filenames, const st
     std::string savedCwd = fs::current_path().string();
     fs::current_path(fs::absolute(fs::path(testDir)));
 
+    auto run_start = std::chrono::steady_clock::now();
     std::streambuf* original_buf = std::cout.rdbuf();
     try {
         int k = 0;
@@ -866,6 +870,17 @@ void Listener::_runTestFiles(const std::vector<std::string>& filenames, const st
 
     _interp->reboot(nullptr, false);
 
+    // Total wall-clock time for the whole suite run (all files), formatted
+    // as HH:MM:SS.ssssss.
+    double elapsed = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - run_start).count();
+    int    _h = static_cast<int>(elapsed / 3600.0);
+    int    _m = static_cast<int>((elapsed - _h * 3600) / 60.0);
+    double _s = elapsed - _h * 3600 - _m * 60;
+    char _ebuf[64];
+    std::snprintf(_ebuf, sizeof(_ebuf), "%02d:%02d:%09.6f", _h, _m, _s);
+    std::string elapsed_str(_ebuf);
+
     // Grand-total screen summary (only for multi-file runs).
     if (filenames.size() > 1) {
         std::cout << '\n';
@@ -876,6 +891,7 @@ void Listener::_runTestFiles(const std::vector<std::string>& filenames, const st
         else
             std::cout << RED << grand_fail << " of " << total << " tests failed across "
                       << filenames.size() << " files" << RESET << '\n';
+        std::cout << BOLD << "Elapsed: " << elapsed_str << RESET << '\n';
 
         if (runFile) {
             std::vector<std::string> report;
@@ -897,14 +913,20 @@ void Listener::_runTestFiles(const std::vector<std::string>& filenames, const st
             report.push_back("");
             report.push_back("Total test files: " + std::to_string(filenames.size()) + ".");
             report.push_back("Total test cases: " + std::to_string(grand_pass + grand_fail) + ".");
+            report.push_back(std::string("Elapsed time: ") + elapsed_str);
             for (const auto& ln : report) *runFile << ln << '\n';
             runFile->close();
             delete runFile;
             std::cout << '\n' << "Test output: " << runFilename << '\n';
         }
-    } else if (runFile) {
-        runFile->close();
-        delete runFile;
+    } else {
+        // Single-file run: still report how long it took.
+        std::cout << BOLD << "Elapsed: " << elapsed_str << RESET << '\n';
+        if (runFile) {
+            *runFile << "\nElapsed time: " << elapsed_str << "\n";
+            runFile->close();
+            delete runFile;
+        }
     }
 }
 

@@ -86,6 +86,12 @@ std::optional<Value> Interpreter::rawEval(
     _ctx.shadow_stack.clear();
     try {
         std::vector<Value> forms = scheme_parse(source, filename);
+        // Root the whole form list: evaluating an earlier top-level form can
+        // trigger GC, which would otherwise evacuate the not-yet-evaluated
+        // forms' AST and leave the vector's pointers dangling (R7RS programs /
+        // REPL inputs with several forms).  Without this, a later form reads
+        // corrupted AST ("application must be a proper list").
+        GcRootVec forms_root(forms);
         std::optional<Value> last;
         for (auto& form : forms) {
             Value expanded = expand(form);
