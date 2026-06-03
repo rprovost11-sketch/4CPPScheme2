@@ -36,7 +36,9 @@ static Value _prim_real_p(Context*, Environment*, std::vector<Value>& args, cons
    if (is_integer(v) || is_bignum(v) || is_real(v) || is_rational(v))
       return make_boolean(true);
    if (is_complex(v))
-      return make_boolean(as_complex_imag(v) == 0.0);
+      // An inexact complex's imaginary part is the inexact value 0.0, not the
+      // exact value 0, so it is NOT real (R7RS 6.2.6: (real? -2.5+0.0i) => #f).
+      return make_boolean(false);
    if (is_exact_complex(v))
       {
       Value im = as_exact_complex_imag(v);
@@ -53,7 +55,8 @@ static Value _prim_rational_p(Context*, Environment*, std::vector<Value>& args, 
    if (is_real(v))
       return make_boolean(std::isfinite(as_real(v)));
    if (is_complex(v))
-      return make_boolean(as_complex_imag(v) == 0.0 && std::isfinite(as_complex_real(v)));
+      // Inexact complex: not real (inexact 0.0 imaginary), hence not rational.
+      return make_boolean(false);
    if (is_exact_complex(v))
       {
       Value im = as_exact_complex_imag(v);
@@ -73,10 +76,8 @@ static Value _prim_integer_p(Context*, Environment*, std::vector<Value>& args, c
       return make_boolean(std::isfinite(r) && std::floor(r) == r);
       }
    if (is_complex(v))
-      {
-      double re = as_complex_real(v), im = as_complex_imag(v);
-      return make_boolean(im == 0.0 && std::floor(re) == re);
-      }
+      // Inexact complex: not real (inexact 0.0 imaginary), hence not an integer.
+      return make_boolean(false);
    if (is_exact_complex(v))
       {
       Value im = as_exact_complex_imag(v);

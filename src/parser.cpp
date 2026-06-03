@@ -510,6 +510,15 @@ static std::optional<Token> try_parse_complex_literal(const std::string& text,
       tok.val2 = comp_to_scheme(im_val);
       return tok;
       }
+   // An exact zero imaginary part makes the number real, even when the real
+   // part is inexact (R7RS 6.2.6: (real? -2.5+0i) => #t, whereas
+   // (real? -2.5+0.0i) => #f, because 0.0 is an inexact imaginary part).
+   if (is_exact_comp(im_val) && comp_to_double(im_val) == 0.0)
+      {
+      Token tok(TokenKind::REAL, src);
+      tok.dbl_val = comp_to_double(re_val);
+      return tok;
+      }
    Token tok(TokenKind::COMPLEX, src);
    tok.dbl_val = comp_to_double(re_val);
    tok.dbl_val2 = comp_to_double(im_val);
