@@ -1876,7 +1876,20 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                if (ftag == FRAME_DEFINE)
                   {
                   E = frame.env;
-                  E->bind_id(as_symbol_id(frame.v1), V);
+                  try
+                     {
+                     E->bind_id(as_symbol_id(frame.v1), V);
+                     }
+                  catch (SchemeTypeError& e) // define into a frozen environment
+                     {
+                     if (!e.src)
+                        {
+                        SourceInfo* s = src_of(frame.v1);
+                        if (s)
+                           e.src = new SourceInfo(*s);
+                        }
+                     throw;
+                     }
                   V = VOID_VALUE;
                   continue;
                   }
@@ -1889,7 +1902,9 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                      {
                      E->set_id(as_symbol_id(frame.v1), V);
                      }
-                  catch (SchemeUnboundError& e)
+                  // set_id throws SchemeUnboundError (no binding) or
+                  // SchemeTypeError (frozen environment); both are positioned.
+                  catch (PositionedSchemeError& e)
                      {
                      if (!e.src)
                         {
