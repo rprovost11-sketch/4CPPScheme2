@@ -5,6 +5,7 @@
 #include <cassert>
 #include <cctype>
 #include <cmath>
+#include <cstdlib>
 #include <optional>
 #include <unordered_map>
 #include <variant>
@@ -69,6 +70,43 @@ static std::vector<std::string> make_source_lines(const std::string& src)
        !expanded.empty() && expanded.back() == '\n')
       lines.pop_back();
    return lines;
+   }
+
+// ── char_repr ─────────────────────────────────────────────────────────────────
+// Port of Parser.py _char_repr (Python repr() of a single char).  C++ has no
+// repr(), so reproduce it by hand: backslash and the quote escape, the quote
+// flips to " when the char is ', \n/\r/\t use letter escapes, other
+// non-printables use \xHH, printable ASCII is verbatim.
+static std::string char_repr(char ch)
+   {
+   unsigned char c = (unsigned char)ch;
+   char quote = (c == '\'') ? '"' : '\'';
+   std::string body;
+   if (c == '\\' || (char)c == quote)
+      {
+      body += '\\';
+      body += (char)c;
+      }
+   else if (c == '\n')
+      body = "\\n";
+   else if (c == '\r')
+      body = "\\r";
+   else if (c == '\t')
+      body = "\\t";
+   else if (c >= 0x20 && c < 0x7f)
+      body += (char)c;
+   else
+      {
+      const char* hex = "0123456789abcdef";
+      body += "\\x";
+      body += hex[(c >> 4) & 0xf];
+      body += hex[c & 0xf];
+      }
+   std::string out;
+   out += quote;
+   out += body;
+   out += quote;
+   return out;
    }
 
 // ── _make_src ─────────────────────────────────────────────────────────────────
@@ -774,7 +812,7 @@ static Token try_parse_prefixed_number(const std::string& text, const SourceInfo
          t.dbl_val = -INFINITY;
          return t;
          }
-      if (rest == "+nan.0" || rest == "-nan.0")
+      if (rest == "+nan.0")
          {
          if (exact == 1)
             throw SchemeSyntaxError("#e cannot be applied to +nan.0", new SourceInfo(src));
@@ -782,16 +820,31 @@ static Token try_parse_prefixed_number(const std::string& text, const SourceInfo
          t.dbl_val = NAN;
          return t;
          }
+      if (rest == "-nan.0")
+         {
+         if (exact == 1)
+            throw SchemeSyntaxError("#e cannot be applied to -nan.0", new SourceInfo(src));
+         Token t(TokenKind::REAL, src);
+         t.dbl_val = NAN;
+         return t;
+         }
       try
          {
-         size_t idx;
-         double f = std::stod(rest, &idx);
+         // strtod mirrors Python's float(): an overflowing literal yields
+         // ±inf and an underflowing one yields 0, rather than std::stod's
+         // out_of_range throw.  This lets the #e non-finite check below fire
+         // (e.g. #e1e999 -> "#e applied to non-finite real") instead of
+         // falling through to "invalid prefixed number".
+         const char* cstr = rest.c_str();
+         char* endp = nullptr;
+         double f = std::strtod(cstr, &endp);
+         size_t idx = (size_t)(endp - cstr);
          if (idx == rest.size())
             {
             if (exact == 1)
                {
                if (!std::isfinite(f))
-                  throw SchemeSyntaxError("#e applied to non-finite real " + rest, new SourceInfo(src));
+                  throw SchemeSyntaxError("#e applied to non-finite real '" + rest + "'", new SourceInfo(src));
                if (f == std::floor(f))
                   {
                   Token t(TokenKind::INT, src);
@@ -1140,7 +1193,10 @@ std::vector<Token> scheme_tokenize(const std::string& source, const std::string&
                }
             }
          if (pos >= n)
-            throw SchemeSyntaxError("unterminated |...| symbol", new SourceInfo(sv));
+            // Point the caret at the current cursor (where the closing | was
+            // expected), not the token start, to match Parser.py's
+            // _make_src(line, col, ...) at the failure point.
+            throw SchemeSyntaxError("unterminated |...| symbol", new SourceInfo(cur_src()));
          ++pos;
          ++col; // consume closing |
          std::string name = decode_symbol_escapes(raw, sv);
@@ -1439,7 +1495,7 @@ std::vector<Token> scheme_tokenize(const std::string& source, const std::string&
             ++pos;
          if (pos == ws)
             throw SchemeSyntaxError(
-                std::string("unexpected character '") + c + "'", new SourceInfo(sv));
+                std::string("unexpected character ") + char_repr(c), new SourceInfo(sv));
          std::string word = source.substr(ws, pos - ws);
          col += (int)(pos - ws);
          tokens.push_back(build_word_token(word, sv, fold_case));

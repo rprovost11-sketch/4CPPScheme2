@@ -187,7 +187,7 @@ class CPPSCHEME2_API Listener
    void _cmd_log(std::vector<std::string>& args);
    void _cmd_close(std::vector<std::string>& args);
    void _cmd_resume(std::vector<std::string>& args);
-   void _cmd_test(std::vector<std::string>& args);
+   void _cmd_feature(std::vector<std::string>& args);
    void _cmd_cd(std::vector<std::string>& args);
    void _cmd_pwd(std::vector<std::string>& args);
    void _cmd_lhistory(std::vector<std::string>& args);

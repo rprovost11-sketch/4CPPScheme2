@@ -239,10 +239,32 @@ struct Value
 
 using BuiltinFn = std::function<Value(Context*, Environment*, std::vector<Value>&, const Value*)>;
 
+// Primitive kinds (#2).  PRIM_ORDINARY (0) is the common case; nonzero
+// kinds mark the special primitives the evaluator intercepts at the
+// FRAME_CALL application point.  Stored on the Builtin so the evaluator
+// dispatches on one integer instead of ~15 name comparisons per call.
+// Port of AST.py PRIM_* / _PRIMITIVE_KIND_BY_NAME.
+constexpr int PRIM_ORDINARY               = 0;
+constexpr int PRIM_CALL_CC                = 1;
+constexpr int PRIM_APPLY                  = 2;
+constexpr int PRIM_CALL_WITH_VALUES       = 3;
+constexpr int PRIM_FORCE                  = 4;
+constexpr int PRIM_MAKE_PARAMETER         = 5;
+constexpr int PRIM_WITH_EXCEPTION_HANDLER = 6;
+constexpr int PRIM_GUARD_EVAL             = 7;
+constexpr int PRIM_RAISE                  = 8;
+constexpr int PRIM_RAISE_CONTINUABLE      = 9;
+constexpr int PRIM_EVAL                   = 10;
+constexpr int PRIM_ERROR                  = 11;
+constexpr int PRIM_WITH_PARAMETERS        = 12;
+constexpr int PRIM_DYNAMIC_WIND           = 13;
+constexpr int PRIM_CONTINUATION_DEPTH     = 14;
+
 struct Builtin
    {
    std::string name;
    BuiltinFn fn;
+   int kind = PRIM_ORDINARY;
 
    Builtin(std::string n, BuiltinFn f)
        : name(std::move(n)), fn(std::move(f)) {}
@@ -798,6 +820,7 @@ CPPSCHEME2_API const std::string& as_closure_docstring(const Value& val);
 
 CPPSCHEME2_API const std::string& as_primitive_name(const Value& val);
 CPPSCHEME2_API const BuiltinFn& as_primitive_fn(const Value& val);
+CPPSCHEME2_API int as_primitive_kind(const Value& val);
 
 CPPSCHEME2_API const std::vector<CaseClosure::Clause>& as_case_closure_clauses(const Value& val);
 CPPSCHEME2_API Environment* as_case_closure_env(const Value& val);

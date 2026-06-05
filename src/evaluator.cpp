@@ -271,65 +271,17 @@ static BetaResult apply_value(const Value& V, const std::vector<Value>& arg_valu
    }
 
 // ── primitive name predicates ─────────────────────────────────────────────────
+// Special-primitive interception is dispatched on the integer kind tag set
+// by make_primitive (AST PRIM_*), read once per application in the
+// FRAME_CALL handler.  This replaced a ladder of ~15 per-call is_X_prim
+// name comparisons (optimization #2).  is_parameterize_restore_prim
+// remains: it tests a stored wind-frame value (not fn_value) at the
+// %with-parameters tail-call check, mirroring Evaluator.py's inline
+// name compare there.
 
-static inline bool is_call_cc_prim(const Value& V)
-   {
-   if (!is_primitive(V))
-      return false;
-   const std::string& n = as_primitive_name(V);
-   return n == "call-with-current-continuation" || n == "call/cc";
-   }
-static inline bool is_dynamic_wind_prim(const Value& V)
-   {
-   return is_primitive(V) && as_primitive_name(V) == "dynamic-wind";
-   }
-static inline bool is_apply_prim(const Value& V)
-   {
-   return is_primitive(V) && as_primitive_name(V) == "apply";
-   }
-static inline bool is_cwv_prim(const Value& V)
-   {
-   return is_primitive(V) && as_primitive_name(V) == "call-with-values";
-   }
-static inline bool is_force_prim(const Value& V)
-   {
-   return is_primitive(V) && as_primitive_name(V) == "force";
-   }
-static inline bool is_with_params_prim(const Value& V)
-   {
-   return is_primitive(V) && as_primitive_name(V) == "%with-parameters";
-   }
 static inline bool is_parameterize_restore_prim(const Value& V)
    {
    return is_primitive(V) && as_primitive_name(V) == "%parameterize-restore";
-   }
-static inline bool is_make_param_prim(const Value& V)
-   {
-   return is_primitive(V) && as_primitive_name(V) == "make-parameter";
-   }
-static inline bool is_weh_prim(const Value& V)
-   {
-   return is_primitive(V) && as_primitive_name(V) == "with-exception-handler";
-   }
-static inline bool is_raise_prim(const Value& V)
-   {
-   return is_primitive(V) && as_primitive_name(V) == "raise";
-   }
-static inline bool is_raise_cont_prim(const Value& V)
-   {
-   return is_primitive(V) && as_primitive_name(V) == "raise-continuable";
-   }
-static inline bool is_error_prim(const Value& V)
-   {
-   return is_primitive(V) && as_primitive_name(V) == "error";
-   }
-static inline bool is_eval_prim(const Value& V)
-   {
-   return is_primitive(V) && as_primitive_name(V) == "eval";
-   }
-static inline bool is_guard_eval_prim(const Value& V)
-   {
-   return is_primitive(V) && as_primitive_name(V) == "%guard-eval";
    }
 
 // ── is_aux_keyword ────────────────────────────────────────────────────────────
@@ -2114,6 +2066,15 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                         }
                      if (is_primitive(V))
                         {
+                        if (as_primitive_kind(V) == PRIM_CONTINUATION_DEPTH)
+                           {
+                           // Internal probe: report the live continuation-stack
+                           // (K) length so tail-call tests can assert bounded
+                           // continuation space.  K is in scope here but not in
+                           // a normal primitive body.
+                           V = make_integer((int64_t)K.size());
+                           continue;
+                           }
                         std::vector<Value> ea;
                         Value result = as_primitive_fn(V)(ctx, saved_env, ea, &app_node);
                         if (trc_printed)
@@ -2204,8 +2165,17 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                      V = continuation_value(new_collected);
                      continue;
                      }
+                  // #2: classify the operator once, then dispatch on the
+                  // integer kind below instead of ~15 is_X_prim name
+                  // comparisons.  Ordinary primitives and closures get
+                  // PRIM_ORDINARY and fall straight through.  Cases that
+                  // rewrite fn_value re-classify it so a later case can
+                  // catch the new operator, preserving the original
+                  // top-to-bottom fall-through semantics.
+                  int kind = is_primitive(fn_value)
+                             ? as_primitive_kind(fn_value) : PRIM_ORDINARY;
                   // call/cc
-                  if (is_call_cc_prim(fn_value))
+                  if (kind == PRIM_CALL_CC)
                      {
                      if (new_collected.size() != 1)
                         {
@@ -2228,9 +2198,11 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                          my_eval_id);
                      fn_value = new_collected[0];
                      new_collected = {cont};
+                     kind = is_primitive(fn_value)
+                            ? as_primitive_kind(fn_value) : PRIM_ORDINARY;
                      }
                   // apply (loop in case of (apply apply ...))
-                  while (is_apply_prim(fn_value))
+                  while (kind == PRIM_APPLY)
                      {
                      auto [proc, flat] = unpack_apply_args(new_collected, &app_node);
                      if (!is_primitive(proc) && !is_closure(proc) &&
@@ -2242,9 +2214,11 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                         }
                      fn_value = proc;
                      new_collected = std::move(flat);
+                     kind = is_primitive(fn_value)
+                            ? as_primitive_kind(fn_value) : PRIM_ORDINARY;
                      }
                   // call-with-values
-                  if (is_cwv_prim(fn_value))
+                  if (kind == PRIM_CALL_WITH_VALUES)
                      {
                      if (new_collected.size() != 2)
                         {
@@ -2261,9 +2235,11 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                      K.push_back(std::move(cf));
                      fn_value = producer;
                      new_collected = {};
+                     kind = is_primitive(fn_value)
+                            ? as_primitive_kind(fn_value) : PRIM_ORDINARY;
                      }
                   // force
-                  if (is_force_prim(fn_value))
+                  if (kind == PRIM_FORCE)
                      {
                      if (new_collected.size() != 1)
                         {
@@ -2288,9 +2264,11 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                      K.push_back(std::move(ff));
                      fn_value = as_promise_payload(p);
                      new_collected = {};
+                     kind = is_primitive(fn_value)
+                            ? as_primitive_kind(fn_value) : PRIM_ORDINARY;
                      }
                   // make-parameter
-                  if (is_make_param_prim(fn_value))
+                  if (kind == PRIM_MAKE_PARAMETER)
                      {
                      int n = (int)new_collected.size();
                      if (n < 1 || n > 2)
@@ -2316,9 +2294,11 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                      K.push_back(std::move(mf));
                      fn_value = converter;
                      new_collected = {init};
+                     kind = is_primitive(fn_value)
+                            ? as_primitive_kind(fn_value) : PRIM_ORDINARY;
                      }
                   // with-exception-handler
-                  if (is_weh_prim(fn_value))
+                  if (kind == PRIM_WITH_EXCEPTION_HANDLER)
                      {
                      if (new_collected.size() != 2)
                         {
@@ -2334,13 +2314,15 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                      K.push_back(std::move(hf));
                      fn_value = thunk;
                      new_collected = {};
+                     kind = is_primitive(fn_value)
+                            ? as_primitive_kind(fn_value) : PRIM_ORDINARY;
                      }
                   // %guard-eval: guard body evaluator.  Uses FRAME_GUARD
                   // so tail-call replacement only fires within the same
                   // guard form (body pointer identity), not across
                   // weh/guard boundaries.  Guard handlers may return
                   // normally so FRAME_NONCONTIN_RETURN is not pushed.
-                  if (is_guard_eval_prim(fn_value))
+                  if (kind == PRIM_GUARD_EVAL)
                      {
                      if (new_collected.size() != 2)
                         {
@@ -2389,9 +2371,11 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                      K.push_back(std::move(gf));
                      fn_value = thunk;
                      new_collected = {};
+                     kind = is_primitive(fn_value)
+                            ? as_primitive_kind(fn_value) : PRIM_ORDINARY;
                      }
                   // raise
-                  if (is_raise_prim(fn_value))
+                  if (kind == PRIM_RAISE)
                      {
                      if (new_collected.size() != 1)
                         {
@@ -2402,7 +2386,7 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                      throw SchemeRaised(new_collected[0], src_of(app_node), false);
                      }
                   // raise-continuable
-                  if (is_raise_cont_prim(fn_value))
+                  if (kind == PRIM_RAISE_CONTINUABLE)
                      {
                      if (new_collected.size() != 1)
                         {
@@ -2421,9 +2405,11 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                      K.push_back(std::move(rf));
                      fn_value = handler;
                      new_collected = {raised_val};
+                     kind = is_primitive(fn_value)
+                            ? as_primitive_kind(fn_value) : PRIM_ORDINARY;
                      }
                   // eval
-                  if (is_eval_prim(fn_value))
+                  if (kind == PRIM_EVAL)
                      {
                      int n = (int)new_collected.size();
                      if (n < 1 || n > 2)
@@ -2455,7 +2441,7 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                      break;
                      }
                   // error
-                  if (is_error_prim(fn_value))
+                  if (kind == PRIM_ERROR)
                      {
                      int n = (int)new_collected.size();
                      if (n < 1)
@@ -2470,7 +2456,7 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                      throw SchemeUserError(msg, std::move(irritants), src_of(app_node));
                      }
                   // %with-parameters
-                  if (is_with_params_prim(fn_value))
+                  if (kind == PRIM_WITH_PARAMETERS)
                      {
                      if (new_collected.size() != 3)
                         {
@@ -2515,9 +2501,11 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                      K.push_back(std::move(df));
                      fn_value = new_collected[2];
                      new_collected = {};
+                     kind = is_primitive(fn_value)
+                            ? as_primitive_kind(fn_value) : PRIM_ORDINARY;
                      }
                   // dynamic-wind
-                  if (is_dynamic_wind_prim(fn_value))
+                  if (kind == PRIM_DYNAMIC_WIND)
                      {
                      if (new_collected.size() != 3)
                         {

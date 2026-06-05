@@ -275,6 +275,16 @@ static Value _prim_with_parameters_unreached(Context*, Environment*, std::vector
        _src(app));
    }
 
+static Value _prim_continuation_depth_unreached(Context*, Environment*, std::vector<Value>&, const Value* app)
+   {
+   // The Evaluator intercepts %continuation-depth at application dispatch to
+   // read the live continuation-stack (K) length, which a normal primitive
+   // body cannot see.  This fires only if the interception was bypassed.
+   throw SchemeTypeError(
+       "%continuation-depth: cannot be called through a re-entering path in this implementation",
+       _src(app));
+   }
+
 // ── load ──────────────────────────────────────────────────────────────────────
 
 static Value _prim_load(Context* ctx, Environment* env, std::vector<Value>& args, const Value* app)
@@ -490,6 +500,11 @@ void register_meta()
 
    register_primitive("%with-parameters", 3, 3, _prim_with_parameters_unreached,
                       "", "Dynamically bind parameters for the extent of a thunk.  Internal.", CATEGORY);
+
+   register_primitive("%continuation-depth", 0, 0, _prim_continuation_depth_unreached,
+                      "", "Return the current continuation-stack (K) length.  Internal: used by "
+                      "tail-call tests to assert bounded continuation space.  Intercepted by the "
+                      "Evaluator (a normal primitive body cannot see K).", CATEGORY);
 
    register_primitive("error-object-message", 1, 1, _prim_error_object_message,
                       "", "Return the message string of an error object.  R7RS 6.11.", CATEGORY);

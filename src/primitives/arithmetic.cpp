@@ -1172,7 +1172,7 @@ static Value _prim_expt(Context*, Environment*, std::vector<Value>& args, const 
          int neg_e = ((-e) > (int64_t)INT_MAX) ? INT_MAX : (int)(-e);
          Rat pos = base_r.pow(neg_e);
          if (pos.numerator == 0)
-            throw SchemeTypeError("expt: division by zero", _src(app));
+            throw SchemeTypeError("expt: division by zero", _src(&exp_v));
          return _wrap_numany(NumAny{Rat(1) / pos});
          }
       }
@@ -1191,7 +1191,7 @@ static Value _prim_expt(Context*, Environment*, std::vector<Value>& args, const 
          int neg_e = ((-e) > (int64_t)INT_MAX) ? INT_MAX : (int)(-e);
          Rat pos = base_r.pow(neg_e);
          if (pos.numerator == 0)
-            throw SchemeTypeError("expt: division by zero", _src(app));
+            throw SchemeTypeError("expt: division by zero", _src(&exp_v));
          return _wrap_numany(NumAny{Rat(1) / pos});
          }
       }

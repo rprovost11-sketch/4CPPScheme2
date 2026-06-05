@@ -831,11 +831,14 @@ Value apply_syntax_transformer(const Value& t_val, const Value& form)
 // ── parse_syntax_rules ──────────────────────────────────────────────────────
 // Port of syntax_rules.py parse_syntax_rules.
 
-Value parse_syntax_rules(Value tail, Environment* def_env, const std::string& name)
+Value parse_syntax_rules(Value tail, Environment* def_env, const std::string& name,
+                         SourceInfo* form_src)
    {
    if (!is_cons(tail))
       {
-      SourceInfo* s = src_of(tail);
+      // tail (the form's cdr) may be a NIL with no position; prefer the
+      // whole (syntax-rules ...) form's src so the caret matches Parser.py.
+      SourceInfo* s = form_src ? form_src : src_of(tail);
       throw SchemeSyntaxError("syntax-rules: malformed",
                               s ? new SourceInfo(*s) : nullptr);
       }

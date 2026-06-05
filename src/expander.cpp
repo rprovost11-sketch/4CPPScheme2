@@ -2168,7 +2168,7 @@ static Value expand_define_syntax(const Value& sexpr)
        as_symbol_id(car(tr_expr)) != sid_syntax_rules)
       throw SchemeSyntaxError(
           "define-syntax: transformer must be (syntax-rules ...)", src_of(tr_expr));
-   Value t = parse_syntax_rules(cdr(tr_expr), g_runtime_env, macro_name);
+   Value t = parse_syntax_rules(cdr(tr_expr), g_runtime_env, macro_name, src_of(tr_expr));
    if (g_runtime_env != nullptr)
       g_runtime_env->bind(macro_name, t);
    return VOID_VALUE;
@@ -2211,7 +2211,7 @@ static Value expand_let_syntax(const Value& sexpr, bool is_letrec)
           as_symbol_id(car(tr_expr)) != sid_syntax_rules)
          throw SchemeSyntaxError(
              "let-syntax: transformer must be (syntax-rules ...)", src_of(tr_expr));
-      Value t = parse_syntax_rules(cdr(tr_expr), g_runtime_env, bname);
+      Value t = parse_syntax_rules(cdr(tr_expr), g_runtime_env, bname, src_of(tr_expr));
       if (is_letrec)
          {
          child_env->bind(bname, t);

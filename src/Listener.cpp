@@ -472,8 +472,10 @@ Listener::Listener(InterpreterBase* interp,
    { _cmd_close(a); };
    _commands["resume"] = [this](std::vector<std::string>& a)
    { _cmd_resume(a); };
-   _commands["test"] = [this](std::vector<std::string>& a)
-   { _cmd_test(a); };
+   _commands["feature"] = [this](std::vector<std::string>& a)
+   { _cmd_feature(a); };
+   _commands["test"] = [this](std::vector<std::string>& a) // legacy alias for ]feature
+   { _cmd_feature(a); };
    _commands["cd"] = [this](std::vector<std::string>& a)
    { _cmd_cd(a); };
    _commands["pwd"] = [this](std::vector<std::string>& a)
@@ -501,7 +503,8 @@ Listener::Listener(InterpreterBase* interp,
    _help["log"] = "Usage: ]log <filename>\nBegin a new session-log (dribble) file.  Stop with ]close.";
    _help["close"] = "Usage: ]close\nClose the current logging session.";
    _help["resume"] = "Usage: ]resume <filename>\nReplay an existing log file to restore its state, then reopen it for append.";
-   _help["test"] = "Usage: ]test [<filename>]\nRun one log file or all *.log files under testing/.\nAutomatically runs under GC-stress, which is forced OFF when the run finishes.";
+   _help["feature"] = "Usage: ]feature [<filename>]\nRun one log file or all *.log files under testing/.\nAutomatically runs under GC-stress, which is forced OFF when the run finishes.";
+   _help["test"] = "Usage: ]test [<filename>]\nLegacy alias for ]feature.  Run one log file or all *.log files under testing/.\nAutomatically runs under GC-stress, which is forced OFF when the run finishes.";
    _help["cd"] = "Usage: ]cd <directory>\nChange the process working directory.";
    _help["pwd"] = "Usage: ]pwd\nPrint the current working directory.";
    _help["lhistory"] = "Usage: ]lhistory [<n>]\nQuery or set the maximum readline history size.";
@@ -509,7 +512,7 @@ Listener::Listener(InterpreterBase* interp,
    _help["profile"] = "Usage: ]profile [reset]\nPrint profiling report (call counts + times) and reset counters.\nWith 'reset', reset counters without printing.\n(Requires build with -DPROFILE_COUNTERS.)";
    _help["compliance"] = "Usage: ]compliance [<file.log> | <start> [<end>]]\nRun the R7RS compliance test suite against the configured directory.\n  ]compliance              -- run all tests\n  ]compliance 3            -- run tests with filename >= \"3\"\n  ]compliance 3 4          -- run tests with \"3\" <= filename < \"4\"\n  ]compliance 3.1 Booleans.log  -- run that one file\nFilename comparison is case-insensitive.  The interpreter is rebooted\nbefore each file.  Supports '==> X or ==> Y' alternatives;\n'%%% *' / '%%% %any-error%' require any error to be raised (R7RS\n'an error is signaled'); '%%% %optional-error%' models R7RS\n'it is an error' -- passes whether an error is raised or the form\nreturns (asserts only that evaluation terminates).\nAutomatically runs under GC-stress, which is forced OFF when the run finishes.";
    _help["regression"] = "Usage: ]regression [<file.log> | <start> [<end>]]\nRun the regression test suite (Scheme-observable, non-spec tripwires) against\nthe configured directory.\n  ]regression                  -- run all regression files\n  ]regression 03               -- run files with filename >= \"03\"\n  ]regression 03 06            -- run files with \"03\" <= filename < \"06\"\n  ]regression 03-evaluator.log -- run that one file\nSpec deviations are guarded by ]compliance instead.  Files are grouped by\nsubsystem; see regression-tests/00-conventions.md.  The interpreter is\nrebooted before each file.";
-   _help["gc-stress"] = "Usage: ]gc-stress [on|off|status]\nToggle GC-stress mode.  When ON, the garbage collector's thresholds and\neffective nursery are slashed so minor collections fire constantly -- this\nexercises the moving GC and surfaces any missing-root bug on whatever you\nthen run (e.g. ]compliance or ]test).  GC is invisible to Scheme semantics,\nso results are unchanged; runs just get much slower and far more thorough.\nThe setting persists (across reboots) until you toggle it off.\nWith no argument, prints the current state.";
+   _help["gc-stress"] = "Usage: ]gc-stress [on|off|status]\nToggle GC-stress mode.  When ON, the garbage collector's thresholds and\neffective nursery are slashed so minor collections fire constantly -- this\nexercises the moving GC and surfaces any missing-root bug on whatever you\nthen run (e.g. ]compliance or ]feature).  GC is invisible to Scheme semantics,\nso results are unchanged; runs just get much slower and far more thorough.\nThe setting persists (across reboots) until you toggle it off.\nWith no argument, prints the current state.";
 
    _banner();
    }
@@ -1021,7 +1024,7 @@ void Listener::_runListenerCommand(const std::string& source)
    }
 
 // RAII: force GC-stress ON for the duration of a suite run (when `active`), and
-// force it OFF when the run ends.  Used so ]compliance and ]test automatically
+// force it OFF when the run ends.  Used so ]compliance and ]feature automatically
 // exercise the GC and always leave GC-stress OFF afterward -- on all exit paths,
 // including an exception propagating out of the run.  These are absolute sets,
 // not a relative toggle: ON at the start, OFF at the end, regardless of the
@@ -1048,7 +1051,7 @@ struct GcStressRunGuard
 void Listener::_runTestFiles(const std::vector<std::string>& filenames, const std::string& testDir,
                              const std::string& suite)
    {
-   // ]compliance (suite "compliance") and ]test (suite "feature") auto-run under
+   // ]compliance (suite "compliance") and ]feature (suite "feature") auto-run under
    // GC-stress; ]regression and others are unaffected.
    GcStressRunGuard stress_guard(suite == "compliance" || suite == "feature");
 
@@ -1577,7 +1580,7 @@ void Listener::_cmd_gc_stress(std::vector<std::string>& args)
       {
       gc_set_stress(true);
       std::cout << "GC-stress ON: collections now fire constantly (slow but "
-                   "thorough).\nRuns such as ]compliance / ]test will exercise "
+                   "thorough).\nRuns such as ]compliance / ]feature will exercise "
                    "the GC heavily.\nThe setting persists until ]gc-stress off.\n";
       }
    else if (a == "off" || a == "0" || a == "false")
@@ -1595,10 +1598,10 @@ void Listener::_cmd_gc_stress(std::vector<std::string>& args)
       }
    }
 
-void Listener::_cmd_test(std::vector<std::string>& args)
+void Listener::_cmd_feature(std::vector<std::string>& args)
    {
    if (args.size() > 1)
-      throw ListenerCommandError("Usage: ]test [<filename>]");
+      throw ListenerCommandError("Usage: ]feature [<filename>]");
    if (_logStream)
       throw ListenerCommandError("Please close the log before running tests (]close).");
    std::vector<std::string> filenames;

@@ -234,9 +234,31 @@ Value make_closure(std::vector<uint32_t> params, Value body,
    return Value{Value::Repr(cl)};
    }
 
+// Port of AST.py _PRIMITIVE_KIND_BY_NAME: maps the special-primitive
+// names to their integer kind so make_primitive can stamp each Builtin.
+static const std::unordered_map<std::string, int> g_primitive_kind_by_name = {
+   {"call-with-current-continuation", PRIM_CALL_CC},
+   {"call/cc",                        PRIM_CALL_CC},
+   {"apply",                          PRIM_APPLY},
+   {"call-with-values",               PRIM_CALL_WITH_VALUES},
+   {"force",                          PRIM_FORCE},
+   {"make-parameter",                 PRIM_MAKE_PARAMETER},
+   {"with-exception-handler",         PRIM_WITH_EXCEPTION_HANDLER},
+   {"%guard-eval",                    PRIM_GUARD_EVAL},
+   {"raise",                          PRIM_RAISE},
+   {"raise-continuable",              PRIM_RAISE_CONTINUABLE},
+   {"eval",                           PRIM_EVAL},
+   {"error",                          PRIM_ERROR},
+   {"%with-parameters",               PRIM_WITH_PARAMETERS},
+   {"dynamic-wind",                   PRIM_DYNAMIC_WIND},
+   {"%continuation-depth",            PRIM_CONTINUATION_DEPTH},
+   };
+
 Value make_primitive(const std::string& name, BuiltinFn fn)
    {
    auto b = std::make_unique<Builtin>(name, std::move(fn));
+   auto it = g_primitive_kind_by_name.find(name);
+   b->kind = (it != g_primitive_kind_by_name.end()) ? it->second : PRIM_ORDINARY;
    Builtin* ptr = b.get();
    g_builtins.push_back(std::move(b));
    return Value{Value::Repr(ptr)};
@@ -731,6 +753,11 @@ const std::string& as_primitive_name(const Value& val)
 const BuiltinFn& as_primitive_fn(const Value& val)
    {
    return std::get<Builtin*>(val.repr)->fn;
+   }
+
+int as_primitive_kind(const Value& val)
+   {
+   return std::get<Builtin*>(val.repr)->kind;
    }
 
 const std::vector<CaseClosure::Clause>& as_case_closure_clauses(const Value& val)

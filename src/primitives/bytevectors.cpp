@@ -155,6 +155,46 @@ static Value _prim_bytevector_append(Context*, Environment*, std::vector<Value>&
    return make_bytevector(std::move(result));
    }
 
+// Validate that [data, data+len) is well-formed UTF-8 (proper lead and
+// continuation bytes, no overlong forms, no surrogates, in range).  Mirrors
+// the check Python's bytes.decode('utf-8') performs in bytevectors.py's
+// utf8->string, which raises on invalid input (C++ strings are already the
+// raw UTF-8 bytes, so here we validate then copy rather than decode).
+static bool _is_valid_utf8(const uint8_t* data, size_t len)
+   {
+   size_t i = 0;
+   while (i < len)
+      {
+      uint8_t b = data[i];
+      size_t need;
+      uint32_t cp;
+      uint32_t lo;
+      if (b < 0x80)
+         { ++i; continue; }
+      else if ((b & 0xE0) == 0xC0)
+         { need = 1; cp = b & 0x1F; lo = 0x80; }
+      else if ((b & 0xF0) == 0xE0)
+         { need = 2; cp = b & 0x0F; lo = 0x800; }
+      else if ((b & 0xF8) == 0xF0)
+         { need = 3; cp = b & 0x07; lo = 0x10000; }
+      else
+         return false;
+      if (i + need >= len)
+         return false;
+      for (size_t k = 1; k <= need; ++k)
+         {
+         uint8_t c = data[i + k];
+         if ((c & 0xC0) != 0x80)
+            return false;
+         cp = (cp << 6) | (c & 0x3F);
+         }
+      if (cp < lo || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF))
+         return false;
+      i += need + 1;
+      }
+   return true;
+   }
+
 static Value _prim_utf8_to_string(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
    auto& bs = _check_bv(args[0], "utf8->string", app);
@@ -173,6 +213,8 @@ static Value _prim_utf8_to_string(Context*, Environment*, std::vector<Value>& ar
       }
    if (start < 0 || end > static_cast<int64_t>(bs.size()) || start > end)
       throw SchemeTypeError("utf8->string: range out of bounds", _src(app));
+   if (!_is_valid_utf8(bs.data() + start, static_cast<size_t>(end - start)))
+      throw SchemeTypeError("utf8->string: invalid UTF-8", _src(app));
    return make_string(std::string(reinterpret_cast<const char*>(bs.data()) + start,
                                   static_cast<size_t>(end - start)));
    }
