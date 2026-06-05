@@ -1149,6 +1149,20 @@ static void process_define_library(const Value& C, Context* ctx)
 
 // ── The CEK machine ───────────────────────────────────────────────────────────
 
+// Special-form dispatch kinds (optimization #1).  KW::classify() maps a head
+// symbol's interned id to one of these in O(1); SF_NONE means "not a syntactic
+// keyword" and takes the application fast-path.  The eval loop switches on the
+// kind, so an application skips the whole keyword ladder.
+enum SpecialForm : uint8_t
+   {
+   SF_NONE = 0,
+   SF_QUOTE, SF_LAMBDA, SF_CASE_LAMBDA, SF_DELAY, SF_DELAY_FORCE,
+   SF_IMPORT, SF_DEFINE_LIBRARY, SF_IF, SF_DEFINE, SF_SET,
+   SF_BEGIN, SF_WHEN, SF_UNLESS, SF_AND, SF_OR,
+   SF_COND, SF_CASE, SF_LET, SF_LET_STAR, SF_LETREC,
+   SF_TRACE, SF_UNTRACE
+   };
+
 static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
    {
    // Intern all keyword symbol IDs once.
@@ -1159,6 +1173,12 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
       uint32_t begin, when, unless, and_, or_;
       uint32_t cond, case_, let, let_star, letrec, letrec_star;
       uint32_t trace, untrace;
+      std::vector<uint8_t> kind_by_sid;   // sid -> SpecialForm (Opt #1)
+      SpecialForm classify(uint32_t sid) const
+         {
+         return sid < kind_by_sid.size()
+                   ? (SpecialForm)kind_by_sid[sid] : SF_NONE;
+         }
       KW()
          {
          quote = intern_symbol("quote");
@@ -1184,6 +1204,37 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
          letrec_star = intern_symbol("letrec*");
          trace = intern_symbol("trace");
          untrace = intern_symbol("untrace");
+         uint32_t mx = 0;
+         for (uint32_t s : { quote, lambda, case_lambda, delay, delay_force,
+                             import_, define_library, if_, define, set_,
+                             begin, when, unless, and_, or_, cond, case_,
+                             let, let_star, letrec, letrec_star, trace, untrace })
+            if (s > mx)
+               mx = s;
+         kind_by_sid.assign(mx + 1, (uint8_t)SF_NONE);
+         kind_by_sid[quote] = SF_QUOTE;
+         kind_by_sid[lambda] = SF_LAMBDA;
+         kind_by_sid[case_lambda] = SF_CASE_LAMBDA;
+         kind_by_sid[delay] = SF_DELAY;
+         kind_by_sid[delay_force] = SF_DELAY_FORCE;
+         kind_by_sid[import_] = SF_IMPORT;
+         kind_by_sid[define_library] = SF_DEFINE_LIBRARY;
+         kind_by_sid[if_] = SF_IF;
+         kind_by_sid[define] = SF_DEFINE;
+         kind_by_sid[set_] = SF_SET;
+         kind_by_sid[begin] = SF_BEGIN;
+         kind_by_sid[when] = SF_WHEN;
+         kind_by_sid[unless] = SF_UNLESS;
+         kind_by_sid[and_] = SF_AND;
+         kind_by_sid[or_] = SF_OR;
+         kind_by_sid[cond] = SF_COND;
+         kind_by_sid[case_] = SF_CASE;
+         kind_by_sid[let] = SF_LET;
+         kind_by_sid[let_star] = SF_LET_STAR;
+         kind_by_sid[letrec] = SF_LETREC;
+         kind_by_sid[letrec_star] = SF_LETREC;
+         kind_by_sid[trace] = SF_TRACE;
+         kind_by_sid[untrace] = SF_UNTRACE;
          }
       };
    static const KW kw;
@@ -1407,371 +1458,383 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
 
                   if (is_symbol(head))
                      {
-                     uint32_t sid = as_symbol_id(head);
-
-                     if (sid == kw.quote)
+                     // Opt #1: classify the head's interned id once.  SF_NONE
+                     // (an application - the hot case) skips the switch and
+                     // falls through to the application path below; a keyword
+                     // dispatches through the jump table.
+                     SpecialForm sf = kw.classify(as_symbol_id(head));
+                     if (sf != SF_NONE)
                         {
-                        V = car(cdr(C));
-                        mark_literal_immutable(V);
-                        break;
-                        }
-                     if (sid == kw.lambda)
-                        {
-                        V = make_closure_from_lambda(C, E);
-                        break;
-                        }
-                     if (sid == kw.case_lambda)
-                        {
-                        V = make_case_closure_from_form(C, E);
-                        break;
-                        }
-                     if (sid == kw.delay || sid == kw.delay_force)
-                        {
-                        Value ex = car(cdr(C));
-                        Value body = alloc_cons(ex, NIL_VALUE);
-                        Value thunk = make_closure({}, body, E, UINT32_MAX, "");
-                        // delay-force tail-chases into a promise result;
-                        // plain delay returns its value as-is (R7RS 4.2.5).
-                        bool iterative = (sid == kw.delay_force);
-                        V = make_promise_lazy(thunk, iterative);
-                        break;
-                        }
-                     if (sid == kw.import_)
-                        {
-                        process_import(cdr(C), E, ctx);
-                        V = VOID_VALUE;
-                        break;
-                        }
-                     if (sid == kw.define_library)
-                        {
-                        process_define_library(C, ctx);
-                        V = VOID_VALUE;
-                        break;
-                        }
-                     if (sid == kw.if_)
-                        {
-                        Frame f;
-                        f.tag = FRAME_IF;
-                        f.v1 = car(cdr(cdr(C)));      // then
-                        f.v2 = car(cdr(cdr(cdr(C)))); // else
-                        f.env = E;
-                        K.push_back(std::move(f));
-                        C = car(cdr(C));
-                        continue;
-                        }
-                     if (sid == kw.define)
-                        {
-                        Frame f;
-                        f.tag = FRAME_DEFINE;
-                        f.v1 = car(cdr(C));
-                        f.env = E;
-                        K.push_back(std::move(f));
-                        C = car(cdr(cdr(C)));
-                        continue;
-                        }
-                     if (sid == kw.set_)
-                        {
-                        Value name_sexpr = car(cdr(C));
-                        Frame f;
-                        f.tag = FRAME_SET;
-                        f.v1 = name_sexpr;
-                        f.env = E;
-                        f.src_ptr = src_of(name_sexpr);
-                        K.push_back(std::move(f));
-                        C = car(cdr(cdr(C)));
-                        continue;
-                        }
-                     if (sid == kw.begin)
-                        {
-                        Value body = cdr(C);
-                        if (is_nil(body))
+                        switch (sf)
                            {
-                           V = VOID_VALUE;
-                           break;
-                           }
-                        C = car(body);
-                        if (is_cons(cdr(body)))
-                           {
-                           Frame f;
-                           f.tag = FRAME_SEQ;
-                           f.v1 = cdr(body);
-                           f.env = E;
-                           K.push_back(std::move(f));
-                           }
-                        continue;
-                        }
-                     if (sid == kw.when)
-                        {
-                        Frame f;
-                        f.tag = FRAME_WHEN;
-                        f.v1 = cdr(cdr(C));
-                        f.env = E;
-                        K.push_back(std::move(f));
-                        C = car(cdr(C));
-                        continue;
-                        }
-                     if (sid == kw.unless)
-                        {
-                        Frame f;
-                        f.tag = FRAME_UNLESS;
-                        f.v1 = cdr(cdr(C));
-                        f.env = E;
-                        K.push_back(std::move(f));
-                        C = car(cdr(C));
-                        continue;
-                        }
-                     if (sid == kw.and_)
-                        {
-                        Value body = cdr(C);
-                        if (is_nil(body))
-                           {
-                           V = make_boolean(true);
-                           break;
-                           }
-                        if (is_cons(cdr(body)))
-                           {
-                           Frame f;
-                           f.tag = FRAME_AND;
-                           f.v1 = cdr(body);
-                           f.env = E;
-                           K.push_back(std::move(f));
-                           }
-                        C = car(body);
-                        continue;
-                        }
-                     if (sid == kw.or_)
-                        {
-                        Value body = cdr(C);
-                        if (is_nil(body))
-                           {
-                           V = make_boolean(false);
-                           break;
-                           }
-                        if (is_cons(cdr(body)))
-                           {
-                           Frame f;
-                           f.tag = FRAME_OR;
-                           f.v1 = cdr(body);
-                           f.env = E;
-                           K.push_back(std::move(f));
-                           }
-                        C = car(body);
-                        continue;
-                        }
-                     if (sid == kw.cond)
-                        {
-                        Value clauses = cdr(C);
-                        Value first = car(clauses);
-                        Value rest = cdr(clauses);
-                        CondClause kind = classify_cond_clause(first, E);
-                        if (kind.kind == CondClause::Else)
-                           {
-                           Value body = kind.body_cons;
-                           C = car(body);
-                           if (is_cons(cdr(body)))
+                           case SF_QUOTE:
+                              {
+                              V = car(cdr(C));
+                              mark_literal_immutable(V);
+                              goto eval_break;
+                              }
+                           case SF_LAMBDA:
+                              {
+                              V = make_closure_from_lambda(C, E);
+                              goto eval_break;
+                              }
+                           case SF_CASE_LAMBDA:
+                              {
+                              V = make_case_closure_from_form(C, E);
+                              goto eval_break;
+                              }
+                           case SF_DELAY:
+                           case SF_DELAY_FORCE:
+                              {
+                              Value ex = car(cdr(C));
+                              Value body = alloc_cons(ex, NIL_VALUE);
+                              Value thunk = make_closure({}, body, E, UINT32_MAX, "");
+                              // delay-force tail-chases into a promise result;
+                              // plain delay returns its value as-is (R7RS 4.2.5).
+                              bool iterative = (sf == SF_DELAY_FORCE);
+                              V = make_promise_lazy(thunk, iterative);
+                              goto eval_break;
+                              }
+                           case SF_IMPORT:
+                              {
+                              process_import(cdr(C), E, ctx);
+                              V = VOID_VALUE;
+                              goto eval_break;
+                              }
+                           case SF_DEFINE_LIBRARY:
+                              {
+                              process_define_library(C, ctx);
+                              V = VOID_VALUE;
+                              goto eval_break;
+                              }
+                           case SF_IF:
                               {
                               Frame f;
-                              f.tag = FRAME_SEQ;
-                              f.v1 = cdr(body);
+                              f.tag = FRAME_IF;
+                              f.v1 = car(cdr(cdr(C)));      // then
+                              f.v2 = car(cdr(cdr(cdr(C)))); // else
                               f.env = E;
                               K.push_back(std::move(f));
+                              C = car(cdr(C));
+                              continue;
                               }
-                           continue;
-                           }
-                        Frame f;
-                        f.tag = FRAME_COND;
-                        f.v1 = first;
-                        f.v2 = rest;
-                        f.env = E;
-                        K.push_back(std::move(f));
-                        C = kind.test;
-                        continue;
-                        }
-                     if (sid == kw.case_)
-                        {
-                        Value clauses = cdr(cdr(C));
-                        Frame f;
-                        f.tag = FRAME_CASE;
-                        f.v1 = car(clauses);
-                        f.v2 = cdr(clauses);
-                        f.env = E;
-                        K.push_back(std::move(f));
-                        C = car(cdr(C));
-                        continue;
-                        }
-                     if (sid == kw.let)
-                        {
-                        if (is_symbol(car(cdr(C))))
-                           {
-                           // named let
-                           Value loop_name_sym = car(cdr(C));
-                           uint32_t loop_nm_id = as_symbol_id(loop_name_sym);
-                           Value bindings_cons = car(cdr(cdr(C)));
-                           Value body_cons = cdr(cdr(cdr(C)));
-                           auto pairs = collect_let_bindings(bindings_cons);
-                           std::vector<uint32_t> param_ids;
-                           std::vector<Value> init_exprs;
-                           for (auto& p : pairs)
-                              {
-                              param_ids.push_back(p.first);
-                              init_exprs.push_back(p.second);
-                              }
-                           Environment* loop_env = gc_alloc_environment(E);
-                           loop_env->bind_id(loop_nm_id, VOID_VALUE);
-                           Value closure = make_closure(param_ids, body_cons, loop_env, UINT32_MAX, "");
-                           loop_env->bind_id(loop_nm_id, closure);
-                           V = closure;
-                           Frame f;
-                           f.tag = FRAME_ARG;
-                           f.list1 = std::move(init_exprs);
-                           f.env = loop_env;
-                           f.v1 = C;
-                           K.push_back(std::move(f));
-                           break;
-                           }
-                        Value bindings_cons = car(cdr(C));
-                        Value body_cons = cdr(cdr(C));
-                        auto pairs = collect_let_bindings(bindings_cons);
-                        if (pairs.empty())
-                           {
-                           C = car(body_cons);
-                           if (is_cons(cdr(body_cons)))
+                           case SF_DEFINE:
                               {
                               Frame f;
-                              f.tag = FRAME_SEQ;
-                              f.v1 = cdr(body_cons);
+                              f.tag = FRAME_DEFINE;
+                              f.v1 = car(cdr(C));
                               f.env = E;
                               K.push_back(std::move(f));
+                              C = car(cdr(cdr(C)));
+                              continue;
                               }
-                           continue;
-                           }
-                        std::vector<uint32_t> names;
-                        std::vector<Value> val_exprs;
-                        for (auto& p : pairs)
-                           {
-                           names.push_back(p.first);
-                           val_exprs.push_back(p.second);
-                           }
-                        std::vector<Value> remaining(val_exprs.begin() + 1, val_exprs.end());
-                        Frame f;
-                        f.tag = FRAME_LET;
-                        f.ids = std::move(names);
-                        f.list1 = {};
-                        f.list2 = std::move(remaining);
-                        f.v1 = body_cons;
-                        f.env = E;
-                        K.push_back(std::move(f));
-                        C = val_exprs[0];
-                        continue;
-                        }
-                     if (sid == kw.let_star)
-                        {
-                        Value bindings_cons = car(cdr(C));
-                        Value body_cons = cdr(cdr(C));
-                        auto pairs = collect_let_bindings(bindings_cons);
-                        if (pairs.empty())
-                           {
-                           C = car(body_cons);
-                           if (is_cons(cdr(body_cons)))
+                           case SF_SET:
+                              {
+                              Value name_sexpr = car(cdr(C));
+                              Frame f;
+                              f.tag = FRAME_SET;
+                              f.v1 = name_sexpr;
+                              f.env = E;
+                              f.src_ptr = src_of(name_sexpr);
+                              K.push_back(std::move(f));
+                              C = car(cdr(cdr(C)));
+                              continue;
+                              }
+                           case SF_BEGIN:
+                              {
+                              Value body = cdr(C);
+                              if (is_nil(body))
+                                 {
+                                 V = VOID_VALUE;
+                                 goto eval_break;
+                                 }
+                              C = car(body);
+                              if (is_cons(cdr(body)))
+                                 {
+                                 Frame f;
+                                 f.tag = FRAME_SEQ;
+                                 f.v1 = cdr(body);
+                                 f.env = E;
+                                 K.push_back(std::move(f));
+                                 }
+                              continue;
+                              }
+                           case SF_WHEN:
                               {
                               Frame f;
-                              f.tag = FRAME_SEQ;
-                              f.v1 = cdr(body_cons);
+                              f.tag = FRAME_WHEN;
+                              f.v1 = cdr(cdr(C));
                               f.env = E;
                               K.push_back(std::move(f));
+                              C = car(cdr(C));
+                              continue;
                               }
-                           continue;
-                           }
-                        std::vector<std::pair<uint32_t, Value>> remaining(pairs.begin() + 1, pairs.end());
-                        Frame f;
-                        f.tag = FRAME_LET_STAR;
-                        f.uid = pairs[0].first;
-                        f.pairs = std::move(remaining);
-                        f.v1 = body_cons;
-                        f.env = E;
-                        K.push_back(std::move(f));
-                        C = pairs[0].second;
-                        continue;
-                        }
-                     if (sid == kw.letrec || sid == kw.letrec_star)
-                        {
-                        Value bindings_cons = car(cdr(C));
-                        Value body_cons = cdr(cdr(C));
-                        auto pairs = collect_let_bindings(bindings_cons);
-                        if (pairs.empty())
-                           {
-                           C = car(body_cons);
-                           if (is_cons(cdr(body_cons)))
+                           case SF_UNLESS:
                               {
                               Frame f;
-                              f.tag = FRAME_SEQ;
-                              f.v1 = cdr(body_cons);
+                              f.tag = FRAME_UNLESS;
+                              f.v1 = cdr(cdr(C));
                               f.env = E;
                               K.push_back(std::move(f));
+                              C = car(cdr(C));
+                              continue;
                               }
-                           continue;
-                           }
-                        Environment* new_env = gc_alloc_environment(E);
-                        for (auto& p : pairs)
-                           new_env->bind_id(p.first, VOID_VALUE);
-                        std::vector<std::pair<uint32_t, Value>> remaining(pairs.begin() + 1, pairs.end());
-                        Frame f;
-                        f.tag = FRAME_LETREC;
-                        f.uid = pairs[0].first;
-                        f.pairs = std::move(remaining);
-                        f.v1 = body_cons;
-                        f.env = new_env;
-                        K.push_back(std::move(f));
-                        C = pairs[0].second;
-                        E = new_env;
-                        continue;
-                        }
-                     if (sid == kw.trace)
-                        {
-                        Tracer* trc = ctx->tracer;
-                        Value args_cons = cdr(C);
-                        if (is_nil(args_cons))
-                           {
-                           V = sorted_sym_list(trc->get_fns());
-                           break;
-                           }
-                        Value cur2 = args_cons;
-                        while (is_cons(cur2))
-                           {
-                           Value sym = car(cur2);
-                           if (!is_symbol(sym))
-                              throw SchemeTypeError("trace: arguments must be symbols", src_of(C));
-                           trc->add_fn(as_symbol(sym));
-                           cur2 = cdr(cur2);
-                           }
-                        V = sorted_sym_list(trc->get_fns());
-                        break;
-                        }
-                     if (sid == kw.untrace)
-                        {
-                        Tracer* trc = ctx->tracer;
-                        Value args_cons = cdr(C);
-                        if (is_nil(args_cons))
-                           {
-                           trc->remove_all();
-                           }
-                        else
-                           {
-                           Value cur2 = args_cons;
-                           while (is_cons(cur2))
+                           case SF_AND:
                               {
-                              Value sym = car(cur2);
-                              if (!is_symbol(sym))
-                                 throw SchemeTypeError("untrace: arguments must be symbols", src_of(C));
-                              trc->remove_fn(as_symbol(sym));
-                              cur2 = cdr(cur2);
+                              Value body = cdr(C);
+                              if (is_nil(body))
+                                 {
+                                 V = make_boolean(true);
+                                 goto eval_break;
+                                 }
+                              if (is_cons(cdr(body)))
+                                 {
+                                 Frame f;
+                                 f.tag = FRAME_AND;
+                                 f.v1 = cdr(body);
+                                 f.env = E;
+                                 K.push_back(std::move(f));
+                                 }
+                              C = car(body);
+                              continue;
                               }
+                           case SF_OR:
+                              {
+                              Value body = cdr(C);
+                              if (is_nil(body))
+                                 {
+                                 V = make_boolean(false);
+                                 goto eval_break;
+                                 }
+                              if (is_cons(cdr(body)))
+                                 {
+                                 Frame f;
+                                 f.tag = FRAME_OR;
+                                 f.v1 = cdr(body);
+                                 f.env = E;
+                                 K.push_back(std::move(f));
+                                 }
+                              C = car(body);
+                              continue;
+                              }
+                           case SF_COND:
+                              {
+                              Value clauses = cdr(C);
+                              Value first = car(clauses);
+                              Value rest = cdr(clauses);
+                              CondClause kind = classify_cond_clause(first, E);
+                              if (kind.kind == CondClause::Else)
+                                 {
+                                 Value body = kind.body_cons;
+                                 C = car(body);
+                                 if (is_cons(cdr(body)))
+                                    {
+                                    Frame f;
+                                    f.tag = FRAME_SEQ;
+                                    f.v1 = cdr(body);
+                                    f.env = E;
+                                    K.push_back(std::move(f));
+                                    }
+                                 continue;
+                                 }
+                              Frame f;
+                              f.tag = FRAME_COND;
+                              f.v1 = first;
+                              f.v2 = rest;
+                              f.env = E;
+                              K.push_back(std::move(f));
+                              C = kind.test;
+                              continue;
+                              }
+                           case SF_CASE:
+                              {
+                              Value clauses = cdr(cdr(C));
+                              Frame f;
+                              f.tag = FRAME_CASE;
+                              f.v1 = car(clauses);
+                              f.v2 = cdr(clauses);
+                              f.env = E;
+                              K.push_back(std::move(f));
+                              C = car(cdr(C));
+                              continue;
+                              }
+                           case SF_LET:
+                              {
+                              if (is_symbol(car(cdr(C))))
+                                 {
+                                 // named let
+                                 Value loop_name_sym = car(cdr(C));
+                                 uint32_t loop_nm_id = as_symbol_id(loop_name_sym);
+                                 Value bindings_cons = car(cdr(cdr(C)));
+                                 Value body_cons = cdr(cdr(cdr(C)));
+                                 auto pairs = collect_let_bindings(bindings_cons);
+                                 std::vector<uint32_t> param_ids;
+                                 std::vector<Value> init_exprs;
+                                 for (auto& p : pairs)
+                                    {
+                                    param_ids.push_back(p.first);
+                                    init_exprs.push_back(p.second);
+                                    }
+                                 Environment* loop_env = gc_alloc_environment(E);
+                                 loop_env->bind_id(loop_nm_id, VOID_VALUE);
+                                 Value closure = make_closure(param_ids, body_cons, loop_env, UINT32_MAX, "");
+                                 loop_env->bind_id(loop_nm_id, closure);
+                                 V = closure;
+                                 Frame f;
+                                 f.tag = FRAME_ARG;
+                                 f.list1 = std::move(init_exprs);
+                                 f.env = loop_env;
+                                 f.v1 = C;
+                                 K.push_back(std::move(f));
+                                 goto eval_break;
+                                 }
+                              Value bindings_cons = car(cdr(C));
+                              Value body_cons = cdr(cdr(C));
+                              auto pairs = collect_let_bindings(bindings_cons);
+                              if (pairs.empty())
+                                 {
+                                 C = car(body_cons);
+                                 if (is_cons(cdr(body_cons)))
+                                    {
+                                    Frame f;
+                                    f.tag = FRAME_SEQ;
+                                    f.v1 = cdr(body_cons);
+                                    f.env = E;
+                                    K.push_back(std::move(f));
+                                    }
+                                 continue;
+                                 }
+                              std::vector<uint32_t> names;
+                              std::vector<Value> val_exprs;
+                              for (auto& p : pairs)
+                                 {
+                                 names.push_back(p.first);
+                                 val_exprs.push_back(p.second);
+                                 }
+                              std::vector<Value> remaining(val_exprs.begin() + 1, val_exprs.end());
+                              Frame f;
+                              f.tag = FRAME_LET;
+                              f.ids = std::move(names);
+                              f.list1 = {};
+                              f.list2 = std::move(remaining);
+                              f.v1 = body_cons;
+                              f.env = E;
+                              K.push_back(std::move(f));
+                              C = val_exprs[0];
+                              continue;
+                              }
+                           case SF_LET_STAR:
+                              {
+                              Value bindings_cons = car(cdr(C));
+                              Value body_cons = cdr(cdr(C));
+                              auto pairs = collect_let_bindings(bindings_cons);
+                              if (pairs.empty())
+                                 {
+                                 C = car(body_cons);
+                                 if (is_cons(cdr(body_cons)))
+                                    {
+                                    Frame f;
+                                    f.tag = FRAME_SEQ;
+                                    f.v1 = cdr(body_cons);
+                                    f.env = E;
+                                    K.push_back(std::move(f));
+                                    }
+                                 continue;
+                                 }
+                              std::vector<std::pair<uint32_t, Value>> remaining(pairs.begin() + 1, pairs.end());
+                              Frame f;
+                              f.tag = FRAME_LET_STAR;
+                              f.uid = pairs[0].first;
+                              f.pairs = std::move(remaining);
+                              f.v1 = body_cons;
+                              f.env = E;
+                              K.push_back(std::move(f));
+                              C = pairs[0].second;
+                              continue;
+                              }
+                           case SF_LETREC:
+                              {
+                              Value bindings_cons = car(cdr(C));
+                              Value body_cons = cdr(cdr(C));
+                              auto pairs = collect_let_bindings(bindings_cons);
+                              if (pairs.empty())
+                                 {
+                                 C = car(body_cons);
+                                 if (is_cons(cdr(body_cons)))
+                                    {
+                                    Frame f;
+                                    f.tag = FRAME_SEQ;
+                                    f.v1 = cdr(body_cons);
+                                    f.env = E;
+                                    K.push_back(std::move(f));
+                                    }
+                                 continue;
+                                 }
+                              Environment* new_env = gc_alloc_environment(E);
+                              for (auto& p : pairs)
+                                 new_env->bind_id(p.first, VOID_VALUE);
+                              std::vector<std::pair<uint32_t, Value>> remaining(pairs.begin() + 1, pairs.end());
+                              Frame f;
+                              f.tag = FRAME_LETREC;
+                              f.uid = pairs[0].first;
+                              f.pairs = std::move(remaining);
+                              f.v1 = body_cons;
+                              f.env = new_env;
+                              K.push_back(std::move(f));
+                              C = pairs[0].second;
+                              E = new_env;
+                              continue;
+                              }
+                           case SF_TRACE:
+                              {
+                              Tracer* trc = ctx->tracer;
+                              Value args_cons = cdr(C);
+                              if (is_nil(args_cons))
+                                 {
+                                 V = sorted_sym_list(trc->get_fns());
+                                 goto eval_break;
+                                 }
+                              Value cur2 = args_cons;
+                              while (is_cons(cur2))
+                                 {
+                                 Value sym = car(cur2);
+                                 if (!is_symbol(sym))
+                                    throw SchemeTypeError("trace: arguments must be symbols", src_of(C));
+                                 trc->add_fn(as_symbol(sym));
+                                 cur2 = cdr(cur2);
+                                 }
+                              V = sorted_sym_list(trc->get_fns());
+                              goto eval_break;
+                              }
+                           case SF_UNTRACE:
+                              {
+                              Tracer* trc = ctx->tracer;
+                              Value args_cons = cdr(C);
+                              if (is_nil(args_cons))
+                                 {
+                                 trc->remove_all();
+                                 }
+                              else
+                                 {
+                                 Value cur2 = args_cons;
+                                 while (is_cons(cur2))
+                                    {
+                                    Value sym = car(cur2);
+                                    if (!is_symbol(sym))
+                                       throw SchemeTypeError("untrace: arguments must be symbols", src_of(C));
+                                    trc->remove_fn(as_symbol(sym));
+                                    cur2 = cdr(cur2);
+                                    }
+                                 }
+                              V = sorted_sym_list(trc->get_fns());
+                              goto eval_break;
+                              }
+                           default:
+                              break;
                            }
-                        V = sorted_sym_list(trc->get_fns());
-                        break;
                         }
                      }
-                     // Application (keyword or non-symbol head falls through)
+                     // Application (non-keyword symbol or non-symbol head)
                      {
                      std::vector<Value> args = collect_cons_to_list(cdr(C));
                      Frame f;
@@ -1807,6 +1870,12 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
 
                // Self-evaluating
                V = C;
+               break;
+
+               // Opt #1 value-producing special forms jump here to leave the
+               // EVAL phase (a plain `break` inside the switch would only break
+               // the switch).  V already holds the produced value.
+               eval_break:
                break;
                } // end EVAL loop C
 
