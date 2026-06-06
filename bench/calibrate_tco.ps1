@@ -22,6 +22,8 @@
 
 param(
    [string[]] $Interp = @("D:/SWDEV/Languages/Lisp/4CPPScheme2/build/Release/cppscheme2.exe"),
+   [string]   $InterpExe  = "",        # alt to -Interp: exe path (may contain spaces); used by cherry
+   [string]   $InterpArgs = "",        # alt to -Interp: space-separated pre-args, e.g. "-m pyscheme"
    [long]     $Start  = 100000,        # first N to try (must comfortably succeed)
    [long]     $MaxN   = 200000000,     # hard safety cap on the ramp
    [int]      $TimeoutSec = 120,       # per-trial timeout; a slower trial counts as "too big"
@@ -29,6 +31,17 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# Resolve the interpreter invocation.  -InterpExe/-InterpArgs (used by cherry)
+# take precedence over -Interp; they avoid array-quoting issues when the exe
+# path contains spaces (e.g. a python.exe under "Program Files").
+if ($InterpExe -ne "") {
+   $ExePath = $InterpExe
+   $PreArgs = if ($InterpArgs.Trim() -ne "") { $InterpArgs.Trim() -split '\s+' } else { @() }
+} else {
+   $ExePath = $Interp[0]
+   $PreArgs = if ($Interp.Count -gt 1) { $Interp[1..($Interp.Count - 1)] } else { @() }
+}
 $base = [System.IO.Path]::GetTempFileName()
 $scm  = "$base.scm"
 $out  = "$base.out"
@@ -42,11 +55,8 @@ function Test-N([long]$n) {
 (display "$Sentinel") (newline)
 "@
    Set-Content -Path $scm -Value $src -Encoding ASCII
-   $exe  = $Interp[0]
-   $rest = @()
-   if ($Interp.Count -gt 1) { $rest = $Interp[1..($Interp.Count - 1)] }
-   $argList = $rest + @("`"$scm`"")
-   $p = Start-Process -FilePath $exe -ArgumentList $argList -NoNewWindow -PassThru `
+   $argList = $PreArgs + @("`"$scm`"")
+   $p = Start-Process -FilePath $ExePath -ArgumentList $argList -NoNewWindow -PassThru `
                       -RedirectStandardOutput $out -RedirectStandardError $err
    if (-not $p.WaitForExit($TimeoutSec * 1000)) {
       try { $p.Kill() } catch {}
@@ -57,7 +67,7 @@ function Test-N([long]$n) {
 }
 
 try {
-   Write-Host "Calibrating heap-OOM (broken-TCO) threshold for: $($Interp -join ' ')"
+   Write-Host "Calibrating heap-OOM (broken-TCO) threshold for: $ExePath $($PreArgs -join ' ')"
    Write-Host "  (deep non-tail recursion proxy; Ctrl-C to abort)`n"
 
    # 1) exponential ramp: double N until the proxy fails (or we hit MaxN).
@@ -66,7 +76,7 @@ try {
       Write-Host ("  ramp   N = {0,15:N0} ..." -f $n) -NoNewline
       if (Test-N $n) {
          Write-Host " ok";  $lo = $n
-         if ($n -ge $MaxN) { Write-Host "`nReached MaxN with no failure -- raise -MaxN."; return }
+         if ($n -ge $MaxN) { Write-Host "`nReached MaxN with no failure -- raise -MaxN."; Write-Output "CALIBRATE_THRESHOLD 0"; return }
          $n = [Math]::Min($n * 2, $MaxN)
       } else {
          Write-Host " FAILED (oom/crash/timeout)"; $hi = $n; break
@@ -86,6 +96,8 @@ try {
    Write-Host ("  => broken TCO dies around ~{0:N0} iterations on this machine." -f $hi)
    Write-Host ("  => for a meaningful soak run, use -I: at or above ~{0:N0}." -f ([long]($hi * 1.5)))
    Write-Host "  (Approximate: depends on free memory and per-form frame size; re-run if RAM/pagefile changes.)"
+   # Machine-readable result line (parsed by cherry's Test Suites dialog).
+   Write-Output ("CALIBRATE_THRESHOLD {0}" -f $hi)
 }
 finally {
    Remove-Item $scm, $out, $err -ErrorAction SilentlyContinue
