@@ -421,9 +421,9 @@ std::vector<Listener::LogEntry> Listener::parse_log(const std::string& text)
    return entries;
    }
 
-void Listener::print_welcome_banner()
+void Listener::print_welcome_banner(bool use_color)
    {
-   bool color = IS_STDOUT_TTY();
+   bool color = use_color;
    std::string BOLD_GREEN = color ? "\033[1;92m" : "";
    std::string CYAN = color ? "\033[96m" : "";
    std::string RESET = color ? "\033[0m" : "";
@@ -492,6 +492,10 @@ Listener::Listener(InterpreterBase* interp,
    { _cmd_regression(a); };
    _commands["gc-stress"] = [this](std::vector<std::string>& a)
    { _cmd_gc_stress(a); };
+   _commands["toggle-tty-color"] = [this](std::vector<std::string>& a)
+   { _cmd_toggle_tty_color(a); };
+   _commands["tty-color"] = [this](std::vector<std::string>& a)
+   { _cmd_tty_color(a); };
 
    _help["help"] = "Usage: ]help [command]\nList every listener command, or show detailed help for one.";
    _help["quit"] = "Usage: ]quit\nExit the listener.";
@@ -507,6 +511,8 @@ Listener::Listener(InterpreterBase* interp,
    _help["test"] = "Usage: ]test [<filename>]\nLegacy alias for ]feature.  Run one log file or all *.log files under testing/.\nAutomatically runs under GC-stress, which is forced OFF when the run finishes.";
    _help["cd"] = "Usage: ]cd <directory>\nChange the process working directory.";
    _help["pwd"] = "Usage: ]pwd\nPrint the current working directory.";
+   _help["toggle-tty-color"] = "Usage: ]toggle-tty-color\nToggle forced emission of ANSI color escape codes.  When ON, color codes\nare emitted even when stdout is not a TTY (e.g. when the REPL is driven\nthrough a pipe by a GUI front-end such as cherry that renders the codes\nitself).  When OFF, color follows the usual rule -- emitted only to a real\nterminal.  Still suppressed during test runs so report files stay clean.\nPrints the resulting state.";
+   _help["tty-color"] = "Usage: ]tty-color\nShow whether forced ANSI color-code emission is currently on or off\n(see ]toggle-tty-color).";
    _help["lhistory"] = "Usage: ]lhistory [<n>]\nQuery or set the maximum readline history size.";
    _help["debug"] = "Usage: ]debug\nOpen the interactive debugger.";
    _help["profile"] = "Usage: ]profile [reset]\nPrint profiling report (call counts + times) and reset counters.\nWith 'reset', reset counters without printing.\n(Requires build with -DPROFILE_COUNTERS.)";
@@ -546,7 +552,7 @@ void Listener::_init_readline()
 
 bool Listener::_use_color() const
    {
-   return IS_STDOUT_TTY() && !_output_to_file;
+   return (_emit_color_codes || IS_STDOUT_TTY()) && !_output_to_file;
    }
 
 void Listener::_banner()
@@ -563,7 +569,7 @@ void Listener::_banner()
    std::cout << DIM << "- Listener Initialized" << RESET << '\n'
              << std::flush;
    std::cout << '\n';
-   print_welcome_banner();
+   print_welcome_banner(_use_color());
    std::cout << '\n';
    }
 
@@ -1291,7 +1297,7 @@ void Listener::_cmd_reboot(std::vector<std::string>& args)
    std::cout << DIM << "- Initializing interpreter" << RESET << '\n';
    _interp->reboot();
    std::cout << '\n';
-   print_welcome_banner();
+   print_welcome_banner(_use_color());
    std::cout << '\n';
    }
 
@@ -1653,6 +1659,26 @@ void Listener::_cmd_pwd(std::vector<std::string>& args)
    if (!args.empty())
       throw ListenerCommandError("Usage: ]pwd");
    std::cout << fs::current_path().string() << '\n';
+   }
+
+void Listener::_print_tty_color_state()
+   {
+   std::cout << "tty-color: " << (_emit_color_codes ? "on" : "off") << '\n';
+   }
+
+void Listener::_cmd_toggle_tty_color(std::vector<std::string>& args)
+   {
+   if (!args.empty())
+      throw ListenerCommandError("Usage: ]toggle-tty-color");
+   _emit_color_codes = !_emit_color_codes;
+   _print_tty_color_state();
+   }
+
+void Listener::_cmd_tty_color(std::vector<std::string>& args)
+   {
+   if (!args.empty())
+      throw ListenerCommandError("Usage: ]tty-color");
+   _print_tty_color_state();
    }
 
 void Listener::_cmd_lhistory(std::vector<std::string>& args)

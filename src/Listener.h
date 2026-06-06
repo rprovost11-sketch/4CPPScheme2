@@ -133,7 +133,7 @@ class CPPSCHEME2_API Listener
    static std::vector<LogEntry> parse_log(const std::string& text);
 
    // Print the short welcome banner.
-   static void print_welcome_banner();
+   static void print_welcome_banner(bool use_color);
 
  private:
    // Class-level readline state (shared across all Listener instances in a process).
@@ -154,6 +154,11 @@ class CPPSCHEME2_API Listener
    // Suppresses ANSI color so run files are clean text (cout's rdbuf swap is
    // invisible to isatty(); pyscheme gets this free via sys.stdout.isatty()).
    bool _output_to_file = false;
+   // When true, ANSI color escape codes are emitted even when stdout is not a
+   // TTY -- e.g. when the REPL is driven through a pipe by a GUI front-end
+   // (cherry) that renders the codes itself.  Toggled with ]toggle-tty-color;
+   // queried with ]tty-color.  Still suppressed while _output_to_file is set.
+   bool _emit_color_codes = false;
 
    std::unordered_map<std::string, std::function<void(std::vector<std::string>&)>> _commands;
    std::unordered_map<std::string, std::string> _help;
@@ -190,6 +195,9 @@ class CPPSCHEME2_API Listener
    void _cmd_feature(std::vector<std::string>& args);
    void _cmd_cd(std::vector<std::string>& args);
    void _cmd_pwd(std::vector<std::string>& args);
+   void _cmd_toggle_tty_color(std::vector<std::string>& args);
+   void _cmd_tty_color(std::vector<std::string>& args);
+   void _print_tty_color_state();
    void _cmd_lhistory(std::vector<std::string>& args);
    void _cmd_debug(std::vector<std::string>& args);
    void _cmd_profile(std::vector<std::string>& args);
