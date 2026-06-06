@@ -174,12 +174,23 @@ class CPPSCHEME2_API Listener
    std::string _prompt(const std::string& prompt = "",
                        const std::string& prefill = "");
    void _runListenerCommand(const std::string& source);
+
+   // Default value bound to %MAX_TCO_ITER_COUNT% before each test file (after
+   // the per-file reboot); ]compliance -I:<count> overrides it.  Compliance
+   // test 3.05 reads it to size its proper-tail-recursion soak loops.  Kept
+   // modest so routine runs stay fast.
+   static constexpr long long _TCO_ITER_DEFAULT = 100000;
+   // Parse the value of an -I: switch: positive integer with optional metric
+   // suffix (k/K = 1e3, m/M = 1e6).  Throws ListenerCommandError if malformed.
+   static long long _parse_iter_count(const std::string& value);
+
    // Single test runner for all suites (feature / compliance / regression),
    // mirroring pyscheme's _runTestFiles.  `suite` is "feature" | "compliance"
    // | "regression"; it becomes part of the run-report filename:
-   // yyyy-mm-dd-hhmmss-<suite>-CPPScheme2.run.
+   // yyyy-mm-dd-hhmmss-<suite>-CPPScheme2.run.  `tco_iters` is bound to
+   // %MAX_TCO_ITER_COUNT% after each file's reboot.
    void _runTestFiles(const std::vector<std::string>& filenames, const std::string& testDir,
-                      const std::string& suite);
+                      const std::string& suite, long long tco_iters = _TCO_ITER_DEFAULT);
 
    // Command handlers -- each corresponds to a ]command.
    void _cmd_help(std::vector<std::string>& args);

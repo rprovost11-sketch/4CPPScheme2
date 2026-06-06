@@ -1074,8 +1074,47 @@ struct GcStressRunGuard
    };
    } // namespace
 
+long long Listener::_parse_iter_count(const std::string& value)
+   {
+   std::string s = value;
+   // trim surrounding whitespace
+   size_t a = s.find_first_not_of(" \t");
+   size_t b = s.find_last_not_of(" \t");
+   s = (a == std::string::npos) ? "" : s.substr(a, b - a + 1);
+   long long mult = 1;
+   if (!s.empty() && (s.back() == 'k' || s.back() == 'K'))
+      {
+      mult = 1000;
+      s.pop_back();
+      }
+   else if (!s.empty() && (s.back() == 'm' || s.back() == 'M'))
+      {
+      mult = 1000000;
+      s.pop_back();
+      }
+   if (s.empty())
+      throw ListenerCommandError(
+          "Invalid -I: iteration count (use e.g. -I:100000, -I:100k, -I:5M)");
+   long long n = 0;
+   try
+      {
+      size_t pos = 0;
+      n = std::stoll(s, &pos);
+      if (pos != s.size())
+         throw std::invalid_argument("trailing");
+      }
+   catch (const std::exception&)
+      {
+      throw ListenerCommandError(
+          "Invalid -I: iteration count (use e.g. -I:100000, -I:100k, -I:5M)");
+      }
+   if (n <= 0)
+      throw ListenerCommandError("-I: iteration count must be positive");
+   return n * mult;
+   }
+
 void Listener::_runTestFiles(const std::vector<std::string>& filenames, const std::string& testDir,
-                             const std::string& suite)
+                             const std::string& suite, long long tco_iters)
    {
    // ]compliance (suite "compliance") and ]feature (suite "feature") auto-run under
    // GC-stress; ]regression and others are unaffected.
@@ -1138,6 +1177,9 @@ void Listener::_runTestFiles(const std::vector<std::string>& filenames, const st
          {
          std::string filename = filenames[k];
          _interp->reboot(nullptr, false);
+         // Bind %MAX_TCO_ITER_COUNT% in the fresh env so 3.05 (and any future
+         // iteration-tunable test) can size its loops.  Harmless elsewhere.
+         _interp->eval("(define %MAX_TCO_ITER_COUNT% " + std::to_string(tco_iters) + ")");
          std::string base = fs::path(filename).filename().string();
          std::string padded = _ljust(base, 56);
 
@@ -1433,6 +1475,24 @@ void Listener::_cmd_compliance(std::vector<std::string>& args)
    if (!fs::is_directory(compdir))
       throw ListenerCommandError("Compliance directory not found: " + compdir);
 
+   // Pull out an optional -I:<count> switch; the rest are file/range selectors.
+   // -I:<count> sets %MAX_TCO_ITER_COUNT% (default 100000), the upper bound 3.05
+   // uses for its proper-tail-recursion soak loops.  Accepts -I:100000, -I:100k,
+   // -I:5M.  A high count is a per-machine memory soak, not a portable TCO proof
+   // (3.05 proves TCO with %continuation-depth at small N regardless).
+   long long tco_iters = _TCO_ITER_DEFAULT;
+      {
+      std::vector<std::string> rest;
+      for (const std::string& a : args)
+         {
+         if (a.rfind("-I:", 0) == 0)
+            tco_iters = _parse_iter_count(a.substr(3));
+         else
+            rest.push_back(a);
+         }
+      args = rest;
+      }
+
    // Detect single-file mode: last token ends with ".log".
    // Tokens are rejoined since filenames may contain spaces.
    bool single_file_mode = !args.empty() &&
@@ -1452,14 +1512,14 @@ void Listener::_cmd_compliance(std::vector<std::string>& args)
       std::string fpath = (fs::path(compdir) / fname).string();
       if (!fs::is_regular_file(fpath))
          throw ListenerCommandError("File not found: " + fname);
-      _runTestFiles({fpath}, compdir, "compliance");
+      _runTestFiles({fpath}, compdir, "compliance", tco_iters);
       return;
       }
 
    // Range mode: 0 args = all, 1 arg = [start, ∞), 2 args = [start, end).
    if (args.size() > 2)
       throw ListenerCommandError(
-          "Usage: ]compliance [<file.log> | <start> [<end>]]");
+          "Usage: ]compliance [-I:<count>] [<file.log> | <start> [<end>]]");
 
    std::vector<std::string> all_files = retrieveFileList(compdir);
    if (all_files.empty())
@@ -1467,7 +1527,7 @@ void Listener::_cmd_compliance(std::vector<std::string>& args)
 
    if (args.empty())
       {
-      _runTestFiles(all_files, compdir, "compliance");
+      _runTestFiles(all_files, compdir, "compliance", tco_iters);
       return;
       }
 
@@ -1502,7 +1562,7 @@ void Listener::_cmd_compliance(std::vector<std::string>& args)
               ? "No .log files in range [" + args[0] + ", " + args[1] + ")"
               : "No .log files at or after \"" + args[0] + "\"");
 
-   _runTestFiles(filtered, compdir, "compliance");
+   _runTestFiles(filtered, compdir, "compliance", tco_iters);
    }
 
 void Listener::_cmd_regression(std::vector<std::string>& args)

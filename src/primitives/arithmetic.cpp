@@ -668,23 +668,8 @@ static Rat _rationalize_exact(Rat x, Rat delta)
 
 static Value _prim_add(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   if (_has_any_complex(args))
-      {
-      NumAny acc_re{int64_t(0)}, acc_im{int64_t(0)};
-      bool acc_exact = true;
-      for (size_t i = 0; i < args.size(); ++i)
-         {
-         CplxResult a = _extract_complex(args[i]);
-         if (!a.valid)
-            throw SchemeTypeError("+: argument " + std::to_string(i + 1) + " is not a number", _src(app));
-         if (!a.exact)
-            acc_exact = false;
-         acc_re = _numany_add(acc_re, a.re);
-         acc_im = _numany_add(acc_im, a.im);
-         }
-      return _wrap_cplx_result(acc_re, acc_im, acc_exact);
-      }
-   // Fast path: all args are exact integers (no rational, no real, no bignum yet).
+   // Fast path: all args are exact integers (the overwhelmingly common case).
+   // Sum in int64 directly, skipping the complex scan (_has_any_complex) below.
    bool all_fixnum = true;
    for (auto& a : args)
       if (!is_integer(a))
@@ -717,6 +702,22 @@ static Value _prim_add(Context*, Environment*, std::vector<Value>& args, const V
          sum = out;
          }
       return make_integer(sum);
+      }
+   if (_has_any_complex(args))
+      {
+      NumAny acc_re{int64_t(0)}, acc_im{int64_t(0)};
+      bool acc_exact = true;
+      for (size_t i = 0; i < args.size(); ++i)
+         {
+         CplxResult a = _extract_complex(args[i]);
+         if (!a.valid)
+            throw SchemeTypeError("+: argument " + std::to_string(i + 1) + " is not a number", _src(app));
+         if (!a.exact)
+            acc_exact = false;
+         acc_re = _numany_add(acc_re, a.re);
+         acc_im = _numany_add(acc_im, a.im);
+         }
+      return _wrap_cplx_result(acc_re, acc_im, acc_exact);
       }
    // Mixed path: if any arg is bignum, accumulate in mpz.
    bool has_bignum = false;
@@ -760,26 +761,7 @@ static Value _prim_add(Context*, Environment*, std::vector<Value>& args, const V
 
 static Value _prim_sub(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   if (_has_any_complex(args))
-      {
-      CplxResult acc = _extract_complex(args[0]);
-      if (!acc.valid)
-         throw SchemeTypeError("-: argument 1 is not a number", _src(app));
-      if (args.size() == 1)
-         return _wrap_cplx_result(_numany_neg(acc.re), _numany_neg(acc.im), acc.exact);
-      for (size_t i = 1; i < args.size(); ++i)
-         {
-         CplxResult a = _extract_complex(args[i]);
-         if (!a.valid)
-            throw SchemeTypeError("-: argument " + std::to_string(i + 1) + " is not a number", _src(app));
-         if (!a.exact)
-            acc.exact = false;
-         acc.re = _numany_sub(acc.re, a.re);
-         acc.im = _numany_sub(acc.im, a.im);
-         }
-      return _wrap_cplx_result(acc.re, acc.im, acc.exact);
-      }
-   // Fast path: all exact integers.
+   // Fast path: all exact integers (fixnum or bignum) -- skip the complex scan.
    auto all_fixnum_or_bignum = [&]()
    {
       for (auto& a : args)
@@ -845,6 +827,25 @@ static Value _prim_sub(Context*, Environment*, std::vector<Value>& args, const V
       mpz_clear(&acc);
       return r;
       }
+   if (_has_any_complex(args))
+      {
+      CplxResult acc = _extract_complex(args[0]);
+      if (!acc.valid)
+         throw SchemeTypeError("-: argument 1 is not a number", _src(app));
+      if (args.size() == 1)
+         return _wrap_cplx_result(_numany_neg(acc.re), _numany_neg(acc.im), acc.exact);
+      for (size_t i = 1; i < args.size(); ++i)
+         {
+         CplxResult a = _extract_complex(args[i]);
+         if (!a.valid)
+            throw SchemeTypeError("-: argument " + std::to_string(i + 1) + " is not a number", _src(app));
+         if (!a.exact)
+            acc.exact = false;
+         acc.re = _numany_sub(acc.re, a.re);
+         acc.im = _numany_sub(acc.im, a.im);
+         }
+      return _wrap_cplx_result(acc.re, acc.im, acc.exact);
+      }
    if (args.size() == 1)
       return _wrap_numany(_numany_neg(_any_num(args[0], "-", app, 1)));
    NumAny result = _any_num(args[0], "-", app, 1);
@@ -855,24 +856,7 @@ static Value _prim_sub(Context*, Environment*, std::vector<Value>& args, const V
 
 static Value _prim_mul(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   if (_has_any_complex(args))
-      {
-      CplxResult acc{int64_t(1), int64_t(0), true, true};
-      for (size_t i = 0; i < args.size(); ++i)
-         {
-         CplxResult a = _extract_complex(args[i]);
-         if (!a.valid)
-            throw SchemeTypeError("*: argument " + std::to_string(i + 1) + " is not a number", _src(app));
-         if (!a.exact)
-            acc.exact = false;
-         NumAny new_re = _numany_sub(_numany_mul(acc.re, a.re), _numany_mul(acc.im, a.im));
-         NumAny new_im = _numany_add(_numany_mul(acc.re, a.im), _numany_mul(acc.im, a.re));
-         acc.re = new_re;
-         acc.im = new_im;
-         }
-      return _wrap_cplx_result(acc.re, acc.im, acc.exact);
-      }
-   // Fast path: all exact integers (fixnum or bignum).
+   // Fast path: all exact integers (fixnum or bignum) -- skip the complex scan.
    bool all_int = true;
    for (auto& a : args)
       if (!is_integer(a) && !is_bignum(a))
@@ -920,6 +904,23 @@ static Value _prim_mul(Context*, Environment*, std::vector<Value>& args, const V
       Value result = _mpz_to_value(&acc);
       mpz_clear(&acc);
       return result;
+      }
+   if (_has_any_complex(args))
+      {
+      CplxResult acc{int64_t(1), int64_t(0), true, true};
+      for (size_t i = 0; i < args.size(); ++i)
+         {
+         CplxResult a = _extract_complex(args[i]);
+         if (!a.valid)
+            throw SchemeTypeError("*: argument " + std::to_string(i + 1) + " is not a number", _src(app));
+         if (!a.exact)
+            acc.exact = false;
+         NumAny new_re = _numany_sub(_numany_mul(acc.re, a.re), _numany_mul(acc.im, a.im));
+         NumAny new_im = _numany_add(_numany_mul(acc.re, a.im), _numany_mul(acc.im, a.re));
+         acc.re = new_re;
+         acc.im = new_im;
+         }
+      return _wrap_cplx_result(acc.re, acc.im, acc.exact);
       }
    NumAny result{int64_t(1)};
    for (size_t i = 0; i < args.size(); ++i)
