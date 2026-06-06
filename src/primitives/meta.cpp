@@ -3,6 +3,7 @@
 #include "meta.h"
 #include "primitives.h"
 #include "../AST.h"
+#include "../Context.h"
 #include "../Environment.h"
 #include "../gc.h"
 #include "../Evaluator.h"
@@ -336,15 +337,23 @@ static Value _prim_command_line(Context*, Environment*, std::vector<Value>&, con
    return result;
    }
 
-static Value _prim_exit(Context*, Environment*, std::vector<Value>& args, const Value*)
+static Value _prim_exit(Context* ctx, Environment*, std::vector<Value>& args, const Value*)
    {
+   int code;
    if (args.empty())
-      std::exit(0);
-   if (is_boolean(args[0]))
-      std::exit(as_boolean(args[0]) ? 0 : 1);
-   if (is_integer(args[0]))
-      std::exit(static_cast<int>(as_integer(args[0])));
-   std::exit(1);
+      code = 0;
+   else if (is_boolean(args[0]))
+      code = as_boolean(args[0]) ? 0 : 1;
+   else if (is_integer(args[0]))
+      code = static_cast<int>(as_integer(args[0]));
+   else
+      code = 1;
+   // In a live REPL session (exit) aborts the current evaluation and returns to
+   // the '>>> ' prompt rather than terminating the process; batch file
+   // execution still exits the process.  See Context::interactive.
+   if (ctx != nullptr && ctx->interactive)
+      throw ReplExitSignal{code};
+   std::exit(code);
    }
 
 static Value _prim_emergency_exit(Context*, Environment*, std::vector<Value>& args, const Value*)

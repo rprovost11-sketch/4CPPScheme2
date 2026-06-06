@@ -19,6 +19,9 @@ struct CPPSCHEME2_API Context
    std::ostream* outStrm;
    bool _debugging = false;
    bool _instrumented = false;
+   // True in a live REPL session (set by the Listener); (exit) aborts to the
+   // prompt instead of terminating the process.  See primitives/meta.cpp.
+   bool interactive = false;
    Debugger* debugger = nullptr;
    Tracer* tracer = nullptr;
    std::function<Value(Environment*, const Value&)> lEval;

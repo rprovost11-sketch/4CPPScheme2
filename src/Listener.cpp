@@ -447,6 +447,10 @@ Listener::Listener(InterpreterBase* interp,
     : _interp(interp), _testdir(fs::absolute(fs::path(testdir)).string()), _compliancedir(compliancedir.empty() ? "" : fs::absolute(fs::path(compliancedir)).string()), _regressiondir(regressiondir.empty() ? "" : fs::absolute(fs::path(regressiondir)).string()), _runsdir(runsdir.empty() ? "" : fs::absolute(fs::path(runsdir)).string()), _logStream(nullptr), _language(language), _version(version), _author(author), _project(project)
    {
    _init_readline();
+   // A live Listener means an interactive REPL session: (exit) should abort to
+   // the prompt, not terminate the process (batch evalFile never builds a
+   // Listener, so its (exit) still exits).  See primitives/meta.cpp:_prim_exit.
+   _interp->get_ctx()->interactive = true;
    _interp->set_debug_input_fn(
        [this](const std::string& p, const std::string& pf)
        { return _prompt(p, pf); },
@@ -771,6 +775,15 @@ void Listener::readEvalPrintLoop()
          {
          break;
          }
+      catch (ReplExitSignal&)
+         {
+         // (exit) at an interactive prompt: unwind to top level and note it
+         // quietly (dim), then carry on at the next '>>> '.
+         bool color = _use_color();
+         std::string DIM = color ? "\033[2m" : "";
+         std::string RESET = color ? "\033[0m" : "";
+         std::cout << DIM << "; (exit) ignored at REPL top level" << RESET << '\n';
+         }
       catch (ReadlineInterruptError&)
          {
          _writeErrorMsg("Interrupted.");
@@ -909,6 +922,13 @@ TestResult Listener::sessionLog_test(const std::string& filename, int verbosity)
          try
             {
             actual_retval = _interp->eval(eval_expr, &out_capture);
+            }
+         catch (ReplExitSignal&)
+            {
+            // A test that calls (exit): contain the abort so the suite keeps
+            // running.  Recorded as an error token so the entry flags rather
+            // than silently passing.
+            actual_error = "(exit)";
             }
          catch (ReadlineInterruptError&)
             {
