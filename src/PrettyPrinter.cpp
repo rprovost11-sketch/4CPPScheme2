@@ -205,10 +205,74 @@ static std::string join(const std::vector<std::string>& parts)
    return r;
    }
 
-// ── _print_list ───────────────────────────────────────────────────────────────
-// Port of PrettyPrinter.py _print_list.
+// ── scheme_render_structure ───────────────────────────────────────────────────
+// Port of PrettyPrinter.py _render_structure.  Iterative ordered renderer: an
+// explicit task stack of emit-literal / render-value entries replaces recursion
+// on the car-chain and vector nesting (the cdr-spine is already a loop), so depth
+// is heap-bounded.  No Scheme objects are allocated while rendering, so no GC can
+// fire and the Values held in the task stack need no rooting.
 
-static std::string print_list(const Value& pair); // forward decl
+std::string scheme_render_structure(
+    const Value& val, const std::function<std::string(const Value&)>& render_leaf)
+   {
+   std::string out;
+   struct RTask { bool emit; std::string text; Value val; };
+   std::vector<RTask> stack;
+   stack.push_back({false, std::string(), val});
+   while (!stack.empty())
+      {
+      RTask t = std::move(stack.back());
+      stack.pop_back();
+      if (t.emit)
+         {
+         out += t.text;
+         continue;
+         }
+      const Value& x = t.val;
+      if (is_cons(x))
+         {
+         std::vector<Value> elems;
+         Value cur = x;
+         while (is_cons(cur))
+            {
+            elems.push_back(car(cur));
+            cur = cdr(cur);
+            }
+         // push in reverse so tasks pop in print order: ( e0 e1 ... [. tail] )
+         stack.push_back({true, ")", NIL_VALUE});
+         if (!is_nil(cur))
+            {
+            stack.push_back({false, std::string(), cur});
+            stack.push_back({true, " . ", NIL_VALUE});
+            }
+         for (size_t i = elems.size(); i-- > 0; )
+            {
+            stack.push_back({false, std::string(), elems[i]});
+            if (i > 0)
+               stack.push_back({true, " ", NIL_VALUE});
+            }
+         stack.push_back({true, "(", NIL_VALUE});
+         }
+      else if (is_vector(x))
+         {
+         const std::vector<Value>& items = as_vector_items_const(x);
+         stack.push_back({true, ")", NIL_VALUE});
+         for (size_t i = items.size(); i-- > 0; )
+            {
+            stack.push_back({false, std::string(), items[i]});
+            if (i > 0)
+               stack.push_back({true, " ", NIL_VALUE});
+            }
+         stack.push_back({true, "#(", NIL_VALUE});
+         }
+      else
+         {
+         out += render_leaf(x);
+         }
+      }
+   return out;
+   }
+
 // scheme_pretty_print_shared is declared in PrettyPrinter.h; defined below.
 
 // ── has_cycle ─────────────────────────────────────────────────────────────────
@@ -254,16 +318,11 @@ bool scheme_has_cycle(const Value& root)
 
 std::string scheme_pretty_print(const Value& val)
    {
-   if (is_cons(val))
+   if (is_cons(val) || is_vector(val))
       {
       if (scheme_has_cycle(val))
          return scheme_pretty_print_shared(val);
-      return print_list(val);
-      }
-   if (is_vector(val))
-      {
-      if (scheme_has_cycle(val))
-         return scheme_pretty_print_shared(val);
+      return scheme_render_structure(val, scheme_pretty_print);
       }
    if (is_nil(val))
       return "()";
@@ -356,14 +415,6 @@ std::string scheme_pretty_print(const Value& val)
       return "#<continuation>";
    if (is_environment(val))
       return "#<environment>";
-   if (is_vector(val))
-      {
-      const std::vector<Value>& items = as_vector_items_const(val);
-      std::vector<std::string> parts;
-      for (const Value& v : items)
-         parts.push_back(scheme_pretty_print(v));
-      return "#(" + join(parts) + ')';
-      }
    if (is_bytevector(val))
       {
       const std::vector<uint8_t>& items = as_bytevector_items_const(val);
@@ -399,22 +450,6 @@ std::string scheme_pretty_print(const Value& val)
    return "#<unknown>";
    }
 
-// ── _print_list ───────────────────────────────────────────────────────────────
-
-static std::string print_list(const Value& pair)
-   {
-   std::vector<std::string> items;
-   Value cur = pair;
-   while (is_cons(cur))
-      {
-      items.push_back(scheme_pretty_print(car(cur)));
-      cur = cdr(cur);
-      }
-   if (is_nil(cur))
-      return '(' + join(items) + ')';
-   return '(' + join(items) + " . " + scheme_pretty_print(cur) + ')';
-   }
-
 // ── _shared_scan / _shared_render / pretty_print_shared ──────────────────────
 // Port of PrettyPrinter.py _shared_scan, _shared_render, pretty_print_shared.
 // Identity of heap objects is derived from their GcHeader address (gc_value_header).
@@ -423,103 +458,158 @@ using CountMap = std::unordered_map<uintptr_t, int>;
 using LabelMap = std::unordered_map<uintptr_t, int>;
 using SeenSet = std::unordered_set<uintptr_t>;
 
-static void shared_scan(const Value& val, CountMap& counts)
+static void shared_scan(const Value& root, CountMap& counts)
    {
-   if (is_cons(val))
+   // Iterative (explicit stack) so deep/long structures don't overflow the C
+   // stack.  Label numbers are assigned by iterating `counts` (hash order), so
+   // traversal order doesn't affect output; we push cdr-then-car for parity.
+   std::vector<Value> stack;
+   stack.push_back(root);
+   while (!stack.empty())
       {
-      auto key = reinterpret_cast<uintptr_t>(gc_value_header(val));
-      auto it = counts.find(key);
-      if (it != counts.end())
+      Value v = stack.back();
+      stack.pop_back();
+      if (is_cons(v))
          {
-         ++it->second;
-         return;
+         auto key = reinterpret_cast<uintptr_t>(gc_value_header(v));
+         auto it = counts.find(key);
+         if (it != counts.end())
+            {
+            ++it->second;
+            continue;
+            }
+         counts[key] = 1;
+         stack.push_back(cdr(v));
+         stack.push_back(car(v));
          }
-      counts[key] = 1;
-      shared_scan(car(val), counts);
-      shared_scan(cdr(val), counts);
-      }
-   else if (is_vector(val))
-      {
-      auto key = reinterpret_cast<uintptr_t>(gc_value_header(val));
-      auto it = counts.find(key);
-      if (it != counts.end())
+      else if (is_vector(v))
          {
-         ++it->second;
-         return;
+         auto key = reinterpret_cast<uintptr_t>(gc_value_header(v));
+         auto it = counts.find(key);
+         if (it != counts.end())
+            {
+            ++it->second;
+            continue;
+            }
+         counts[key] = 1;
+         const std::vector<Value>& items = as_vector_items_const(v);
+         for (size_t i = items.size(); i-- > 0; )
+            stack.push_back(items[i]);
          }
-      counts[key] = 1;
-      for (const Value& item : as_vector_items_const(val))
-         shared_scan(item, counts);
       }
    }
 
-static std::string shared_render(const Value& val, const LabelMap& labels,
+static std::string shared_render(const Value& root, const LabelMap& labels,
                                  SeenSet& seen)
    {
-   if (is_cons(val))
+   // Iterative analogue of the recursive renderer: an explicit task stack of
+   // emit-literal / render-value entries.  A labeled node's "#n=" prefix is
+   // emitted and its id added to `seen` when first popped -- BEFORE its children
+   // are pushed -- so a back-reference within the children renders as "#n#",
+   // matching the recursion.  Heap-bounded depth; no Scheme allocation, so the
+   // Values held in the stack need no GC rooting.
+   std::string out;
+   struct RTask { bool emit; std::string text; Value val; };
+   std::vector<RTask> stack;
+   stack.push_back({false, std::string(), root});
+   while (!stack.empty())
       {
-      uintptr_t val_key = reinterpret_cast<uintptr_t>(gc_value_header(val));
-      std::string prefix;
-      auto lit = labels.find(val_key);
-      if (lit != labels.end())
+      RTask t = std::move(stack.back());
+      stack.pop_back();
+      if (t.emit)
          {
-         int n = lit->second;
-         if (seen.count(val_key))
-            return '#' + std::to_string(n) + '#';
-         seen.insert(val_key);
-         prefix = '#' + std::to_string(n) + '=';
+         out += t.text;
+         continue;
          }
-      std::vector<std::string> items;
-      Value cur = val;
-      Value tail = NIL_VALUE;
-      bool found_tail = false;
-      while (is_cons(cur))
+      const Value& x = t.val;
+      if (is_cons(x))
          {
-         uintptr_t ck = reinterpret_cast<uintptr_t>(gc_value_header(cur));
-         if (ck != val_key && labels.count(ck))
+         uintptr_t k = reinterpret_cast<uintptr_t>(gc_value_header(x));
+         auto lit = labels.find(k);
+         if (lit != labels.end())
+            {
+            int n = lit->second;
+            if (seen.count(k))
+               {
+               out += '#' + std::to_string(n) + '#';
+               continue;
+               }
+            seen.insert(k);
+            out += '#' + std::to_string(n) + '=';
+            }
+         std::vector<Value> items;
+         Value cur = x;
+         Value tail = NIL_VALUE;
+         bool found_tail = false;
+         while (is_cons(cur))
+            {
+            uintptr_t ck = reinterpret_cast<uintptr_t>(gc_value_header(cur));
+            if (ck != k && labels.count(ck))
+               {
+               tail = cur;
+               found_tail = true;
+               break;
+               }
+            items.push_back(car(cur));
+            cur = cdr(cur);
+            if (is_cons(cur) &&
+                seen.count(reinterpret_cast<uintptr_t>(gc_value_header(cur))))
+               {
+               tail = cur;
+               found_tail = true;
+               break;
+               }
+            }
+         if (!found_tail && !is_nil(cur))
             {
             tail = cur;
             found_tail = true;
-            break;
             }
-         items.push_back(shared_render(car(cur), labels, seen));
-         cur = cdr(cur);
-         if (is_cons(cur) &&
-             seen.count(reinterpret_cast<uintptr_t>(gc_value_header(cur))))
+         stack.push_back({true, ")", NIL_VALUE});
+         if (found_tail)
             {
-            tail = cur;
-            found_tail = true;
-            break;
+            stack.push_back({false, std::string(), tail});
+            stack.push_back({true, " . ", NIL_VALUE});
             }
+         for (size_t i = items.size(); i-- > 0; )
+            {
+            stack.push_back({false, std::string(), items[i]});
+            if (i > 0)
+               stack.push_back({true, " ", NIL_VALUE});
+            }
+         stack.push_back({true, "(", NIL_VALUE});
          }
-      std::string body;
-      if (found_tail)
-         body = '(' + join(items) + " . " + shared_render(tail, labels, seen) + ')';
-      else if (is_nil(cur))
-         body = '(' + join(items) + ')';
+      else if (is_vector(x))
+         {
+         uintptr_t k = reinterpret_cast<uintptr_t>(gc_value_header(x));
+         auto lit = labels.find(k);
+         if (lit != labels.end())
+            {
+            int n = lit->second;
+            if (seen.count(k))
+               {
+               out += '#' + std::to_string(n) + '#';
+               continue;
+               }
+            seen.insert(k);
+            out += '#' + std::to_string(n) + '=';
+            }
+         const std::vector<Value>& items = as_vector_items_const(x);
+         stack.push_back({true, ")", NIL_VALUE});
+         for (size_t i = items.size(); i-- > 0; )
+            {
+            stack.push_back({false, std::string(), items[i]});
+            if (i > 0)
+               stack.push_back({true, " ", NIL_VALUE});
+            }
+         stack.push_back({true, "#(", NIL_VALUE});
+         }
       else
-         body = '(' + join(items) + " . " + shared_render(cur, labels, seen) + ')';
-      return prefix + body;
-      }
-   if (is_vector(val))
-      {
-      uintptr_t key = reinterpret_cast<uintptr_t>(gc_value_header(val));
-      std::string prefix;
-      auto lit = labels.find(key);
-      if (lit != labels.end())
          {
-         int n = lit->second;
-         if (seen.count(key))
-            return '#' + std::to_string(n) + '#';
-         seen.insert(key);
-         prefix = '#' + std::to_string(n) + '=';
+         out += scheme_pretty_print(x);
          }
-      std::vector<std::string> parts;
-      for (const Value& item : as_vector_items_const(val))
-         parts.push_back(shared_render(item, labels, seen));
-      return prefix + "#(" + join(parts) + ')';
       }
-   return scheme_pretty_print(val);
+   return out;
    }
 
 std::string scheme_pretty_print_shared(const Value& val)

@@ -2,6 +2,17 @@
 // PrettyPrinter.h -- Scheme value renderer.
 // Direct port of pyscheme/PrettyPrinter.py.
 #include "AST.h"
+#include <functional>
+
+// Port of PrettyPrinter.py _render_structure.
+// Iteratively render an acyclic cons/vector structure to a string using an
+// explicit task stack, so depth is heap-bounded (no C-stack recursion on the
+// car-chain or vector nesting).  render_leaf renders any non-cons/non-vector
+// value; write and display differ only in that leaf renderer (nested cons/vector
+// are expanded here, so elements inherit the caller's mode).  The caller must
+// ensure val is acyclic (cyclic values route to scheme_pretty_print_shared).
+CPPSCHEME2_API std::string scheme_render_structure(
+    const Value& v, const std::function<std::string(const Value&)>& render_leaf);
 
 // Port of PrettyPrinter.py pretty_print.
 // Renders a CEK value as Scheme surface syntax.

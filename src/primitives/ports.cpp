@@ -338,46 +338,15 @@ static std::string _render_display(const Value& val)
       return _char32_to_utf8(as_character(val));
    if (is_void(val))
       return "";
-   if (is_cons(val))
+   if (is_cons(val) || is_vector(val))
       {
-      // scheme_pretty_print routes cyclic values to scheme_pretty_print_shared
+      // Cyclic values keep the existing behaviour: route to the write-style
+      // datum-label renderer.  Acyclic ones render iteratively via the shared
+      // task-stack helper, passing _render_display as the leaf renderer so list
+      // and vector elements inherit display semantics (heap-bounded depth).
       if (scheme_has_cycle(val))
          return scheme_pretty_print(val);
-      std::string result = "(";
-      Value cur = val;
-      bool first = true;
-      while (is_cons(cur))
-         {
-         if (!first)
-            result += " ";
-         result += _render_display(car(cur));
-         cur = cdr(cur);
-         first = false;
-         }
-      if (is_nil(cur))
-         {
-         result += ")";
-         }
-      else
-         {
-         result += " . " + _render_display(cur) + ")";
-         }
-      return result;
-      }
-   if (is_vector(val))
-      {
-      if (scheme_has_cycle(val))
-         return scheme_pretty_print(val);
-      std::string result = "#(";
-      const std::vector<Value>& items = as_vector_items_const(val);
-      for (size_t i = 0; i < items.size(); ++i)
-         {
-         if (i)
-            result += " ";
-         result += _render_display(items[i]);
-         }
-      result += ")";
-      return result;
+      return scheme_render_structure(val, _render_display);
       }
    return scheme_pretty_print(val);
    }
