@@ -1514,6 +1514,8 @@ class SchemeParser
    std::vector<Token> tokens_;
    size_t pos_;
    std::unordered_map<int64_t, Value> labels_;
+   int depth_ = 0;                              // current parse-expr nesting depth
+   static constexpr int MAX_PARSE_DEPTH = 500;  // graceful cap (mirrors MAX_EXPAND_DEPTH)
 
    const Token& _peek() const
       {
@@ -1705,6 +1707,19 @@ class SchemeParser
    // Port of Parser.parse_expr
    Value parse_expr()
       {
+      // Bound recursion depth so deeply-nested input fails with a graceful syntax
+      // error instead of overflowing the C stack (the reader is recursive-descent).
+      // Caps nesting only -- flat lists of any length are unaffected.  Mirrors the
+      // expander's MAX_EXPAND_DEPTH.
+      struct DepthGuard
+         {
+         int& d;
+         DepthGuard(int& dd) : d(dd) { ++d; }
+         ~DepthGuard() { --d; }
+         } _dg(depth_);
+      if (depth_ > MAX_PARSE_DEPTH)
+         throw SchemeSyntaxError("expression nesting too deep",
+                                 new SourceInfo(_peek().src));
       _skip_datum_comments();
       const Token& tok = _peek();
       TokenKind kind = tok.kind;

@@ -1022,31 +1022,42 @@ bool is_immutable(const Value& val)
 
 void mark_literal_immutable(const Value& val)
    {
-   if (is_cons(val))
+   // Iterative (explicit worklist) so a deeply-nested or very long literal does
+   // not overflow the C stack.  The immutable flag doubles as the visited marker,
+   // bounding cycles and re-shared structure.  No allocation here, so the Values
+   // held in the worklist need no GC rooting.
+   std::vector<Value> stack;
+   stack.push_back(val);
+   while (!stack.empty())
       {
-      ConsCell* c = std::get<ConsCell*>(val.repr);
-      if (c->immutable)
-         return;
-      c->immutable = true;
-      mark_literal_immutable(c->car);
-      mark_literal_immutable(c->cdr);
-      }
-   else if (is_string(val))
-      {
-      std::get<SchemeString*>(val.repr)->immutable = true;
-      }
-   else if (is_vector(val))
-      {
-      SchemeVector* v = std::get<SchemeVector*>(val.repr);
-      if (v->immutable)
-         return;
-      v->immutable = true;
-      for (const Value& item : v->elements)
-         mark_literal_immutable(item);
-      }
-   else if (is_bytevector(val))
-      {
-      std::get<SchemeBytevector*>(val.repr)->immutable = true;
+      Value v = stack.back();
+      stack.pop_back();
+      if (is_cons(v))
+         {
+         ConsCell* c = std::get<ConsCell*>(v.repr);
+         if (c->immutable)
+            continue;
+         c->immutable = true;
+         stack.push_back(c->car);
+         stack.push_back(c->cdr);
+         }
+      else if (is_string(v))
+         {
+         std::get<SchemeString*>(v.repr)->immutable = true;
+         }
+      else if (is_vector(v))
+         {
+         SchemeVector* sv = std::get<SchemeVector*>(v.repr);
+         if (sv->immutable)
+            continue;
+         sv->immutable = true;
+         for (const Value& item : sv->elements)
+            stack.push_back(item);
+         }
+      else if (is_bytevector(v))
+         {
+         std::get<SchemeBytevector*>(v.repr)->immutable = true;
+         }
       }
    }
 
