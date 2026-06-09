@@ -598,6 +598,38 @@ static EnterResult enter_proc(const Value& fn_value, std::vector<Value>& args,
       return r;
       }
    SourceInfo* src = app_node ? src_of(*app_node) : nullptr;
+   // Record accessors / mutators are first-class procedures (R7RS 5.5), so the
+   // FRAME_HOF_STEP / FRAME_CWV_CONSUMER paths that tail-call through here must
+   // apply them too, matching apply_scheme_proc and the FRAME_CALL terminal dispatch.
+   if (is_record_accessor(fn_value))
+      {
+      if (args.size() != 1)
+         throw SchemeArityError(
+             arity_mismatch_msg(as_record_accessor_name(fn_value), 1, 1, (int)args.size()), src);
+      RecordType* rt = as_record_accessor_type(fn_value);
+      if (!is_record(args[0]) || as_record_type(args[0]) != rt)
+         throw SchemeTypeError(
+             as_record_accessor_name(fn_value) + ": argument is not a " + rt->name, src);
+      EnterResult r;
+      r.kind = EnterResult::IsValue;
+      r.v = as_record_fields_const(args[0])[as_record_accessor_index(fn_value)];
+      return r;
+      }
+   if (is_record_mutator(fn_value))
+      {
+      if (args.size() != 2)
+         throw SchemeArityError(
+             arity_mismatch_msg(as_record_mutator_name(fn_value), 2, 2, (int)args.size()), src);
+      RecordType* rt = as_record_mutator_type(fn_value);
+      if (!is_record(args[0]) || as_record_type(args[0]) != rt)
+         throw SchemeTypeError(
+             as_record_mutator_name(fn_value) + ": first argument is not a " + rt->name, src);
+      as_record_fields(args[0])[as_record_mutator_index(fn_value)] = args[1];
+      EnterResult r;
+      r.kind = EnterResult::IsValue;
+      r.v = VOID_VALUE;
+      return r;
+      }
    throw SchemeTypeError("expected a procedure", src);
    }
 
@@ -645,6 +677,8 @@ static bool is_mv_ok(int ftag)
    case FRAME_SHADOW_POP:
    case FRAME_TRACE_EXIT:
    case FRAME_GUARD:
+   case FRAME_HOF_STEP:
+   case FRAME_HOF_STEP_IDX:
       return true;
    default:
       return false;
@@ -2000,6 +2034,187 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   break;
                   }
 
+               // ── FRAME_HOF_STEP (map / for-each / filter) ──────────────
+               if (ftag == FRAME_HOF_STEP)
+                  {
+                  int mode = frame.depth;
+                  bool started = (frame.uid != 0);
+                  // The frame was popped off K, so these Values are no longer
+                  // rooted by the K trace; pin them across alloc_cons / enter_proc,
+                  // which can move objects.
+                  GcRootGuard proc(frame.v1);
+                  GcRootGuard acc(frame.v2);
+                  GcRootGuard app_node(frame.list2[0]);
+                  GcRootGuard pending(frame.list2[1]);
+                  GcRootGuard v(V);
+                  std::vector<Value> cursors = std::move(frame.list1);
+                  GcRootVec cursors_root(cursors);
+                  if (started)
+                     {
+                     if (mode == PRIM_MAP)
+                        acc.val = alloc_cons(v.val, acc.val);
+                     else if (mode == PRIM_FILTER && !is_false_val(v.val))
+                        acc.val = alloc_cons(pending.val, acc.val);
+                     // PRIM_FOR_EACH discards V.
+                     }
+                  bool ready = !cursors.empty();
+                  for (const Value& c : cursors)
+                     if (!is_cons(c)) { ready = false; break; }
+                  if (!ready)
+                     {
+                     for (const Value& c : cursors)
+                        if (!is_cons(c) && !is_nil(c))
+                           {
+                           const char* msg =
+                               mode == PRIM_FILTER   ? "filter: list argument must be a proper list"
+                             : mode == PRIM_FOR_EACH ? "for-each: list arguments must be proper lists"
+                             :                         "map: list arguments must be proper lists";
+                           throw SchemeTypeError(msg, src_of(app_node.val));
+                           }
+                     if (mode == PRIM_FOR_EACH)
+                        V = VOID_VALUE;
+                     else
+                        {
+                        // acc is reversed; rebuild in order (no allocation reads).
+                        Value res = NIL_VALUE;
+                        GcRootGuard res_root(res);
+                        for (Value cur = acc.val; is_cons(cur); cur = cdr(cur))
+                           res_root.val = alloc_cons(car(cur), res_root.val);
+                        V = res_root.val;
+                        }
+                     continue;
+                     }
+                  std::vector<Value> row;
+                  std::vector<Value> next;
+                  for (const Value& c : cursors)
+                     {
+                     row.push_back(car(c));
+                     next.push_back(cdr(c));
+                     }
+                  Value next_pending = (mode == PRIM_FILTER) ? row[0] : NIL_VALUE;
+                  Frame nf;
+                  nf.tag = FRAME_HOF_STEP;
+                  nf.depth = mode;
+                  nf.uid = 1;
+                  nf.v1 = proc.val;
+                  nf.v2 = acc.val;
+                  nf.list1 = std::move(next);
+                  nf.list2 = {app_node.val, next_pending};
+                  K.push_back(std::move(nf));
+                  EnterResult result = enter_proc(proc.val, row, ctx, E, &app_node.val);
+                  if (result.kind == EnterResult::IsValue) { V = result.v; continue; }
+                  if (result.kind == EnterResult::IsCont)
+                     { K = std::move(result.new_k); V = result.v; continue; }
+                  C = result.v;
+                  E = result.new_env;
+                  if (is_cons(result.seq))
+                     {
+                     Frame sf;
+                     sf.tag = FRAME_SEQ;
+                     sf.v1 = result.seq;
+                     sf.env = result.new_env;
+                     K.push_back(std::move(sf));
+                     }
+                  break;
+                  }
+
+               // ── FRAME_HOF_STEP_IDX (vector/string -map / -for-each) ────
+               if (ftag == FRAME_HOF_STEP_IDX)
+                  {
+                  int mode = frame.depth;
+                  bool started = (frame.uid != 0);
+                  bool is_vec = (mode == PRIM_VECTOR_MAP || mode == PRIM_VECTOR_FOR_EACH);
+                  bool is_map = (mode == PRIM_VECTOR_MAP || mode == PRIM_STRING_MAP);
+                  GcRootGuard proc(frame.v1);
+                  GcRootGuard acc(frame.v2);
+                  GcRootGuard app_node(frame.list2[0]);
+                  GcRootGuard v(V);
+                  std::vector<Value> seqs = std::move(frame.list1);
+                  GcRootVec seqs_root(seqs);
+                  std::vector<uint32_t> positions = std::move(frame.ids);
+                  if (started && is_map)
+                     {
+                     if (mode == PRIM_STRING_MAP && !is_character(v.val))
+                        throw SchemeTypeError("string-map: proc must return a character",
+                                              src_of(app_node.val));
+                     acc.val = alloc_cons(v.val, acc.val);
+                     }
+                  bool done = false;
+                  for (size_t k = 0; k < seqs.size(); ++k)
+                     {
+                     size_t limit = is_vec ? as_vector_items_const(seqs[k]).size()
+                                           : as_string(seqs[k]).size();
+                     if (positions[k] >= limit) { done = true; break; }
+                     }
+                  if (done)
+                     {
+                     if (mode == PRIM_VECTOR_FOR_EACH || mode == PRIM_STRING_FOR_EACH)
+                        V = VOID_VALUE;
+                     else if (mode == PRIM_VECTOR_MAP)
+                        {
+                        std::vector<Value> items;
+                        GcRootVec items_root(items);
+                        for (Value cur = acc.val; is_cons(cur); cur = cdr(cur))
+                           items.push_back(car(cur));
+                        std::reverse(items.begin(), items.end());
+                        V = make_vector(std::move(items));
+                        }
+                     else // PRIM_STRING_MAP
+                        {
+                        std::vector<char32_t> chars;
+                        for (Value cur = acc.val; is_cons(cur); cur = cdr(cur))
+                           chars.push_back(as_character(car(cur)));
+                        std::reverse(chars.begin(), chars.end());
+                        std::string s;
+                        for (char32_t cp : chars)
+                           utf8_encode(s, cp);
+                        V = make_string(s);
+                        }
+                     continue;
+                     }
+                  std::vector<Value> row;
+                  for (size_t k = 0; k < seqs.size(); ++k)
+                     {
+                     if (is_vec)
+                        {
+                        row.push_back(as_vector_items_const(seqs[k])[positions[k]]);
+                        positions[k] += 1;
+                        }
+                     else
+                        {
+                        size_t p = positions[k];
+                        char32_t cp = utf8_next(as_string(seqs[k]), p);
+                        row.push_back(make_character(cp));
+                        positions[k] = (uint32_t)p;
+                        }
+                     }
+                  Frame nf;
+                  nf.tag = FRAME_HOF_STEP_IDX;
+                  nf.depth = mode;
+                  nf.uid = 1;
+                  nf.v1 = proc.val;
+                  nf.v2 = acc.val;
+                  nf.list1 = std::move(seqs);
+                  nf.list2 = {app_node.val};
+                  nf.ids = std::move(positions);
+                  K.push_back(std::move(nf));
+                  EnterResult result = enter_proc(proc.val, row, ctx, E, &app_node.val);
+                  if (result.kind == EnterResult::IsValue) { V = result.v; continue; }
+                  if (result.kind == EnterResult::IsCont)
+                     { K = std::move(result.new_k); V = result.v; continue; }
+                  C = result.v;
+                  E = result.new_env;
+                  if (is_cons(result.seq))
+                     {
+                     Frame sf;
+                     sf.tag = FRAME_SEQ;
+                     sf.v1 = result.seq;
+                     sf.env = result.new_env;
+                     K.push_back(std::move(sf));
+                     }
+                  break;
+                  }
+
                // ── FRAME_POP_HANDLER ─────────────────────────────────────
                if (ftag == FRAME_POP_HANDLER)
                   {
@@ -2285,6 +2500,76 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                      new_collected = std::move(flat);
                      kind = is_primitive(fn_value)
                             ? as_primitive_kind(fn_value) : PRIM_ORDINARY;
+                     }
+                  // map / for-each / filter: drive the per-element calls on the K
+                  // stack (FRAME_HOF_STEP) instead of the _prim_* loop, which
+                  // re-enters cek_eval per element and grows the C stack when such
+                  // calls nest.  The _prim_* bodies stay as the fallback for the
+                  // rare apply_scheme_proc path (e.g. (map filter ...)).  Reached
+                  // for both operator position and (apply map ...).
+                  if (kind == PRIM_MAP || kind == PRIM_FOR_EACH || kind == PRIM_FILTER)
+                     {
+                     const std::string& nm = as_primitive_name(fn_value);
+                     if (kind == PRIM_FILTER)
+                        {
+                        if (new_collected.size() != 2)
+                           throw SchemeArityError(
+                               arity_mismatch_msg(nm, 2, 2, (int)new_collected.size()),
+                               src_of(app_node));
+                        }
+                     else if (new_collected.size() < 2)
+                        throw SchemeArityError(
+                            arity_mismatch_msg(nm, 2, -1, (int)new_collected.size()),
+                            src_of(app_node));
+                     Frame hf;
+                     hf.tag = FRAME_HOF_STEP;
+                     hf.depth = kind;           // mode
+                     hf.uid = 0;                // started = false
+                     hf.v1 = new_collected[0];  // proc
+                     hf.v2 = NIL_VALUE;         // acc (reversed cons)
+                     hf.list1.assign(new_collected.begin() + 1, new_collected.end()); // cursors
+                     hf.list2 = {app_node, NIL_VALUE};  // {app_node, pending}
+                     K.push_back(std::move(hf));
+                     continue;
+                     }
+                  // vector-map / vector-for-each / string-map / string-for-each:
+                  // the indexed analogue, via FRAME_HOF_STEP_IDX.  Type-check the
+                  // sequences here (the wrap_arity check is bypassed on this fast
+                  // path) and seed one cursor position per sequence to 0.
+                  if (kind == PRIM_VECTOR_MAP || kind == PRIM_VECTOR_FOR_EACH ||
+                      kind == PRIM_STRING_MAP || kind == PRIM_STRING_FOR_EACH)
+                     {
+                     const std::string& nm = as_primitive_name(fn_value);
+                     if (new_collected.size() < 2)
+                        throw SchemeArityError(
+                            arity_mismatch_msg(nm, 2, -1, (int)new_collected.size()),
+                            src_of(app_node));
+                     bool is_vec = (kind == PRIM_VECTOR_MAP || kind == PRIM_VECTOR_FOR_EACH);
+                     for (size_t j = 1; j < new_collected.size(); ++j)
+                        {
+                        if (is_vec)
+                           {
+                           if (!is_vector(new_collected[j]))
+                              throw SchemeTypeError(
+                                  nm + ": argument " + std::to_string(j + 1) + " must be a vector",
+                                  src_of(app_node));
+                           }
+                        else if (!is_string(new_collected[j]))
+                           throw SchemeTypeError(
+                               nm + ": argument " + std::to_string(j + 1) + " must be a string",
+                               src_of(app_node));
+                        }
+                     Frame hf;
+                     hf.tag = FRAME_HOF_STEP_IDX;
+                     hf.depth = kind;           // mode
+                     hf.uid = 0;                // started = false
+                     hf.v1 = new_collected[0];  // proc
+                     hf.v2 = NIL_VALUE;         // acc (reversed cons)
+                     hf.list1.assign(new_collected.begin() + 1, new_collected.end()); // seqs
+                     hf.list2 = {app_node};
+                     hf.ids.assign(new_collected.size() - 1, 0u); // positions, all 0
+                     K.push_back(std::move(hf));
+                     continue;
                      }
                   // call-with-values
                   if (kind == PRIM_CALL_WITH_VALUES)

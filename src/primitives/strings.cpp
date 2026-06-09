@@ -23,7 +23,8 @@ static SourceInfo* _src(const Value* a)
 // ── UTF-8 helpers ─────────────────────────────────────────────────────────────
 
 // Advance pos past one UTF-8 code point; return the code point.
-static char32_t utf8_next(const std::string& s, size_t& pos)
+// Declared in AST.h (shared with the evaluator's HOF frames).
+char32_t utf8_next(const std::string& s, size_t& pos)
    {
    auto b0 = static_cast<unsigned char>(s[pos]);
    if (b0 < 0x80)
@@ -76,7 +77,7 @@ static size_t utf8_char_offset(const std::string& s, int64_t k)
    }
 
 // Encode one code point as UTF-8 into result.
-static void utf8_encode(std::string& out, char32_t c)
+void utf8_encode(std::string& out, char32_t c)
    {
    if (c < 0x80)
       {

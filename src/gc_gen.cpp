@@ -285,34 +285,24 @@ static void process_gray_object(GcHeader* header)
    }
 
 // ── Minor/major marking ───────────────────────────────────────────────────────
+// Marking the object graph is iterative: mark_value / mark_object /
+// mark_environment enqueue an object (setting its mark bit) onto an explicit
+// worklist, and the outermost call drains it.  This keeps deeply nested
+// structures -- a long car-nested cons chain, or a deep environment parent
+// chain -- from overflowing the C stack: the depth lives in g_mark_worklist
+// (heap), not in C recursion.  Tracer callbacks (env / continuation / trace
+// hooks) re-enter mark_value/mark_environment mid-drain, which then only
+// enqueue (the g_mark_draining guard suppresses a nested drain).
 
 static void mark_value(Value val, bool minor_only);
 static void mark_object(GcHeader* header, bool minor_only);
+static void mark_environment(Environment* env, bool minor_only);
+static void process_object_children(GcHeader* header, bool minor_only);
 
-static void mark_value(Value val, bool minor_only)
-   {
-   GcHeader* header = gc_value_header(val);
-   if (!header)
-      return;
-   if (minor_only && header->gen == 1)
-      return;
-   mark_object(header, minor_only);
-   }
+static std::vector<GcHeader*> g_mark_worklist;
+static bool g_mark_draining = false;
 
-static void mark_environment(Environment* env, bool minor_only)
-   {
-   if (!env)
-      return;
-   GcHeader* hdr = reinterpret_cast<GcHeader*>(env);
-   if (minor_only && hdr->gen == 1)
-      return;
-   if (hdr->marked.load(std::memory_order_relaxed))
-      return;
-   hdr->marked.store(true, std::memory_order_relaxed);
-   gc_trace_environment_children(env, minor_only);
-   }
-
-static void mark_object(GcHeader* header, bool minor_only)
+static inline void mark_enqueue(GcHeader* header, bool minor_only)
    {
    if (!header)
       return;
@@ -321,7 +311,50 @@ static void mark_object(GcHeader* header, bool minor_only)
    if (header->marked.load(std::memory_order_relaxed))
       return;
    header->marked.store(true, std::memory_order_relaxed);
+   g_mark_worklist.push_back(header);
+   }
 
+static void mark_drain(bool minor_only)
+   {
+   g_mark_draining = true;
+   while (!g_mark_worklist.empty())
+      {
+      GcHeader* header = g_mark_worklist.back();
+      g_mark_worklist.pop_back();
+      process_object_children(header, minor_only);
+      }
+   g_mark_draining = false;
+   }
+
+static void mark_value(Value val, bool minor_only)
+   {
+   mark_enqueue(gc_value_header(val), minor_only);
+   if (!g_mark_draining)
+      mark_drain(minor_only);
+   }
+
+static void mark_object(GcHeader* header, bool minor_only)
+   {
+   mark_enqueue(header, minor_only);
+   if (!g_mark_draining)
+      mark_drain(minor_only);
+   }
+
+static void mark_environment(Environment* env, bool minor_only)
+   {
+   if (!env)
+      return;
+   mark_enqueue(reinterpret_cast<GcHeader*>(env), minor_only);
+   if (!g_mark_draining)
+      mark_drain(minor_only);
+   }
+
+// Process one already-marked object popped from the mark worklist: enqueue its
+// unmarked children.  The cons cdr-spine is still followed inline (marking each
+// spine node) so a long proper list costs O(1) worklist, not O(length); the car
+// of each spine node and every other child is enqueued.
+static void process_object_children(GcHeader* header, bool minor_only)
+   {
    // Iteratively follow the cdr chain for cons cells to avoid O(N) C++ stack
    // depth on long linked lists.  car is always handled with the normal
    // (potentially recursive) mark_value call, which is fine because car values
@@ -455,7 +488,9 @@ static void mark_object(GcHeader* header, bool minor_only)
          mark_object(&reinterpret_cast<RecordMutator*>(header)->record_type->header, minor_only);
       break;
    case GcType::Environment:
-      mark_environment(reinterpret_cast<Environment*>(header), minor_only);
+      // This env header was already mark-enqueued; trace its children directly
+      // (calling mark_environment here would just see it marked and skip them).
+      gc_trace_environment_children(reinterpret_cast<Environment*>(header), minor_only);
       break;
    case GcType::EnvBox:
       if (reinterpret_cast<EnvBox*>(header)->env)

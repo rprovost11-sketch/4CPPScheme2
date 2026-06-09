@@ -252,6 +252,13 @@ static const std::unordered_map<std::string, int> g_primitive_kind_by_name = {
    {"%with-parameters",               PRIM_WITH_PARAMETERS},
    {"dynamic-wind",                   PRIM_DYNAMIC_WIND},
    {"%continuation-depth",            PRIM_CONTINUATION_DEPTH},
+   {"map",                            PRIM_MAP},
+   {"for-each",                       PRIM_FOR_EACH},
+   {"filter",                         PRIM_FILTER},
+   {"vector-map",                     PRIM_VECTOR_MAP},
+   {"vector-for-each",                PRIM_VECTOR_FOR_EACH},
+   {"string-map",                     PRIM_STRING_MAP},
+   {"string-for-each",                PRIM_STRING_FOR_EACH},
    };
 
 Value make_primitive(const std::string& name, BuiltinFn fn)

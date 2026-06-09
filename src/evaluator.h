@@ -40,6 +40,8 @@ constexpr int FRAME_SHADOW_POP = 23;
 constexpr int FRAME_TRACE_EXIT = 24;
 constexpr int FRAME_NONCONTIN_RETURN = 25;
 constexpr int FRAME_GUARD = 26;
+constexpr int FRAME_HOF_STEP = 27;       // map / for-each / filter driver
+constexpr int FRAME_HOF_STEP_IDX = 28;   // vector/string -map / -for-each driver
 
 // ── Frame struct (runtime continuation entries) ───────────────────────────────
 // Port of Evaluator.py frame tuples.  Each tag uses a subset of fields:
@@ -67,6 +69,15 @@ constexpr int FRAME_GUARD = 26;
 //   FRAME_TRACE_EXIT:           str1=fn_name, depth=depth
 //   FRAME_NONCONTIN_RETURN:     v1=raised_value
 //   FRAME_GUARD:                (empty) -- like FRAME_POP_HANDLER but for %guard-eval
+//   FRAME_HOF_STEP:             v1=proc, v2=acc (reversed cons), list1=cursors
+//                                 (cons cells, one per list), list2={app_node, pending},
+//                                 depth=mode (PRIM_MAP/FOR_EACH/FILTER), uid=started
+//   FRAME_HOF_STEP_IDX:         v1=proc, v2=acc (reversed cons), list1=seqs (the
+//                                 vector/string values), list2={app_node},
+//                                 ids=positions (one per seq; byte offset for strings,
+//                                 element index for vectors), depth=mode, uid=started
+// (All HOF Values live in v1/v2/list1/list2 so they are GC-traced by the existing
+//  frame trace/forward; the int state lives in depth/uid/ids, which need no tracing.)
 
 struct Frame
    {

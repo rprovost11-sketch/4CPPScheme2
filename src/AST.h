@@ -259,6 +259,13 @@ constexpr int PRIM_ERROR                  = 11;
 constexpr int PRIM_WITH_PARAMETERS        = 12;
 constexpr int PRIM_DYNAMIC_WIND           = 13;
 constexpr int PRIM_CONTINUATION_DEPTH     = 14;
+constexpr int PRIM_MAP                     = 15;
+constexpr int PRIM_FOR_EACH                = 16;
+constexpr int PRIM_FILTER                  = 17;
+constexpr int PRIM_VECTOR_MAP             = 18;
+constexpr int PRIM_VECTOR_FOR_EACH        = 19;
+constexpr int PRIM_STRING_MAP             = 20;
+constexpr int PRIM_STRING_FOR_EACH        = 21;
 
 struct Builtin
    {
@@ -697,6 +704,12 @@ CPPSCHEME2_API Value make_complex(double re, double im, SourceInfo* src = nullpt
 CPPSCHEME2_API Value make_exact_complex(Value re, Value im, SourceInfo* src = nullptr);
 CPPSCHEME2_API Value make_character(char32_t c, SourceInfo* src = nullptr);
 CPPSCHEME2_API Value make_string(const std::string& s, SourceInfo* src = nullptr);
+
+// UTF-8 helpers (shared by the string primitives and the evaluator's HOF
+// frames).  utf8_next advances pos past one code point and returns it;
+// utf8_encode appends one code point's UTF-8 bytes to out.
+CPPSCHEME2_API char32_t utf8_next(const std::string& s, size_t& pos);
+CPPSCHEME2_API void utf8_encode(std::string& out, char32_t c);
 CPPSCHEME2_API Value make_symbol(const std::string& name, SourceInfo* src = nullptr);
 CPPSCHEME2_API Value make_symbol_id(uint32_t sid, SourceInfo* src = nullptr);
 CPPSCHEME2_API Value make_closure(std::vector<uint32_t> params, Value body,
