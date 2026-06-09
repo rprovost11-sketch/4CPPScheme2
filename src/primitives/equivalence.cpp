@@ -26,22 +26,13 @@ using _Seen = std::unordered_set<std::pair<const void*, const void*>, _PairHash>
 
 static bool _val_eq(const Value& a, const Value& b, _Seen& seen);
 
-static bool _val_eq(const Value& a, const Value& b, _Seen& seen)
+// Compare two NON-cons values for equal?.  Compound leaves (vectors, exact-
+// complex) enqueue their children onto `work` and return true; atomic leaves
+// compare directly.  Returns false on a definite mismatch.  Caller guarantees
+// neither a nor b is a cons (those are handled by the cdr-spine loop in _val_eq).
+static bool _eq_leaf(const Value& a, const Value& b, _Seen& seen,
+                     std::vector<std::pair<Value, Value>>& work)
    {
-   if (is_cons(a))
-      {
-      if (!is_cons(b))
-         return false;
-      auto* ca = std::get<ConsCell*>(a.repr);
-      auto* cb = std::get<ConsCell*>(b.repr);
-      auto key = std::make_pair((const void*)ca, (const void*)cb);
-      if (seen.count(key))
-         return true;
-      seen.insert(key);
-      return _val_eq(car(a), car(b), seen) && _val_eq(cdr(a), cdr(b), seen);
-      }
-   if (is_cons(b))
-      return false;
    if (is_vector(a))
       {
       if (!is_vector(b))
@@ -57,8 +48,7 @@ static bool _val_eq(const Value& a, const Value& b, _Seen& seen)
          return true;
       seen.insert(key);
       for (size_t i = 0; i < va.size(); ++i)
-         if (!_val_eq(va[i], vb[i], seen))
-            return false;
+         work.emplace_back(va[i], vb[i]);
       return true;
       }
    if (is_vector(b))
@@ -104,8 +94,11 @@ static bool _val_eq(const Value& a, const Value& b, _Seen& seen)
    if (is_complex(a) && is_complex(b))
       return as_complex_real(a) == as_complex_real(b) && as_complex_imag(a) == as_complex_imag(b);
    if (is_exact_complex(a) && is_exact_complex(b))
-      return _val_eq(as_exact_complex_real(a), as_exact_complex_real(b), seen) &&
-             _val_eq(as_exact_complex_imag(a), as_exact_complex_imag(b), seen);
+      {
+      work.emplace_back(as_exact_complex_real(a), as_exact_complex_real(b));
+      work.emplace_back(as_exact_complex_imag(a), as_exact_complex_imag(b));
+      return true;
+      }
    if (is_boolean(a) && is_boolean(b))
       return as_boolean(a) == as_boolean(b);
    if (is_string(a) && is_string(b))
@@ -113,6 +106,48 @@ static bool _val_eq(const Value& a, const Value& b, _Seen& seen)
    if (is_character(a) && is_character(b))
       return as_character(a) == as_character(b);
    return false;
+   }
+
+// equal? structural comparison driven by an explicit heap worklist instead of
+// recursion: the cdr-spine is iterated in a loop (a long flat list costs heap,
+// not C stack), with each car (and vector items / exact-complex parts) pushed
+// for later comparison.  Depth is heap-bounded, so deeply nested or very long
+// structures no longer overflow the C stack.  equal? is a conjunction over all
+// node-pairs, so comparison order does not affect the result -- we bail on the
+// first mismatch.  No Scheme objects are allocated during the walk, so no GC can
+// fire and the worklist Values need no rooting.  `seen` bounds cyclic structure.
+static bool _val_eq(const Value& a0, const Value& b0, _Seen& seen)
+   {
+   std::vector<std::pair<Value, Value>> work;
+   work.emplace_back(a0, b0);
+   while (!work.empty())
+      {
+      Value x = work.back().first;
+      Value y = work.back().second;
+      work.pop_back();
+      bool cycle = false;
+      while (is_cons(x))
+         {
+         if (!is_cons(y))
+            return false;
+         auto* cx = std::get<ConsCell*>(x.repr);
+         auto* cy = std::get<ConsCell*>(y.repr);
+         auto key = std::make_pair((const void*)cx, (const void*)cy);
+         if (seen.count(key))
+            { cycle = true; break; }
+         seen.insert(key);
+         work.emplace_back(car(x), car(y));
+         x = cdr(x);
+         y = cdr(y);
+         }
+      if (cycle)
+         continue;
+      if (is_cons(y))
+         return false;
+      if (!_eq_leaf(x, y, seen, work))
+         return false;
+      }
+   return true;
    }
 
 bool value_equal(const Value& a, const Value& b)

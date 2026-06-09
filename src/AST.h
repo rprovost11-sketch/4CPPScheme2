@@ -266,6 +266,8 @@ constexpr int PRIM_VECTOR_MAP             = 18;
 constexpr int PRIM_VECTOR_FOR_EACH        = 19;
 constexpr int PRIM_STRING_MAP             = 20;
 constexpr int PRIM_STRING_FOR_EACH        = 21;
+constexpr int PRIM_MEMBER                 = 22;
+constexpr int PRIM_ASSOC                  = 23;
 
 struct Builtin
    {

@@ -259,6 +259,8 @@ static const std::unordered_map<std::string, int> g_primitive_kind_by_name = {
    {"vector-for-each",                PRIM_VECTOR_FOR_EACH},
    {"string-map",                     PRIM_STRING_MAP},
    {"string-for-each",                PRIM_STRING_FOR_EACH},
+   {"member",                         PRIM_MEMBER},
+   {"assoc",                          PRIM_ASSOC},
    };
 
 Value make_primitive(const std::string& name, BuiltinFn fn)

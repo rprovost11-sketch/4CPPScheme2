@@ -42,6 +42,7 @@ constexpr int FRAME_NONCONTIN_RETURN = 25;
 constexpr int FRAME_GUARD = 26;
 constexpr int FRAME_HOF_STEP = 27;       // map / for-each / filter driver
 constexpr int FRAME_HOF_STEP_IDX = 28;   // vector/string -map / -for-each driver
+constexpr int FRAME_SEARCH_STEP = 29;    // member / assoc 3-arg comparator driver
 
 // ── Frame struct (runtime continuation entries) ───────────────────────────────
 // Port of Evaluator.py frame tuples.  Each tag uses a subset of fields:
@@ -76,6 +77,9 @@ constexpr int FRAME_HOF_STEP_IDX = 28;   // vector/string -map / -for-each drive
 //                                 vector/string values), list2={app_node},
 //                                 ids=positions (one per seq; byte offset for strings,
 //                                 element index for vectors), depth=mode, uid=started
+//   FRAME_SEARCH_STEP:          v1=proc, v2=target, list1={cursor} (the cons cell
+//                                 currently under test), list2={app_node},
+//                                 depth=mode (PRIM_MEMBER/PRIM_ASSOC), uid=started
 // (All HOF Values live in v1/v2/list1/list2 so they are GC-traced by the existing
 //  frame trace/forward; the int state lives in depth/uid/ids, which need no tracing.)
 

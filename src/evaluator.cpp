@@ -679,6 +679,7 @@ static bool is_mv_ok(int ftag)
    case FRAME_GUARD:
    case FRAME_HOF_STEP:
    case FRAME_HOF_STEP_IDX:
+   case FRAME_SEARCH_STEP:
       return true;
    default:
       return false;
@@ -2215,6 +2216,77 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   break;
                   }
 
+               // ── FRAME_SEARCH_STEP (member / assoc 3-arg comparator) ────
+               if (ftag == FRAME_SEARCH_STEP)
+                  {
+                  int mode = frame.depth;
+                  bool started = (frame.uid != 0);
+                  // Frame was popped off K, so pin its Values across enter_proc.
+                  GcRootGuard proc(frame.v1);
+                  GcRootGuard target(frame.v2);
+                  GcRootGuard cursor(frame.list1[0]);
+                  GcRootGuard app_node(frame.list2[0]);
+                  GcRootGuard v(V);
+                  const char* nm = (mode == PRIM_MEMBER) ? "member" : "assoc";
+                  if (started)
+                     {
+                     // v is the comparator's verdict for the entry at cursor.
+                     if (!is_false_val(v.val))
+                        {
+                        // member returns the matching sublist; assoc the pair.
+                        V = (mode == PRIM_MEMBER) ? cursor.val : car(cursor.val);
+                        continue;
+                        }
+                     cursor.val = cdr(cursor.val);
+                     }
+                  if (!is_cons(cursor.val))
+                     {
+                     if (!is_nil(cursor.val))
+                        throw SchemeTypeError(
+                            std::string(nm) + ": second argument must be a proper list",
+                            src_of(app_node.val));
+                     V = make_boolean(false);
+                     continue;
+                     }
+                  Value item;
+                  if (mode == PRIM_MEMBER)
+                     item = car(cursor.val);
+                  else
+                     {
+                     Value entry = car(cursor.val);
+                     if (!is_cons(entry))
+                        throw SchemeTypeError(
+                            std::string(nm) + ": alist entries must be pairs",
+                            src_of(app_node.val));
+                     item = car(entry);
+                     }
+                  Frame nf;
+                  nf.tag = FRAME_SEARCH_STEP;
+                  nf.depth = mode;
+                  nf.uid = 1;
+                  nf.v1 = proc.val;
+                  nf.v2 = target.val;
+                  nf.list1 = {cursor.val};
+                  nf.list2 = {app_node.val};
+                  K.push_back(std::move(nf));
+                  std::vector<Value> row = {target.val, item};
+                  EnterResult result = enter_proc(proc.val, row, ctx, E, &app_node.val);
+                  if (result.kind == EnterResult::IsValue) { V = result.v; continue; }
+                  if (result.kind == EnterResult::IsCont)
+                     { K = std::move(result.new_k); V = result.v; continue; }
+                  C = result.v;
+                  E = result.new_env;
+                  if (is_cons(result.seq))
+                     {
+                     Frame sf;
+                     sf.tag = FRAME_SEQ;
+                     sf.v1 = result.seq;
+                     sf.env = result.new_env;
+                     K.push_back(std::move(sf));
+                     }
+                  break;
+                  }
+
                // ── FRAME_POP_HANDLER ─────────────────────────────────────
                if (ftag == FRAME_POP_HANDLER)
                   {
@@ -2568,6 +2640,28 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                      hf.list1.assign(new_collected.begin() + 1, new_collected.end()); // seqs
                      hf.list2 = {app_node};
                      hf.ids.assign(new_collected.size() - 1, 0u); // positions, all 0
+                     K.push_back(std::move(hf));
+                     continue;
+                     }
+                  // member / assoc with a custom comparator (the 3-arg R7RS
+                  // forms): drive the per-element comparator calls on the K stack
+                  // via FRAME_SEARCH_STEP so a deeply-recursing comparator costs K
+                  // rather than the C stack (the same overflow class map/for-each
+                  // had).  The 2-arg forms use a built-in equality predicate and
+                  // never re-enter the evaluator, so they fall through to the normal
+                  // primitive call; the _member_search/_assoc_search bodies also stay
+                  // as the fallback for the rare higher-order path (e.g. (map member ...)).
+                  if ((kind == PRIM_MEMBER || kind == PRIM_ASSOC) &&
+                      new_collected.size() == 3)
+                     {
+                     Frame hf;
+                     hf.tag = FRAME_SEARCH_STEP;
+                     hf.depth = kind;              // mode
+                     hf.uid = 0;                   // started = false
+                     hf.v1 = new_collected[2];     // proc (comparator)
+                     hf.v2 = new_collected[0];     // target
+                     hf.list1 = {new_collected[1]};// cursor (list head)
+                     hf.list2 = {app_node};
                      K.push_back(std::move(hf));
                      continue;
                      }
