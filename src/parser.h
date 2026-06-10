@@ -88,5 +88,13 @@ CPPSCHEME2_API Value scheme_parse_one(const std::string& source,
 CPPSCHEME2_API Value scheme_parse_first(const std::string& source,
                                         const std::string& filename = "");
 
+// Overload: also reports the token following the first datum, so a caller (the
+// read primitive) can advance an input port past one datum using the parser's
+// own end position rather than re-walking nested structure.  Sets at_eof when
+// the next token is end-of-input; otherwise copies its position into next_src.
+CPPSCHEME2_API Value scheme_parse_first(const std::string& source,
+                                        const std::string& filename,
+                                        bool& at_eof, SourceInfo& next_src);
+
 CPPSCHEME2_API std::vector<Token> scheme_tokenize(const std::string& source,
                                                   const std::string& filename = "");

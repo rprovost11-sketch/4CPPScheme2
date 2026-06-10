@@ -1509,13 +1509,46 @@ std::vector<Token> scheme_tokenize(const std::string& source, const std::string&
 // ── SchemeParser ──────────────────────────────────────────────────────────────
 // Port of Parser.py Parser class.  Not exported — used only by scheme_parse/parse_one.
 
+// One in-progress container/wrapper on the reader's explicit stack.  Holding
+// this state on a heap stack (rather than the host call stack) is what lets the
+// reader handle arbitrarily deep nesting with no recursion-depth cap.  Mirrors
+// pyScheme's _ParseFrame.
+enum class PFrame
+   {
+   List,         // ( ... )  or  [ ... ]
+   Vector,       // #( ... )
+   Bytevector,   // #u8( ... )
+   Prefix,       // '  `  ,  ,@   (wraps exactly one datum)
+   LabelList,    // #n= followed by a list   (stub pre-registered)
+   LabelVector,  // #n= followed by a vector (pre_vector pre-registered)
+   LabelPlain,   // #n= followed by an atom/prefix/bytevector (registered after)
+   Discard       // #;   (reads one datum and throws it away)
+   };
+
+struct ParseFrame
+   {
+   PFrame kind;
+   std::vector<Value> items;          // List/Vector accumulated elements
+   std::vector<uint8_t> byte_items;   // Bytevector accumulated bytes
+   SourceInfo src{0, 0, "", ""};      // opening token's source position
+   TokenKind closer = TokenKind::RPAREN; // List: ')' or ']' kind
+   char closer_ch = ')';              // List: ')' | ']'
+   bool want_tail = false;            // List: saw '.', next datum is the tail
+   bool tail_filled = false;          // List: dotted tail has been read
+   Value dotted_tail;                 // List: improper-list tail value
+   Value sym;                         // Prefix: the wrapper symbol
+   int64_t label_n = 0;               // Label*: datum-label number
+   Value stub;                        // LabelList: cons mutated in place
+   Value pre_vector;                  // LabelVector: pre-created vector
+
+   explicit ParseFrame(PFrame k) : kind(k) {}
+   };
+
 class SchemeParser
    {
    std::vector<Token> tokens_;
    size_t pos_;
    std::unordered_map<int64_t, Value> labels_;
-   int depth_ = 0;                              // current parse-expr nesting depth
-   static constexpr int MAX_PARSE_DEPTH = 500;  // graceful cap (mirrors MAX_EXPAND_DEPTH)
 
    const Token& _peek() const
       {
@@ -1554,116 +1587,90 @@ class SchemeParser
       return result;
       }
 
-   // Port of Parser._read_bytevector
-   Value read_bytevector()
+   // Feed a completed datum to the top frame, reducing single-child frames
+   // (prefix / datum-label / discard) as far as possible.  Returns true and
+   // sets `out` when the stack empties (the value is the final result); returns
+   // false when the value was absorbed by a still-open container or dropped by
+   // a datum comment (the driver should read another datum).  Mirrors
+   // pyScheme's Parser._emit.
+   bool emit(std::vector<ParseFrame>& stack, Value value, Value& out)
       {
-      SourceInfo bv_src = _peek().src;
-      _advance(); // consume '#u8('
-      std::vector<uint8_t> items;
-      while (true)
+      while (!stack.empty())
          {
-         _skip_datum_comments();
-         const Token& tok = _peek();
-         if (tok.kind == TokenKind::RPAREN)
+         ParseFrame& top = stack.back();
+         switch (top.kind)
             {
-            _advance();
-            Value bv = make_bytevector(items);
-            mark_literal_immutable(bv);
-            return bv;
+            case PFrame::List:
+               if (top.want_tail && !top.tail_filled)
+                  {
+                  top.dotted_tail = value;
+                  top.tail_filled = true;
+                  }
+               else
+                  top.items.push_back(value);
+               return false;
+            case PFrame::Vector:
+               top.items.push_back(value);
+               return false;
+            case PFrame::Bytevector:
+               {
+               if (!is_integer(value))
+                  throw SchemeSyntaxError("bytevector element must be an exact integer in 0-255",
+                                          new SourceInfo(top.src));
+               int64_t nv = as_integer(value);
+               if (nv < 0 || nv > 255)
+                  throw SchemeSyntaxError("bytevector element out of range 0-255: " + std::to_string(nv), new SourceInfo(top.src));
+               top.byte_items.push_back((uint8_t)nv);
+               return false;
+               }
+            case PFrame::Discard:
+               stack.pop_back();
+               return false;
+            case PFrame::Prefix:
+               {
+               Value sym = top.sym;
+               SourceInfo src = top.src;
+               stack.pop_back();
+               Value inner = alloc_cons(value, NIL_VALUE, &src);
+               value = alloc_cons(sym, inner, &src);
+               break; // continue cascading
+               }
+            case PFrame::LabelList:
+               {
+               Value stub = top.stub;
+               int64_t label_n = top.label_n;
+               stack.pop_back();
+               if (is_cons(value))
+                  {
+                  set_car(stub, car(value));
+                  set_cdr(stub, cdr(value));
+                  value = stub;
+                  }
+               else
+                  labels_[label_n] = value;
+               break;
+               }
+            case PFrame::LabelVector:
+               {
+               Value pre_vector = top.pre_vector;
+               stack.pop_back();
+               std::vector<Value>& pre_items = as_vector_items(pre_vector);
+               const std::vector<Value>& parsed = as_vector_items_const(value);
+               pre_items.insert(pre_items.end(), parsed.begin(), parsed.end());
+               value = pre_vector;
+               break;
+               }
+            case PFrame::LabelPlain:
+               {
+               int64_t label_n = top.label_n;
+               stack.pop_back();
+               labels_[label_n] = value;
+               break;
+               }
             }
-         if (tok.kind == TokenKind::END_OF_FILE)
-            throw SchemeSyntaxError("unterminated bytevector literal",
-                                    new SourceInfo(bv_src));
-         Value elem = parse_expr();
-         if (!is_integer(elem))
-            throw SchemeSyntaxError("bytevector element must be an exact integer in 0-255",
-                                    new SourceInfo(bv_src));
-         int64_t nv = as_integer(elem);
-         if (nv < 0 || nv > 255)
-            throw SchemeSyntaxError("bytevector element out of range 0-255: " + std::to_string(nv), new SourceInfo(bv_src));
-         items.push_back((uint8_t)nv);
          }
-      }
-
-   // Port of Parser._read_vector
-   Value read_vector()
-      {
-      SourceInfo vec_src = _peek().src;
-      _advance(); // consume '#('
-      std::vector<Value> items;
-      while (true)
-         {
-         _skip_datum_comments();
-         const Token& tok = _peek();
-         if (tok.kind == TokenKind::RPAREN)
-            {
-            _advance();
-            Value v = make_vector(items);
-            mark_literal_immutable(v);
-            return v;
-            }
-         if (tok.kind == TokenKind::END_OF_FILE)
-            throw SchemeSyntaxError("unterminated vector literal",
-                                    new SourceInfo(vec_src));
-         items.push_back(parse_expr());
-         }
-      }
-
-   // Port of Parser._read_list
-   Value read_list()
-      {
-      SourceInfo lparen_src = _peek().src;
-      bool is_bracket = (_peek().kind == TokenKind::LBRACKET);
-      _advance(); // consume '(' or '['
-      TokenKind closer = is_bracket ? TokenKind::RBRACKET : TokenKind::RPAREN;
-      char closer_ch = is_bracket ? ']' : ')';
-
-      std::vector<Value> items;
-      bool has_tail = false;
-      Value dotted_tail;
-
-      while (true)
-         {
-         _skip_datum_comments();
-         const Token& tok = _peek();
-
-         if (tok.kind == closer)
-            {
-            _advance();
-            return build_list(items, has_tail, dotted_tail, &lparen_src);
-            }
-         if (tok.kind == TokenKind::RPAREN || tok.kind == TokenKind::RBRACKET)
-            throw SchemeSyntaxError(
-                std::string("mismatched bracket: expected '") + closer_ch + "'",
-                new SourceInfo(tok.src));
-         if (tok.kind == TokenKind::DOT)
-            {
-            SourceInfo dot_src = tok.src;
-            _advance();
-            if (items.empty())
-               throw SchemeSyntaxError("dot must be preceded by at least one element",
-                                       new SourceInfo(dot_src));
-            const Token& nxt = _peek();
-            if (nxt.kind == TokenKind::RPAREN || nxt.kind == TokenKind::RBRACKET ||
-                nxt.kind == TokenKind::END_OF_FILE || nxt.kind == TokenKind::DOT)
-               throw SchemeSyntaxError("dot must be followed by an expression",
-                                       new SourceInfo(nxt.src));
-            dotted_tail = parse_expr();
-            has_tail = true;
-            const Token& closing = _peek();
-            if (closing.kind != closer)
-               throw SchemeSyntaxError(
-                   std::string("expected '") + closer_ch + "' after dotted tail",
-                   new SourceInfo(closing.src));
-            _advance();
-            return build_list(items, has_tail, dotted_tail, &lparen_src);
-            }
-         if (tok.kind == TokenKind::END_OF_FILE)
-            throw SchemeSyntaxError(
-                std::string("unterminated list (missing '") + closer_ch + "')",
-                new SourceInfo(lparen_src));
-         items.push_back(parse_expr());
-         }
+      out = value;
+      return true;
       }
 
  public:
@@ -1675,6 +1682,21 @@ class SchemeParser
       {
       _skip_datum_comments();
       return parse_expr();
+      }
+
+   // Like parse_first_expr, but also reports the next token after the datum, so
+   // the read primitive can advance the input port using the parser's own
+   // position (mirrors pyScheme) instead of re-walking the token stream.  Sets
+   // at_eof when the next token is end-of-input, else copies its source position
+   // into next_src.
+   Value parse_first_expr(bool& at_eof, SourceInfo& next_src)
+      {
+      _skip_datum_comments();
+      Value form = parse_expr();
+      const Token& nxt = _peek();
+      at_eof = (nxt.kind == TokenKind::END_OF_FILE);
+      next_src = nxt.src;
+      return form;
       }
 
    // Port of Parser.parse_one (called from scheme_parse_one)
@@ -1704,209 +1726,339 @@ class SchemeParser
       return forms;
       }
 
-   // Port of Parser.parse_expr
+   // Port of Parser.parse_expr -- iterative (explicit frame stack), so nesting
+   // of any depth is read without host recursion or a depth cap.  Behaviour is
+   // otherwise identical to the former recursive reader (same values, source
+   // positions, immutability, datum-label semantics and error messages).
    Value parse_expr()
       {
-      // Bound recursion depth so deeply-nested input fails with a graceful syntax
-      // error instead of overflowing the C stack (the reader is recursive-descent).
-      // Caps nesting only -- flat lists of any length are unaffected.  Mirrors the
-      // expander's MAX_EXPAND_DEPTH.
-      struct DepthGuard
+      std::vector<ParseFrame> stack;
+      while (true)
          {
-         int& d;
-         DepthGuard(int& dd) : d(dd) { ++d; }
-         ~DepthGuard() { --d; }
-         } _dg(depth_);
-      if (depth_ > MAX_PARSE_DEPTH)
-         throw SchemeSyntaxError("expression nesting too deep",
-                                 new SourceInfo(_peek().src));
-      _skip_datum_comments();
-      const Token& tok = _peek();
-      TokenKind kind = tok.kind;
+         ParseFrame* top = stack.empty() ? nullptr : &stack.back();
 
-      // Datum label definition #n=  R7RS §2.4
-      if (kind == TokenKind::LABEL_DEF)
-         {
-         int64_t label_n = tok.int_val;
-         SourceInfo tok_src = tok.src;
-         _advance();
-         if (labels_.count(label_n))
-            throw SchemeSyntaxError(
-                "duplicate datum label #" + std::to_string(label_n) + "=",
-                new SourceInfo(tok_src));
-         const Token& nxt = _peek();
-         if (nxt.kind == TokenKind::LPAREN || nxt.kind == TokenKind::LBRACKET)
+         // A list whose dotted tail is already read accepts only its closer.
+         if (top != nullptr && top->kind == PFrame::List && top->tail_filled)
             {
-            // Lists: pre-allocate a ConsCell stub so forward #n# refs work.
-            // After parsing, mutate stub in-place so all prior refs see the result.
-            SourceInfo nxt_src = nxt.src;
-            Value stub = alloc_cons(NIL_VALUE, NIL_VALUE, &nxt_src);
-            labels_[label_n] = stub;
-            Value datum = parse_expr();
-            if (is_cons(datum))
+            const Token& tok = _peek();
+            if (tok.kind == top->closer)
                {
-               set_car(stub, car(datum));
-               set_cdr(stub, cdr(datum));
-               return stub;
+               _advance();
+               Value built = build_list(top->items, true, top->dotted_tail, &top->src);
+               stack.pop_back();
+               Value out;
+               if (emit(stack, built, out)) return out;
+               continue;
                }
-            labels_[label_n] = datum;
-            return datum;
-            }
-         if (nxt.kind == TokenKind::VECTOR_LPAREN)
-            {
-            // Vectors: pre-create the vector with an empty items list so any
-            // #n# references inside the vector resolve to the final object.
-            // After parsing, copy the actual items into the pre-allocated list.
-            Value pre_vector = make_vector({});
-            labels_[label_n] = pre_vector;
-            Value datum = parse_expr();
-            std::vector<Value>& pre_items = as_vector_items(pre_vector);
-            const std::vector<Value>& parsed = as_vector_items_const(datum);
-            pre_items.insert(pre_items.end(), parsed.begin(), parsed.end());
-            return pre_vector;
-            }
-         Value datum = parse_expr();
-         labels_[label_n] = datum;
-         return datum;
-         }
-
-      // Datum label reference #n#  R7RS §2.4
-      if (kind == TokenKind::LABEL_REF)
-         {
-         int64_t label_n = tok.int_val;
-         SourceInfo tok_src = tok.src;
-         _advance();
-         auto it = labels_.find(label_n);
-         if (it == labels_.end())
             throw SchemeSyntaxError(
-                "undefined datum label #" + std::to_string(label_n) + "#",
-                new SourceInfo(tok_src));
-         return it->second;
-         }
+                std::string("expected '") + top->closer_ch + "' after dotted tail",
+                new SourceInfo(tok.src));
+            }
 
-      // Atomic literals
-      if (kind == TokenKind::INT)
-         {
-         int64_t v = tok.int_val;
-         SourceInfo ss = tok.src;
-         _advance();
-         return make_integer(v, new SourceInfo(ss));
-         }
-      if (kind == TokenKind::REAL)
-         {
-         double v = tok.dbl_val;
-         SourceInfo ss = tok.src;
-         _advance();
-         return make_real(v, new SourceInfo(ss));
-         }
-      if (kind == TokenKind::RATIONAL)
-         {
-         int64_t num = tok.int_val, den = tok.int_val2;
-         SourceInfo ss = tok.src;
-         _advance();
-         return make_rational(num, den, new SourceInfo(ss));
-         }
-      if (kind == TokenKind::COMPLEX)
-         {
-         double re = tok.dbl_val, im = tok.dbl_val2;
-         _advance();
-         return make_complex(re, im);
-         }
-      if (kind == TokenKind::EXACT_COMPLEX)
-         {
-         Value re_s = tok.val, im_s = tok.val2;
-         _advance();
-         if (is_integer(im_s) && as_integer(im_s) == 0)
-            return re_s;
-         return make_exact_complex(re_s, im_s);
-         }
-      if (kind == TokenKind::STRING)
-         {
-         std::string s = tok.str_val;
-         SourceInfo ss = tok.src;
-         _advance();
-         Value sv = make_string(s, new SourceInfo(ss));
-         mark_literal_immutable(sv);
-         return sv;
-         }
-      if (kind == TokenKind::CHAR)
-         {
-         char32_t cv = tok.char_val;
-         SourceInfo ss = tok.src;
-         _advance();
-         return make_character(cv, new SourceInfo(ss));
-         }
-      if (kind == TokenKind::BOOL)
-         {
-         bool bv = tok.bool_val;
-         SourceInfo ss = tok.src;
-         _advance();
-         return make_boolean(bv, new SourceInfo(ss));
-         }
-      if (kind == TokenKind::IDENT)
-         {
-         std::string name = tok.str_val;
-         SourceInfo ss = tok.src;
-         _advance();
-         return make_symbol(name, new SourceInfo(ss));
-         }
+         // An open list/vector/bytevector reading its next element.  (A list
+         // that has seen '.' but not yet read the tail falls through to the
+         // generic datum reader below, so the tail is read like any datum.)
+         bool in_container =
+             top != nullptr &&
+             (top->kind == PFrame::Vector || top->kind == PFrame::Bytevector ||
+              (top->kind == PFrame::List && !top->want_tail));
+         if (in_container)
+            {
+            const Token& tok = _peek();
+            TokenKind kind = tok.kind;
+            if (top->kind == PFrame::List)
+               {
+               if (kind == top->closer)
+                  {
+                  _advance();
+                  Value built = build_list(top->items, false, Value{}, &top->src);
+                  stack.pop_back();
+                  Value out;
+                  if (emit(stack, built, out)) return out;
+                  continue;
+                  }
+               if (kind == TokenKind::RPAREN || kind == TokenKind::RBRACKET)
+                  throw SchemeSyntaxError(
+                      std::string("mismatched bracket: expected '") + top->closer_ch + "'",
+                      new SourceInfo(tok.src));
+               if (kind == TokenKind::DOT)
+                  {
+                  SourceInfo dot_src = tok.src;
+                  _advance();
+                  if (top->items.empty())
+                     throw SchemeSyntaxError("dot must be preceded by at least one element",
+                                             new SourceInfo(dot_src));
+                  const Token& nxt = _peek();
+                  if (nxt.kind == TokenKind::RPAREN || nxt.kind == TokenKind::RBRACKET ||
+                      nxt.kind == TokenKind::END_OF_FILE || nxt.kind == TokenKind::DOT)
+                     throw SchemeSyntaxError("dot must be followed by an expression",
+                                             new SourceInfo(nxt.src));
+                  top->want_tail = true;
+                  continue;
+                  }
+               if (kind == TokenKind::END_OF_FILE)
+                  throw SchemeSyntaxError(
+                      std::string("unterminated list (missing '") + top->closer_ch + "')",
+                      new SourceInfo(top->src));
+               // otherwise: start of an element -> generic datum reader below
+               }
+            else if (top->kind == PFrame::Vector)
+               {
+               if (kind == TokenKind::RPAREN)
+                  {
+                  _advance();
+                  Value v = make_vector(top->items);
+                  mark_literal_immutable(v);
+                  stack.pop_back();
+                  Value out;
+                  if (emit(stack, v, out)) return out;
+                  continue;
+                  }
+               if (kind == TokenKind::END_OF_FILE)
+                  throw SchemeSyntaxError("unterminated vector literal",
+                                          new SourceInfo(top->src));
+               // otherwise: element -> generic datum reader below
+               }
+            else   // PFrame::Bytevector
+               {
+               if (kind == TokenKind::RPAREN)
+                  {
+                  _advance();
+                  Value bv = make_bytevector(top->byte_items);
+                  mark_literal_immutable(bv);
+                  stack.pop_back();
+                  Value out;
+                  if (emit(stack, bv, out)) return out;
+                  continue;
+                  }
+               if (kind == TokenKind::END_OF_FILE)
+                  throw SchemeSyntaxError("unterminated bytevector literal",
+                                          new SourceInfo(top->src));
+               // otherwise: element -> generic datum reader below
+               }
+            }
 
-      // List / vector / bytevector
-      if (kind == TokenKind::LPAREN || kind == TokenKind::LBRACKET)
-         return read_list();
-      if (kind == TokenKind::BYTEVECTOR_LPAREN)
-         return read_bytevector();
-      if (kind == TokenKind::VECTOR_LPAREN)
-         return read_vector();
+         // ── Generic datum reader ──────────────────────────────────────────
+         // Reached at top level, for a single-child frame's datum (prefix /
+         // label / discard / dotted tail), or for a container element that was
+         // not a closer/dot/EOF.  Either pushes a frame and loops, or produces
+         // a completed `value` and emits it.
+         const Token& tok = _peek();
+         TokenKind kind = tok.kind;
 
-      // Reader abbreviations.  alloc_cons clones src; pass &q_src directly.
-      if (kind == TokenKind::QUOTE)
-         {
-         SourceInfo q_src = tok.src;
-         _advance();
-         Value datum = parse_expr();
-         Value q_sym = make_symbol("quote");
-         Value inner = alloc_cons(datum, NIL_VALUE, &q_src);
-         return alloc_cons(q_sym, inner, &q_src);
-         }
-      if (kind == TokenKind::QUASIQUOTE)
-         {
-         SourceInfo q_src = tok.src;
-         _advance();
-         Value datum = parse_expr();
-         Value q_sym = make_symbol("quasiquote");
-         Value inner = alloc_cons(datum, NIL_VALUE, &q_src);
-         return alloc_cons(q_sym, inner, &q_src);
-         }
-      if (kind == TokenKind::UNQUOTE)
-         {
-         SourceInfo q_src = tok.src;
-         _advance();
-         Value datum = parse_expr();
-         Value q_sym = make_symbol("unquote");
-         Value inner = alloc_cons(datum, NIL_VALUE, &q_src);
-         return alloc_cons(q_sym, inner, &q_src);
-         }
-      if (kind == TokenKind::UNQUOTE_SPLICING)
-         {
-         SourceInfo q_src = tok.src;
-         _advance();
-         Value datum = parse_expr();
-         Value q_sym = make_symbol("unquote-splicing");
-         Value inner = alloc_cons(datum, NIL_VALUE, &q_src);
-         return alloc_cons(q_sym, inner, &q_src);
-         }
+         // Datum comment: #;  -- read and discard the next datum.
+         if (kind == TokenKind::DATUM_COMMENT)
+            {
+            _advance();
+            stack.push_back(ParseFrame(PFrame::Discard));
+            continue;
+            }
 
-      // Errors
-      if (kind == TokenKind::RPAREN)
-         throw SchemeSyntaxError("unexpected ')'", new SourceInfo(tok.src));
-      if (kind == TokenKind::RBRACKET)
-         throw SchemeSyntaxError("unexpected ']'", new SourceInfo(tok.src));
-      if (kind == TokenKind::DOT)
-         throw SchemeSyntaxError("unexpected '.' outside of a list", new SourceInfo(tok.src));
-      if (kind == TokenKind::END_OF_FILE)
-         throw SchemeSyntaxError("unexpected end of input", new SourceInfo(tok.src));
-      throw SchemeSyntaxError("unexpected token", new SourceInfo(tok.src));
+         // Datum label definition #n=  R7RS §2.4
+         if (kind == TokenKind::LABEL_DEF)
+            {
+            int64_t label_n = tok.int_val;
+            SourceInfo tok_src = tok.src;
+            _advance();
+            if (labels_.count(label_n))
+               throw SchemeSyntaxError(
+                   "duplicate datum label #" + std::to_string(label_n) + "=",
+                   new SourceInfo(tok_src));
+            const Token& nxt = _peek();
+            // Pre-register a stub so forward #n# refs inside the datum work.
+            if (nxt.kind == TokenKind::LPAREN || nxt.kind == TokenKind::LBRACKET)
+               {
+               SourceInfo nxt_src = nxt.src;
+               Value stub = alloc_cons(NIL_VALUE, NIL_VALUE, &nxt_src);
+               labels_[label_n] = stub;
+               ParseFrame f(PFrame::LabelList);
+               f.label_n = label_n;
+               f.stub = stub;
+               stack.push_back(std::move(f));
+               continue;
+               }
+            if (nxt.kind == TokenKind::VECTOR_LPAREN)
+               {
+               Value pre_vector = make_vector({});
+               labels_[label_n] = pre_vector;
+               ParseFrame f(PFrame::LabelVector);
+               f.label_n = label_n;
+               f.pre_vector = pre_vector;
+               stack.push_back(std::move(f));
+               continue;
+               }
+            // Atoms / prefixes / bytevectors: register after the datum is read.
+            ParseFrame f(PFrame::LabelPlain);
+            f.label_n = label_n;
+            stack.push_back(std::move(f));
+            continue;
+            }
+
+         Value value;
+         // Datum label reference #n#  R7RS §2.4
+         if (kind == TokenKind::LABEL_REF)
+            {
+            int64_t label_n = tok.int_val;
+            SourceInfo tok_src = tok.src;
+            _advance();
+            auto it = labels_.find(label_n);
+            if (it == labels_.end())
+               throw SchemeSyntaxError(
+                   "undefined datum label #" + std::to_string(label_n) + "#",
+                   new SourceInfo(tok_src));
+            value = it->second;
+            }
+         else if (kind == TokenKind::INT)
+            {
+            int64_t v = tok.int_val;
+            SourceInfo ss = tok.src;
+            _advance();
+            value = make_integer(v, new SourceInfo(ss));
+            }
+         else if (kind == TokenKind::REAL)
+            {
+            double v = tok.dbl_val;
+            SourceInfo ss = tok.src;
+            _advance();
+            value = make_real(v, new SourceInfo(ss));
+            }
+         else if (kind == TokenKind::RATIONAL)
+            {
+            int64_t num = tok.int_val, den = tok.int_val2;
+            SourceInfo ss = tok.src;
+            _advance();
+            value = make_rational(num, den, new SourceInfo(ss));
+            }
+         else if (kind == TokenKind::COMPLEX)
+            {
+            double re = tok.dbl_val, im = tok.dbl_val2;
+            _advance();
+            value = make_complex(re, im);
+            }
+         else if (kind == TokenKind::EXACT_COMPLEX)
+            {
+            Value re_s = tok.val, im_s = tok.val2;
+            _advance();
+            if (is_integer(im_s) && as_integer(im_s) == 0)
+               value = re_s;
+            else
+               value = make_exact_complex(re_s, im_s);
+            }
+         else if (kind == TokenKind::STRING)
+            {
+            std::string s = tok.str_val;
+            SourceInfo ss = tok.src;
+            _advance();
+            value = make_string(s, new SourceInfo(ss));
+            mark_literal_immutable(value);
+            }
+         else if (kind == TokenKind::CHAR)
+            {
+            char32_t cv = tok.char_val;
+            SourceInfo ss = tok.src;
+            _advance();
+            value = make_character(cv, new SourceInfo(ss));
+            }
+         else if (kind == TokenKind::BOOL)
+            {
+            bool bv = tok.bool_val;
+            SourceInfo ss = tok.src;
+            _advance();
+            value = make_boolean(bv, new SourceInfo(ss));
+            }
+         else if (kind == TokenKind::IDENT)
+            {
+            std::string name = tok.str_val;
+            SourceInfo ss = tok.src;
+            _advance();
+            value = make_symbol(name, new SourceInfo(ss));
+            }
+         else if (kind == TokenKind::LPAREN || kind == TokenKind::LBRACKET)
+            {
+            bool is_bracket = (kind == TokenKind::LBRACKET);
+            SourceInfo ss = tok.src;
+            _advance();
+            ParseFrame f(PFrame::List);
+            f.src = ss;
+            f.closer = is_bracket ? TokenKind::RBRACKET : TokenKind::RPAREN;
+            f.closer_ch = is_bracket ? ']' : ')';
+            stack.push_back(std::move(f));
+            continue;
+            }
+         else if (kind == TokenKind::VECTOR_LPAREN)
+            {
+            SourceInfo ss = tok.src;
+            _advance();
+            ParseFrame f(PFrame::Vector);
+            f.src = ss;
+            stack.push_back(std::move(f));
+            continue;
+            }
+         else if (kind == TokenKind::BYTEVECTOR_LPAREN)
+            {
+            SourceInfo ss = tok.src;
+            _advance();
+            ParseFrame f(PFrame::Bytevector);
+            f.src = ss;
+            stack.push_back(std::move(f));
+            continue;
+            }
+         else if (kind == TokenKind::QUOTE)
+            {
+            SourceInfo ss = tok.src;
+            _advance();
+            ParseFrame f(PFrame::Prefix);
+            f.sym = make_symbol("quote");
+            f.src = ss;
+            stack.push_back(std::move(f));
+            continue;
+            }
+         else if (kind == TokenKind::QUASIQUOTE)
+            {
+            SourceInfo ss = tok.src;
+            _advance();
+            ParseFrame f(PFrame::Prefix);
+            f.sym = make_symbol("quasiquote");
+            f.src = ss;
+            stack.push_back(std::move(f));
+            continue;
+            }
+         else if (kind == TokenKind::UNQUOTE)
+            {
+            SourceInfo ss = tok.src;
+            _advance();
+            ParseFrame f(PFrame::Prefix);
+            f.sym = make_symbol("unquote");
+            f.src = ss;
+            stack.push_back(std::move(f));
+            continue;
+            }
+         else if (kind == TokenKind::UNQUOTE_SPLICING)
+            {
+            SourceInfo ss = tok.src;
+            _advance();
+            ParseFrame f(PFrame::Prefix);
+            f.sym = make_symbol("unquote-splicing");
+            f.src = ss;
+            stack.push_back(std::move(f));
+            continue;
+            }
+         else if (kind == TokenKind::RPAREN)
+            throw SchemeSyntaxError("unexpected ')'", new SourceInfo(tok.src));
+         else if (kind == TokenKind::RBRACKET)
+            throw SchemeSyntaxError("unexpected ']'", new SourceInfo(tok.src));
+         else if (kind == TokenKind::DOT)
+            throw SchemeSyntaxError("unexpected '.' outside of a list", new SourceInfo(tok.src));
+         else if (kind == TokenKind::END_OF_FILE)
+            throw SchemeSyntaxError("unexpected end of input", new SourceInfo(tok.src));
+         else
+            throw SchemeSyntaxError("unexpected token", new SourceInfo(tok.src));
+
+         // We have a completed `value`; feed it to the enclosing frame(s).
+         Value out;
+         if (emit(stack, value, out)) return out;
+         // else: value absorbed by a container / discarded -> read next datum
+         }
       }
    };
 
@@ -1926,4 +2078,11 @@ Value scheme_parse_one(const std::string& source, const std::string& filename)
 Value scheme_parse_first(const std::string& source, const std::string& filename)
    {
    return SchemeParser(scheme_tokenize(source, filename)).parse_first_expr();
+   }
+
+Value scheme_parse_first(const std::string& source, const std::string& filename,
+                         bool& at_eof, SourceInfo& next_src)
+   {
+   return SchemeParser(scheme_tokenize(source, filename))
+       .parse_first_expr(at_eof, next_src);
    }

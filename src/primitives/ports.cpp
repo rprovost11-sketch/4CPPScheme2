@@ -360,56 +360,6 @@ static Value _resolve_output_port(Context* ctx, const std::vector<Value>& args, 
    return _get_current_output(ctx);
    }
 
-// ── Token-skip for _prim_read ─────────────────────────────────────────────────
-// Returns the index of the first token AFTER one complete S-expression.
-
-static size_t _skip_one_expr(const std::vector<Token>& toks, size_t i)
-   {
-   if (i >= toks.size())
-      return i;
-   TokenKind k = toks[i].kind;
-   if (k == TokenKind::END_OF_FILE || k == TokenKind::RPAREN || k == TokenKind::RBRACKET || k == TokenKind::DOT)
-      return i; // nothing consumed; these are terminators
-   if (k == TokenKind::DATUM_COMMENT)
-      {
-      // #; expr : skip the datum comment token, then skip the commented-out expr
-      return _skip_one_expr(toks, _skip_one_expr(toks, i + 1));
-      }
-   if (k == TokenKind::LABEL_DEF)
-      {
-      // #n= expr
-      return _skip_one_expr(toks, i + 1);
-      }
-   if (k == TokenKind::QUOTE || k == TokenKind::QUASIQUOTE ||
-       k == TokenKind::UNQUOTE || k == TokenKind::UNQUOTE_SPLICING)
-      {
-      return _skip_one_expr(toks, i + 1);
-      }
-   if (k == TokenKind::LABEL_REF)
-      {
-      return i + 1;
-      }
-   if (k == TokenKind::LPAREN || k == TokenKind::LBRACKET ||
-       k == TokenKind::VECTOR_LPAREN || k == TokenKind::BYTEVECTOR_LPAREN)
-      {
-      TokenKind close = (k == TokenKind::LBRACKET) ? TokenKind::RBRACKET : TokenKind::RPAREN;
-      i++; // skip opener
-      while (i < toks.size() && toks[i].kind != close && toks[i].kind != TokenKind::END_OF_FILE)
-         {
-         if (toks[i].kind == TokenKind::DOT)
-            {
-            i++;
-            continue;
-            }
-         i = _skip_one_expr(toks, i);
-         }
-      if (i < toks.size() && toks[i].kind == close)
-         i++; // skip closer
-      return i;
-      }
-   return i + 1; // leaf token: INT, REAL, RATIONAL, COMPLEX, EXACT_COMPLEX, STRING, CHAR, BOOL, IDENT
-   }
-
 // ── Predicates ────────────────────────────────────────────────────────────────
 
 static Value _prim_port_p(Context*, Environment*, std::vector<Value>& args, const Value*)
@@ -682,18 +632,20 @@ static Value _prim_read(Context* ctx, Environment*, std::vector<Value>& args, co
    std::vector<Token> toks = scheme_tokenize(remaining, p->name);
    if (toks.empty() || toks[0].kind == TokenKind::END_OF_FILE)
       return make_eof();
-   Value form = scheme_parse_first(remaining, p->name);
-   // Find the next token after the first expression.
-   size_t next_idx = _skip_one_expr(toks, 0);
-   if (next_idx >= toks.size() || toks[next_idx].kind == TokenKind::END_OF_FILE)
+   // Parse one datum and let the parser report where it ended, so the port is
+   // advanced from the parser's own position rather than by re-walking nested
+   // tokens (which recursed on nesting depth).  Mirrors pyScheme's read.
+   bool at_eof = false;
+   SourceInfo next_src{0, 0, "", ""};
+   Value form = scheme_parse_first(remaining, p->name, at_eof, next_src);
+   if (at_eof)
       {
       p->pos = full.size();
       }
    else
       {
-      const Token& nxt = toks[next_idx];
-      int target_line = nxt.src.line;
-      int target_col = nxt.src.col;
+      int target_line = next_src.line;
+      int target_col = next_src.col;
       int lines_seen = 0;
       size_t i = 0;
       while (lines_seen < target_line - 1 && i < remaining.size())
