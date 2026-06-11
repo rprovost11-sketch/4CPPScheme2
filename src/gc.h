@@ -16,6 +16,7 @@ CPPSCHEME2_API ConsCell* gc_alloc_cons();
 CPPSCHEME2_API SchemeString* gc_alloc_string(const std::string& content);
 CPPSCHEME2_API SchemeClosure* gc_alloc_closure();
 CPPSCHEME2_API CaseClosure* gc_alloc_case_closure();
+CPPSCHEME2_API NativeClosure* gc_alloc_native_closure();
 CPPSCHEME2_API Promise* gc_alloc_promise(Value payload, bool is_done, bool iterative = false);
 CPPSCHEME2_API MultiValues* gc_alloc_multi_values();
 CPPSCHEME2_API Record* gc_alloc_record();

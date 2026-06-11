@@ -273,6 +273,16 @@ Value make_primitive(const std::string& name, BuiltinFn fn)
    return Value{Value::Repr(ptr)};
    }
 
+Value make_native_closure(const std::string& name, NativeFn fn,
+                          std::vector<Value> captures)
+   {
+   NativeClosure* nc = gc_alloc_native_closure();
+   nc->name = name;
+   nc->fn = fn;
+   nc->captures = std::move(captures);
+   return Value{Value::Repr(nc)};
+   }
+
 Value make_case_closure(std::vector<CaseClosure::Clause> clauses,
                         Environment* env, std::string docstring)
    {
@@ -769,6 +779,26 @@ int as_primitive_kind(const Value& val)
    return std::get<Builtin*>(val.repr)->kind;
    }
 
+bool is_native_closure(const Value& val)
+   {
+   return std::holds_alternative<NativeClosure*>(val.repr);
+   }
+
+NativeFn as_native_closure_fn(const Value& val)
+   {
+   return std::get<NativeClosure*>(val.repr)->fn;
+   }
+
+std::vector<Value>& as_native_closure_captures(const Value& val)
+   {
+   return std::get<NativeClosure*>(val.repr)->captures;
+   }
+
+const std::string& as_native_closure_name(const Value& val)
+   {
+   return std::get<NativeClosure*>(val.repr)->name;
+   }
+
 const std::vector<CaseClosure::Clause>& as_case_closure_clauses(const Value& val)
    {
    return std::get<CaseClosure*>(val.repr)->clauses;
@@ -1229,6 +1259,7 @@ GcHeader* gc_value_header(const Value& val)
    HDR_CASE(SchemeChar)
    HDR_CASE(RecordAccessor)
    HDR_CASE(RecordMutator)
+   HDR_CASE(NativeClosure)
    // EnvBox* is GC-managed; GcHeader is at offset 0 by invariant.
    if (auto* pp = std::get_if<EnvBox*>(&val.repr))
       return *pp ? reinterpret_cast<GcHeader*>(*pp) : nullptr;
@@ -1272,6 +1303,7 @@ void gc_forward_value(Value& val)
    FWD_CASE(SchemeChar)
    FWD_CASE(RecordAccessor)
    FWD_CASE(RecordMutator)
+   FWD_CASE(NativeClosure)
    // EnvBox* forwarding via raw GcHeader cast (type is incomplete here).
    if (auto* pp = std::get_if<EnvBox*>(&val.repr))
       {

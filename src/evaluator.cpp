@@ -469,6 +469,9 @@ Value apply_scheme_proc(const Value& fn, std::vector<Value> args,
    {
    if (is_primitive(fn))
       return as_primitive_fn(fn)(ctx, env, args, app_node);
+   if (is_native_closure(fn))
+      return as_native_closure_fn(fn)(ctx, env, args,
+                                      as_native_closure_captures(fn), app_node);
    if (is_closure(fn) || is_case_closure(fn))
       {
       BetaResult r = apply_value(fn, args, app_node);
@@ -665,6 +668,15 @@ static EnterResult enter_proc(const Value& fn_value, std::vector<Value>& args,
       EnterResult r;
       r.kind = EnterResult::IsValue;
       r.v = *pv;
+      return r;
+      }
+   if (is_native_closure(fn_value))
+      {
+      Value v = as_native_closure_fn(fn_value)(
+          ctx, saved_env, args, as_native_closure_captures(fn_value), app_node);
+      EnterResult r;
+      r.kind = EnterResult::IsValue;
+      r.v = v;
       return r;
       }
    if (is_primitive(fn_value))

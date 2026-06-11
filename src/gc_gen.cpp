@@ -174,6 +174,13 @@ static void process_gray_object(GcHeader* header)
       shade_gray_env(cl->env);
       break;
       }
+   case GcType::NativeClosure:
+      {
+      auto* nc = reinterpret_cast<NativeClosure*>(header);
+      for (Value& v : nc->captures)
+         shade_gray_value(v);
+      break;
+      }
    case GcType::CaseClosure:
       {
       auto* cc = reinterpret_cast<CaseClosure*>(header);
@@ -388,6 +395,13 @@ static void process_object_children(GcHeader* header, bool minor_only)
       mark_environment(cl->env, minor_only);
       break;
       }
+   case GcType::NativeClosure:
+      {
+      auto* nc = reinterpret_cast<NativeClosure*>(header);
+      for (Value& v : nc->captures)
+         mark_value(v, minor_only);
+      break;
+      }
    case GcType::CaseClosure:
       {
       auto* cc = reinterpret_cast<CaseClosure*>(header);
@@ -538,6 +552,13 @@ static void trace_remembered_children(GcHeader* header)
       mark_environment(cl->env, true);
       break;
       }
+   case GcType::NativeClosure:
+      {
+      auto* nc = reinterpret_cast<NativeClosure*>(header);
+      for (Value& v : nc->captures)
+         mark_value(v, true);
+      break;
+      }
    case GcType::CaseClosure:
       {
       auto* cc = reinterpret_cast<CaseClosure*>(header);
@@ -665,6 +686,13 @@ static void forward_object_value_fields(GcHeader* header)
    case GcType::Closure:
       gc_forward_value(reinterpret_cast<SchemeClosure*>(header)->body);
       break;
+   case GcType::NativeClosure:
+      {
+      auto* nc = reinterpret_cast<NativeClosure*>(header);
+      for (Value& v : nc->captures)
+         gc_forward_value(v);
+      break;
+      }
    case GcType::CaseClosure:
       {
       auto* cc = reinterpret_cast<CaseClosure*>(header);
@@ -798,6 +826,9 @@ static void free_object(GcHeader* header)
       break;
    case GcType::Closure:
       delete reinterpret_cast<SchemeClosure*>(header);
+      break;
+   case GcType::NativeClosure:
+      delete reinterpret_cast<NativeClosure*>(header);
       break;
    case GcType::CaseClosure:
       delete reinterpret_cast<CaseClosure*>(header);
@@ -1231,6 +1262,13 @@ CaseClosure* gc_alloc_case_closure()
    auto* cc = new CaseClosure{};
    register_young(&cc->header);
    return cc;
+   }
+
+NativeClosure* gc_alloc_native_closure()
+   {
+   auto* nc = new NativeClosure{};
+   register_young(&nc->header);
+   return nc;
    }
 
 Promise* gc_alloc_promise(Value payload, bool is_done, bool iterative)
