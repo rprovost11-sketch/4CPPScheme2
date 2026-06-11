@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pdftotext *)",
+      "Bash(build/Release/gc_test.exe *)",
+      "Bash(build/Debug/gc_test.exe *)"
+    ]
+  }
+}

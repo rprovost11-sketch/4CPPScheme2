@@ -11,6 +11,7 @@
 #include "Parser.h"
 #include "Utils.h"
 #include "gc.h"
+#include "tco_calibrate.h"
 #include <algorithm>
 #include <cctype>
 #include <chrono>
@@ -18,6 +19,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -494,6 +496,8 @@ Listener::Listener(InterpreterBase* interp,
    { _cmd_compliance(a); };
    _commands["regression"] = [this](std::vector<std::string>& a)
    { _cmd_regression(a); };
+   _commands["suites"] = [this](std::vector<std::string>& a)
+   { _cmd_suites(a); };
    _commands["gc-stress"] = [this](std::vector<std::string>& a)
    { _cmd_gc_stress(a); };
    _commands["toggle-tty-color"] = [this](std::vector<std::string>& a)
@@ -522,6 +526,7 @@ Listener::Listener(InterpreterBase* interp,
    _help["profile"] = "Usage: ]profile [reset]\nPrint profiling report (call counts + times) and reset counters.\nWith 'reset', reset counters without printing.\n(Requires build with -DPROFILE_COUNTERS.)";
    _help["compliance"] = "Usage: ]compliance [<file.log> | <start> [<end>]]\nRun the R7RS compliance test suite against the configured directory.\n  ]compliance              -- run all tests\n  ]compliance 3            -- run tests with filename >= \"3\"\n  ]compliance 3 4          -- run tests with \"3\" <= filename < \"4\"\n  ]compliance 3.1 Booleans.log  -- run that one file\nFilename comparison is case-insensitive.  The interpreter is rebooted\nbefore each file.  Supports '==> X or ==> Y' alternatives;\n'%%% *' / '%%% %any-error%' require any error to be raised (R7RS\n'an error is signaled'); '%%% %optional-error%' models R7RS\n'it is an error' -- passes whether an error is raised or the form\nreturns (asserts only that evaluation terminates).\nAutomatically runs under GC-stress, which is forced OFF when the run finishes.";
    _help["regression"] = "Usage: ]regression [<file.log> | <start> [<end>]]\nRun the regression test suite (Scheme-observable, non-spec tripwires) against\nthe configured directory.\n  ]regression                  -- run all regression files\n  ]regression 03               -- run files with filename >= \"03\"\n  ]regression 03 06            -- run files with \"03\" <= filename < \"06\"\n  ]regression 03-evaluator.log -- run that one file\nSpec deviations are guarded by ]compliance instead.  Files are grouped by\nsubsystem; see regression-tests/00-conventions.md.  The interpreter is\nrebooted before each file.";
+   _help["suites"] = "Usage: ]suites <suite> [<suite> ...]\nRun one or more test suites in sequence (each fully rebooted between files)\nand print one combined pass/fail verdict.  This is the batch runner Cherry's\n\"Run test suites\" dialog drives; it is equally usable headless.\nSuite tokens (run in the canonical order feature -> compliance -> regression\nregardless of order; duplicates collapse):\n  feature             the feature suite\n  regression          the regression suite\n  compliance-quick    compliance with the default 100k TCO soak\n  compliance          alias for compliance-quick\n  compliance-slow     calibrate this machine's heap-OOM (broken-TCO) threshold,\n                      then soak compliance above it (a GC stress run)\n  all-quick           feature + compliance-quick + regression\n  all-slow            feature + compliance-slow + regression\n  all                 alias for all-quick\nFor a specific TCO iteration count use ]compliance -I:<count> directly;\n]suites exposes only the quick/slow variants.";
    _help["gc-stress"] = "Usage: ]gc-stress [on|off|status]\nToggle GC-stress mode.  When ON, the garbage collector's thresholds and\neffective nursery are slashed so minor collections fire constantly -- this\nexercises the moving GC and surfaces any missing-root bug on whatever you\nthen run (e.g. ]compliance or ]feature).  GC is invisible to Scheme semantics,\nso results are unchanged; runs just get much slower and far more thorough.\nThe setting persists (across reboots) until you toggle it off.\nWith no argument, prints the current state.";
 
    _banner();
@@ -1113,8 +1118,8 @@ long long Listener::_parse_iter_count(const std::string& value)
    return n * mult;
    }
 
-void Listener::_runTestFiles(const std::vector<std::string>& filenames, const std::string& testDir,
-                             const std::string& suite, long long tco_iters)
+TestResult Listener::_runTestFiles(const std::vector<std::string>& filenames, const std::string& testDir,
+                                   const std::string& suite, long long tco_iters)
    {
    // ]compliance (suite "compliance") and ]feature (suite "feature") auto-run under
    // GC-stress; ]regression and others are unaffected.
@@ -1296,6 +1301,8 @@ void Listener::_runTestFiles(const std::vector<std::string>& filenames, const st
          delete runFile;
          }
       }
+
+   return TestResult(grand_pass, grand_fail);
    }
 
 // ── Individual command handlers ───────────────────────────────────────────────
@@ -1463,7 +1470,7 @@ void Listener::_cmd_resume(std::vector<std::string>& args)
    _writeLn("");
    }
 
-void Listener::_cmd_compliance(std::vector<std::string>& args)
+TestResult Listener::_cmd_compliance(std::vector<std::string>& args)
    {
    if (_logStream)
       throw ListenerCommandError("Please close the log before running compliance (]close).");
@@ -1512,8 +1519,7 @@ void Listener::_cmd_compliance(std::vector<std::string>& args)
       std::string fpath = (fs::path(compdir) / fname).string();
       if (!fs::is_regular_file(fpath))
          throw ListenerCommandError("File not found: " + fname);
-      _runTestFiles({fpath}, compdir, "compliance", tco_iters);
-      return;
+      return _runTestFiles({fpath}, compdir, "compliance", tco_iters);
       }
 
    // Range mode: 0 args = all, 1 arg = [start, ∞), 2 args = [start, end).
@@ -1527,8 +1533,7 @@ void Listener::_cmd_compliance(std::vector<std::string>& args)
 
    if (args.empty())
       {
-      _runTestFiles(all_files, compdir, "compliance", tco_iters);
-      return;
+      return _runTestFiles(all_files, compdir, "compliance", tco_iters);
       }
 
    // Case-insensitive filename comparison.
@@ -1562,10 +1567,10 @@ void Listener::_cmd_compliance(std::vector<std::string>& args)
               ? "No .log files in range [" + args[0] + ", " + args[1] + ")"
               : "No .log files at or after \"" + args[0] + "\"");
 
-   _runTestFiles(filtered, compdir, "compliance", tco_iters);
+   return _runTestFiles(filtered, compdir, "compliance", tco_iters);
    }
 
-void Listener::_cmd_regression(std::vector<std::string>& args)
+TestResult Listener::_cmd_regression(std::vector<std::string>& args)
    {
    if (_logStream)
       throw ListenerCommandError("Please close the log before running regressions (]close).");
@@ -1594,8 +1599,7 @@ void Listener::_cmd_regression(std::vector<std::string>& args)
       std::string fpath = (fs::path(regdir) / fname).string();
       if (!fs::is_regular_file(fpath))
          throw ListenerCommandError("File not found: " + fname);
-      _runTestFiles({fpath}, regdir, "regression");
-      return;
+      return _runTestFiles({fpath}, regdir, "regression");
       }
 
    // Range mode: 0 args = all, 1 arg = [start, inf), 2 args = [start, end).
@@ -1609,8 +1613,7 @@ void Listener::_cmd_regression(std::vector<std::string>& args)
 
    if (args.empty())
       {
-      _runTestFiles(all_files, regdir, "regression");
-      return;
+      return _runTestFiles(all_files, regdir, "regression");
       }
 
    auto ci_lower = [](const std::string& s)
@@ -1643,7 +1646,149 @@ void Listener::_cmd_regression(std::vector<std::string>& args)
               ? "No .log files in range [" + args[0] + ", " + args[1] + ")"
               : "No .log files at or after \"" + args[0] + "\"");
 
-   _runTestFiles(filtered, regdir, "regression");
+   return _runTestFiles(filtered, regdir, "regression");
+   }
+
+void Listener::_cmd_suites(std::vector<std::string>& args)
+   {
+   if (_logStream)
+      throw ListenerCommandError("Please close the log before running suites (]close).");
+   if (args.empty())
+      throw ListenerCommandError(
+          "Usage: ]suites <suite> ...  (feature, regression, "
+          "compliance[-quick|-slow], all[-quick|-slow])");
+
+   bool run_feature = false, run_regression = false;
+   int compliance_mode = 0; // 0 none, 1 quick, 2 slow
+
+   auto want_compliance = [&](int mode)
+   {
+      if (compliance_mode != 0 && compliance_mode != mode)
+         throw ListenerCommandError(
+             "compliance-quick and compliance-slow are mutually exclusive");
+      compliance_mode = mode;
+   };
+
+   for (const std::string& tok : args)
+      {
+      std::string t = tok;
+      std::transform(t.begin(), t.end(), t.begin(),
+                     [](unsigned char c) { return std::tolower(c); });
+      if (t == "feature")
+         run_feature = true;
+      else if (t == "regression")
+         run_regression = true;
+      else if (t == "compliance" || t == "compliance-quick")
+         want_compliance(1);
+      else if (t == "compliance-slow")
+         want_compliance(2);
+      else if (t == "all" || t == "all-quick")
+         {
+         run_feature = true;
+         run_regression = true;
+         want_compliance(1);
+         }
+      else if (t == "all-slow")
+         {
+         run_feature = true;
+         run_regression = true;
+         want_compliance(2);
+         }
+      else
+         throw ListenerCommandError(
+             "unknown suite '" + tok + "'.  Valid: feature, regression, "
+             "compliance[-quick|-slow], all[-quick|-slow].");
+      }
+
+   // Canonical order: feature -> compliance -> regression.
+   std::vector<std::string> plan;
+   if (run_feature)
+      plan.push_back("feature");
+   if (compliance_mode == 1)
+      plan.push_back("compliance-quick");
+   else if (compliance_mode == 2)
+      plan.push_back("compliance-slow");
+   if (run_regression)
+      plan.push_back("regression");
+
+   bool color = _use_color();
+   std::string BOLD = color ? "\033[1;97m" : "";
+   std::string GREEN = color ? "\033[92m" : "";
+   std::string RED = color ? "\033[91m" : "";
+   std::string RESET = color ? "\033[0m" : "";
+
+   std::string planStr;
+   for (size_t i = 0; i < plan.size(); ++i)
+      planStr += (i ? std::string(", ") : std::string("")) + plan[i];
+   std::cout << '\n'
+             << BOLD << "; running suites: " << planStr << RESET << "\n\n";
+
+   struct SuiteResult
+      {
+      std::string label;
+      int p;
+      int f;
+      };
+   std::vector<SuiteResult> results;
+
+   for (const std::string& name : plan)
+      {
+      if (name == "feature")
+         {
+         std::vector<std::string> a;
+         TestResult r = _cmd_feature(a);
+         results.push_back({name, r.n_pass, r.n_fail});
+         }
+      else if (name == "regression")
+         {
+         std::vector<std::string> a;
+         TestResult r = _cmd_regression(a);
+         results.push_back({name, r.n_pass, r.n_fail});
+         }
+      else // compliance-quick or compliance-slow
+         {
+         std::vector<std::string> a;
+         std::string label = name;
+         if (name == "compliance-slow")
+            {
+            long long iters = calibrate_tco_threshold(std::cout);
+            if (iters <= 0)
+               {
+               std::cout << "; calibration unavailable; running compliance-quick instead.\n";
+               label = "compliance-quick(calib-failed)";
+               }
+            else
+               a.push_back("-I:" + std::to_string(iters));
+            }
+         TestResult r = _cmd_compliance(a);
+         results.push_back({label, r.n_pass, r.n_fail});
+         }
+      std::cout << '\n';
+      }
+
+   int total_pass = 0, total_fail = 0;
+   for (const SuiteResult& sr : results)
+      {
+      total_pass += sr.p;
+      total_fail += sr.f;
+      }
+   (void)total_pass;
+
+   std::cout << BOLD << "===== SUITES COMPLETE =====" << RESET << '\n';
+   for (const SuiteResult& sr : results)
+      {
+      std::string detail;
+      if (sr.f == 0)
+         detail = GREEN + std::to_string(sr.p) + " passed" + RESET;
+      else
+         detail = RED + std::to_string(sr.f) + " of " +
+                  std::to_string(sr.p + sr.f) + " failed" + RESET;
+      std::cout << "  " << _ljust(sr.label, 28) << ' ' << detail << '\n';
+      }
+   if (total_fail == 0)
+      std::cout << BOLD << GREEN << "  ALL SUITES PASSED" << RESET << '\n';
+   else
+      std::cout << BOLD << RED << "  SUITE FAILURES: " << total_fail << RESET << '\n';
    }
 
 void Listener::_cmd_gc_stress(std::vector<std::string>& args)
@@ -1684,7 +1829,7 @@ void Listener::_cmd_gc_stress(std::vector<std::string>& args)
       }
    }
 
-void Listener::_cmd_feature(std::vector<std::string>& args)
+TestResult Listener::_cmd_feature(std::vector<std::string>& args)
    {
    if (args.size() > 1)
       throw ListenerCommandError("Usage: ]feature [<filename>]");
@@ -1717,7 +1862,7 @@ void Listener::_cmd_feature(std::vector<std::string>& args)
       if (filenames.empty())
          throw ListenerCommandError("No .log files in " + _testdir);
       }
-   _runTestFiles(filenames, testDir, "feature");
+   return _runTestFiles(filenames, testDir, "feature");
    }
 
 void Listener::_cmd_cd(std::vector<std::string>& args)

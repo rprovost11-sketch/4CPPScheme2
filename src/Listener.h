@@ -189,8 +189,10 @@ class CPPSCHEME2_API Listener
    // | "regression"; it becomes part of the run-report filename:
    // yyyy-mm-dd-hhmmss-<suite>-CPPScheme2.run.  `tco_iters` is bound to
    // %MAX_TCO_ITER_COUNT% after each file's reboot.
-   void _runTestFiles(const std::vector<std::string>& filenames, const std::string& testDir,
-                      const std::string& suite, long long tco_iters = _TCO_ITER_DEFAULT);
+   // Returns the grand pass/fail totals so ]suites can aggregate a combined
+   // verdict across several suites.
+   TestResult _runTestFiles(const std::vector<std::string>& filenames, const std::string& testDir,
+                            const std::string& suite, long long tco_iters = _TCO_ITER_DEFAULT);
 
    // Command handlers -- each corresponds to a ]command.
    void _cmd_help(std::vector<std::string>& args);
@@ -203,7 +205,7 @@ class CPPSCHEME2_API Listener
    void _cmd_log(std::vector<std::string>& args);
    void _cmd_close(std::vector<std::string>& args);
    void _cmd_resume(std::vector<std::string>& args);
-   void _cmd_feature(std::vector<std::string>& args);
+   TestResult _cmd_feature(std::vector<std::string>& args);
    void _cmd_cd(std::vector<std::string>& args);
    void _cmd_pwd(std::vector<std::string>& args);
    void _cmd_toggle_tty_color(std::vector<std::string>& args);
@@ -212,7 +214,8 @@ class CPPSCHEME2_API Listener
    void _cmd_lhistory(std::vector<std::string>& args);
    void _cmd_debug(std::vector<std::string>& args);
    void _cmd_profile(std::vector<std::string>& args);
-   void _cmd_compliance(std::vector<std::string>& args);
-   void _cmd_regression(std::vector<std::string>& args);
+   TestResult _cmd_compliance(std::vector<std::string>& args);
+   TestResult _cmd_regression(std::vector<std::string>& args);
    void _cmd_gc_stress(std::vector<std::string>& args);
+   void _cmd_suites(std::vector<std::string>& args);
    };

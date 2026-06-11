@@ -60,6 +60,7 @@ add_library(cppscheme2_core SHARED
     src/Context.cpp
     # Phase 15
     src/readline_win.cpp
+    src/tco_calibrate.cpp
     src/Listener.cpp
     # Phase 16
     src/Interpreter.cpp

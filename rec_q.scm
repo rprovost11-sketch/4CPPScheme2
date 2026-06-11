@@ -1,0 +1,7 @@
+(import (scheme base) (scheme write))
+(define-record-type <pare> (kons x y) pare? (x kar set-kar!) (y kdr))
+(write (pare? (kons 1 2))) (newline)
+(write (pare? (cons 1 2))) (newline)
+(write (kar (kons 1 2))) (newline)
+(write (kdr (kons 1 2))) (newline)
+(write (let ((k (kons 1 2))) (set-kar! k 3) (kar k))) (newline)
