@@ -726,12 +726,29 @@ static EnterResult enter_proc(const Value& fn_value, std::vector<Value>& args,
       }
    if (is_primitive(fn_value))
       {
-      auto hof = build_hof_frame(fn_value, as_primitive_kind(fn_value), args, app_node);
+      int pkind = as_primitive_kind(fn_value);
+      auto hof = build_hof_frame(fn_value, pkind, args, app_node);
       if (hof.has_value())
          {
          EnterResult r;
          r.kind = EnterResult::IsFrame;
          r.frame = std::move(*hof);
+         return r;
+         }
+      if (pkind == PRIM_LOAD)
+         {
+         // load reached as a callback (e.g. (for-each load files)): read + parse
+         // and drive its forms on the K stack, like the FRAME_CALL interception,
+         // rather than re-entering cek_eval via _prim_load.
+         LoadSetup ls = load_setup(args, saved_env, app_node);
+         Frame ef;
+         ef.tag = FRAME_EVAL_FORMS;
+         ef.list1 = std::move(ls.forms);
+         ef.env = ls.eval_env;
+         ef.depth = 0;
+         EnterResult r;
+         r.kind = EnterResult::IsFrame;
+         r.frame = std::move(ef);
          return r;
          }
       Value v = as_primitive_fn(fn_value)(ctx, saved_env, args, app_node);
@@ -849,6 +866,12 @@ static bool is_mv_ok(int ftag)
    // FRAME_ERROR_UNWIND discards each unwind after-thunk's result before
    // re-raising the original condition.
    case FRAME_ERROR_UNWIND:
+   // The load / library-loading drivers discard each form's / step's result
+   // and finally yield VOID, so an intermediate multi-valued result is harmless.
+   case FRAME_EVAL_FORMS:
+   case FRAME_LIB_FINALIZE:
+   case FRAME_IMPORT_STEP:
+   case FRAME_ENSURE_LOADED:
       return true;
    default:
       return false;
@@ -1054,17 +1077,25 @@ static bool _try_load_library_file(const Value& name_sexpr, Context* ctx)
    }
 
 // ── _process_one_lib_decl ─────────────────────────────────────────────────────
-// Port of Evaluator.py _process_one_lib_decl.
+// Port of Evaluator.py _process_one_lib_decl.  Collects export names, import-set
+// sexprs, and begin / unknown-decl forms (unexpanded) -- all in declaration
+// order.  Nothing is resolved or evaluated here: the imports are bound (loading
+// library files if needed) and the forms evaluated later on the main K stack
+// (FRAME_IMPORT_STEP / FRAME_EVAL_FORMS), so no re-entrant cek_eval.
 // Forward declaration needed because cond-expand recurses into itself.
 
 static void _process_one_lib_decl(
     const Value& decl, Environment* lib_env,
     std::vector<std::pair<std::string, std::string>>& export_names,
+    std::vector<Value>& eval_forms,
+    std::vector<Value>& import_sets,
     Context* ctx);
 
 static void _process_one_lib_decl(
     const Value& decl, Environment* lib_env,
     std::vector<std::pair<std::string, std::string>>& export_names,
+    std::vector<Value>& eval_forms,
+    std::vector<Value>& import_sets,
     Context* ctx)
    {
    if (!is_cons(decl) || !is_symbol(car(decl)))
@@ -1079,40 +1110,8 @@ static void _process_one_lib_decl(
       Value sets = dbody;
       while (is_cons(sets))
          {
-         Value import_set = car(sets);
+         import_sets.push_back(car(sets));
          sets = cdr(sets);
-         std::unordered_map<std::string, Value> bindings;
-         try
-            {
-            bindings = resolve_import_set(import_set);
-            }
-         catch (const std::runtime_error& e)
-            {
-            bool loaded = false;
-            if (is_cons(import_set))
-               loaded = _try_load_library_file(import_set, ctx);
-            if (loaded)
-               {
-               try
-                  {
-                  bindings = resolve_import_set(import_set);
-                  }
-               catch (const std::runtime_error& e2)
-                  {
-                  throw SchemeSyntaxError(
-                      std::string("define-library: import: ") + e2.what(),
-                      src_of(import_set));
-                  }
-               }
-            else
-               {
-               throw SchemeSyntaxError(
-                   std::string("define-library: import: ") + e.what(),
-                   src_of(import_set));
-               }
-            }
-         for (const auto& [n, val] : bindings)
-            lib_env->bind(n, val);
          }
       return;
       }
@@ -1150,12 +1149,9 @@ static void _process_one_lib_decl(
    if (dsym == "begin")
       {
       Value forms = dbody;
-      // Root the remaining body forms: evaluating one can GC and would
-      // otherwise leave the unprocessed tail dangling.
-      GcRootGuard forms_root(forms);
       while (is_cons(forms))
          {
-         cek_eval(expand(car(forms)), lib_env, ctx);
+         eval_forms.push_back(car(forms));
          forms = cdr(forms);
          }
       return;
@@ -1188,7 +1184,8 @@ static void _process_one_lib_decl(
          std::vector<Value> inner_forms = scheme_parse(source, resolved);
          GcRootVec inner_root(inner_forms); // keep pending forms alive across GC
          for (const Value& inner : inner_forms)
-            _process_one_lib_decl(inner, lib_env, export_names, ctx);
+            _process_one_lib_decl(inner, lib_env, export_names,
+                                  eval_forms, import_sets, ctx);
          }
       return;
       }
@@ -1211,7 +1208,8 @@ static void _process_one_lib_decl(
             while (is_cons(cur_inner))
                {
                _process_one_lib_decl(
-                   car(cur_inner), lib_env, export_names, ctx);
+                   car(cur_inner), lib_env, export_names,
+                   eval_forms, import_sets, ctx);
                cur_inner = cdr(cur_inner);
                }
             return;
@@ -1221,8 +1219,11 @@ static void _process_one_lib_decl(
       return;
       }
 
-   // Unknown declaration keyword: expand and evaluate in lib_env.
-   cek_eval(expand(decl), lib_env, ctx);
+   // Unknown declaration keyword: collect for evaluation in lib_env on the main
+   // loop (FRAME_EVAL_FORMS).  Covers stray (define ...) forms; the later expand
+   // routes define-syntax through the active per-library macro scope (the
+   // FRAME_EVAL_FORMS phase runs while the runtime env is lib_env).
+   eval_forms.push_back(decl);
    }
 
 // ── process_import ────────────────────────────────────────────────────────────
@@ -1270,68 +1271,88 @@ void process_import(const Value& sets_cons, Environment* env, Context* ctx)
       }
    }
 
-// ── process_define_library ────────────────────────────────────────────────────
-// Port of Evaluator.py _process_define_library.
+// ── define-library ────────────────────────────────────────────────────────────
+// Port of Evaluator.py define_library_setup / _finalize_define_library /
+// _make_runtime_env_setter.
 
-static void process_define_library(const Value& C, Context* ctx)
+// Native runtime-env setter: capture[0] is an EnvBox; set the active per-library
+// macro scope (for define-syntax) to it.  Used as a define-library wind's
+// before/after so the scope is established on entry and restored on exit ON THE
+// MAIN LOOP -- across normal return, error unwind, and continuation re-entry
+// (replacing the old try/catch restore).
+static Value nc_set_runtime_env(Context*, Environment*, std::vector<Value>&,
+                                const std::vector<Value>& cap, const Value*)
+   {
+   set_runtime_env(as_environment(cap[0]));
+   return VOID_VALUE;
+   }
+
+struct DefineLibrarySetup
+   {
+   Environment* lib_env = nullptr;
+   std::vector<Value> eval_forms;
+   std::vector<std::pair<std::string, std::string>> export_names;
+   std::string key;
+   std::vector<Value> import_sets;
+   };
+
+// Pre-pass for (define-library <name> <decl>...): validate, create the library
+// env, and process the declarations IN ORDER -- collecting export names, import
+// sets, and the begin / unknown-decl forms (unexpanded) for evaluation on the
+// main K stack.  Evaluates no form and does NOT swap the runtime env (no
+// define-syntax runs here); the evaluator swaps it around the FRAME_EVAL_FORMS
+// phase and registers the library via FRAME_LIB_FINALIZE.
+static DefineLibrarySetup define_library_setup(const Value& C, Context* ctx)
    {
    if (!is_cons(cdr(C)))
       throw SchemeSyntaxError("define-library: missing library name", src_of(C));
    Value name_sexpr = car(cdr(C));
    Value decls_cons = cdr(cdr(C));
 
-   std::string key;
+   DefineLibrarySetup dl;
    try
       {
-      key = library_name_to_key(name_sexpr);
+      dl.key = library_name_to_key(name_sexpr);
       }
    catch (const std::runtime_error& e)
       {
       throw SchemeSyntaxError(
           std::string("define-library: ") + e.what(), src_of(C));
       }
-
-   Environment* lib_env = gc_alloc_environment(nullptr);
-   gc_env_root_push(&lib_env);
-   std::vector<std::pair<std::string, std::string>> export_names;
-
-   // Swap runtime env so define-syntax inside library's begin binds into lib_env.
-   Environment* outer_env = get_runtime_env();
-   set_runtime_env(lib_env);
-   try
+   dl.lib_env = gc_alloc_environment(nullptr);
+   Value d = decls_cons;
+   while (is_cons(d))
       {
-      Value d = decls_cons;
-      while (is_cons(d))
-         {
-         _process_one_lib_decl(car(d), lib_env, export_names, ctx);
-         d = cdr(d);
-         }
+      _process_one_lib_decl(car(d), dl.lib_env, dl.export_names,
+                            dl.eval_forms, dl.import_sets, ctx);
+      d = cdr(d);
       }
-   catch (...)
-      {
-      set_runtime_env(outer_env);
-      gc_env_root_pop(&lib_env);
-      throw;
-      }
-   set_runtime_env(outer_env);
+   return dl;
+   }
 
-   // Build exports env: copy each (internal, external) entry out of lib_env.
+// Build the exports env from export_pairs + lib_env and register the library.
+// Run by FRAME_LIB_FINALIZE after the library's forms have evaluated on the main
+// loop (so exported names are defined).  export_pairs[i] = (internal sid,
+// external symbol Value); name_src = the define-library form (for error src).
+static void finalize_define_library(
+    Environment* lib_env,
+    const std::vector<std::pair<uint32_t, Value>>& export_pairs,
+    const std::string& key, const Value& name_src)
+   {
    Environment* exports_env = gc_alloc_environment(nullptr);
    gc_env_root_push(&exports_env);
-   size_t i = 0;
-   while (i < export_names.size())
+   for (const auto& ep : export_pairs)
       {
-      const std::string& internal_name = export_names[i].first;
-      const std::string& external_name = export_names[i].second;
-      if (lib_env->_bindings.count(intern_symbol(internal_name)) == 0)
+      uint32_t internal_sid = ep.first;
+      std::string external_name = as_symbol(ep.second);
+      if (lib_env->_bindings.count(internal_sid) == 0)
          {
          gc_env_root_pop(&exports_env);
-         gc_env_root_pop(&lib_env);
          throw SchemeSyntaxError(
-             "define-library: exported name not defined: " + internal_name,
-             src_of(C));
+             "define-library: exported name not defined: " + symbol_name(internal_sid),
+             src_of(name_src));
          }
-      Value val = lib_env->lookup(internal_name);
+      Value val = lib_env->_bindings.at(internal_sid);
       exports_env->bind(external_name, val);
       // A macro's free-identifier aliases (gensyms bound to the library's
       // def-time values in lib_env, the library's parentless "global") are
@@ -1345,18 +1366,13 @@ static void process_define_library(const Value& C, Context* ctx)
             {
             uint32_t gs_sid = kv.second;
             if (lib_env->_bindings.count(gs_sid) && exports_env->_bindings.count(gs_sid) == 0)
-               {
                exports_env->bind(symbol_name(gs_sid), lib_env->_bindings.at(gs_sid));
-               }
             }
          }
-      i = i + 1;
       }
    exports_env->freeze();
    library_register(key, exports_env);
-
    gc_env_root_pop(&exports_env);
-   gc_env_root_pop(&lib_env);
    }
 
 // ── The CEK machine ───────────────────────────────────────────────────────────
@@ -1746,13 +1762,75 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                               }
                            case SF_IMPORT:
                               {
-                              process_import(cdr(C), E, ctx);
+                              // (import <import-set>...) -- resolve each set and
+                              // bind its exported names into the current env,
+                              // loading library files on the K stack if needed.
+                              // Driven by FRAME_IMPORT_STEP (no re-entrant cek_eval).
+                              Frame im;
+                              im.tag = FRAME_IMPORT_STEP;
+                              for (Value s = cdr(C); is_cons(s); s = cdr(s))
+                                 im.list1.push_back(car(s));
+                              im.depth = 0;
+                              im.env = E;
+                              im.uid = 0; // post_load = false
+                              im.str1 = "import: ";
+                              K.push_back(std::move(im));
                               V = VOID_VALUE;
                               goto eval_break;
                               }
                            case SF_DEFINE_LIBRARY:
                               {
-                              process_define_library(C, ctx);
+                              // (define-library <name> <decl>...): the pre-pass
+                              // resolves the pure decls and collects the import
+                              // sets + begin/unknown forms; those run on the main
+                              // loop (FRAME_IMPORT_STEP then FRAME_EVAL_FORMS) with
+                              // the runtime env swapped to lib_env -- restored via a
+                              // wind so it resets on normal return, error, and
+                              // continuation escape -- then FRAME_LIB_FINALIZE
+                              // builds + registers exports.  No re-entrant cek_eval.
+                              DefineLibrarySetup dl = define_library_setup(C, ctx);
+                              Environment* outer_env = get_runtime_env();
+                              Value install = make_native_closure(
+                                  "%define-library-install-env", nc_set_runtime_env,
+                                  {make_environment(dl.lib_env)});
+                              Value restore = make_native_closure(
+                                  "%define-library-restore-env", nc_set_runtime_env,
+                                  {make_environment(outer_env)});
+                              set_runtime_env(dl.lib_env);
+                              WindFrame wf;
+                              wf.before = install;
+                              wf.after = restore;
+                              ctx->wind_stack.push_back(wf);
+                              Frame da;
+                              da.tag = FRAME_DYNAMIC_WIND_AFTER;
+                              da.v1 = restore;
+                              K.push_back(std::move(da));
+                              Frame lf;
+                              lf.tag = FRAME_LIB_FINALIZE;
+                              lf.env = dl.lib_env;
+                              lf.str1 = dl.key;
+                              lf.v1 = C;
+                              for (const auto& en : dl.export_names)
+                                 lf.pairs.push_back(
+                                     {intern_symbol(en.first), make_symbol(en.second)});
+                              K.push_back(std::move(lf));
+                              Frame ef;
+                              ef.tag = FRAME_EVAL_FORMS;
+                              ef.list1 = std::move(dl.eval_forms);
+                              ef.env = dl.lib_env;
+                              ef.depth = 0;
+                              K.push_back(std::move(ef));
+                              // Imports run first (frame-driven, loading library
+                              // files on the K stack if needed), before the begin
+                              // forms; pushed last so APPLY pops it first.
+                              Frame im;
+                              im.tag = FRAME_IMPORT_STEP;
+                              im.list1 = std::move(dl.import_sets);
+                              im.depth = 0;
+                              im.env = dl.lib_env;
+                              im.uid = 0; // post_load = false
+                              im.str1 = "define-library: import: ";
+                              K.push_back(std::move(im));
                               V = VOID_VALUE;
                               goto eval_break;
                               }
@@ -2546,6 +2624,164 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                      e.value = frame.v1;
                      throw;
                      }
+                  }
+
+               // ── FRAME_EVAL_FORMS ──────────────────────────────────────
+               if (ftag == FRAME_EVAL_FORMS)
+                  {
+                  // Evaluates a list of top-level forms in sequence ON THE MAIN K
+                  // STACK (load / library loading), instead of a re-entrant
+                  // cek_eval per form.  Each form is expanded then evaluated; its
+                  // result is discarded.  (C++ does not run the Analyzer pass on
+                  // these paths -- matching the old _prim_load / _try_load /
+                  // define-library cek_eval(expand(form)) calls.)  Yields VOID when
+                  // the forms are exhausted.
+                  size_t ef_i = (size_t)frame.depth;
+                  if (ef_i >= frame.list1.size())
+                     {
+                     V = VOID_VALUE;
+                     continue;
+                     }
+                  GcRootGuard raw(frame.list1[ef_i]); // rooted across expand
+                  Environment* ef_env = frame.env;
+                  Frame nf = std::move(frame);        // preserves list1/env
+                  nf.depth = (int)ef_i + 1;
+                  K.push_back(std::move(nf));
+                  C = expand(raw.val);
+                  E = ef_env;
+                  break;
+                  }
+
+               // ── FRAME_LIB_FINALIZE ────────────────────────────────────
+               if (ftag == FRAME_LIB_FINALIZE)
+                  {
+                  // The library's forms have evaluated on the main loop; build +
+                  // register its exports.  Reached only on normal completion (a
+                  // library form that raised unwinds past this frame), so a failed
+                  // library is not registered.  The runtime-env restore rides a
+                  // wind beneath this frame.
+                  finalize_define_library(frame.env, frame.pairs, frame.str1, frame.v1);
+                  V = VOID_VALUE;
+                  continue;
+                  }
+
+               // ── FRAME_IMPORT_STEP ─────────────────────────────────────
+               if (ftag == FRAME_IMPORT_STEP)
+                  {
+                  // Resolves each import-set and binds its exports into env.  When
+                  // a set names an unregistered library, frame-drives a load
+                  // (FRAME_ENSURE_LOADED) then retries (post_load=true), so library
+                  // files evaluate on the main K stack instead of a re-entrant
+                  // cek_eval.  Used for top-level import and library imports.
+                  size_t im_i = (size_t)frame.depth;
+                  if (im_i >= frame.list1.size())
+                     {
+                     V = VOID_VALUE;
+                     continue;
+                     }
+                  Value import_set = frame.list1[im_i];
+                  Environment* im_env = frame.env;
+                  bool im_post = (frame.uid != 0);
+                  std::unordered_map<std::string, Value> bindings;
+                  try
+                     {
+                     bindings = resolve_import_set(import_set);
+                     }
+                  catch (const std::runtime_error& ie)
+                     {
+                     if (!im_post && is_cons(import_set))
+                        {
+                        std::string ikey;
+                        bool have_key = true;
+                        try
+                           {
+                           ikey = library_name_to_key(import_set);
+                           }
+                        catch (const std::exception&)
+                           {
+                           have_key = false;
+                           }
+                        if (have_key && !library_registered_p(ikey))
+                           {
+                           frame.depth = (int)im_i; // retry this set after load
+                           frame.uid = 1;           // post_load = true
+                           K.push_back(std::move(frame));
+                           Frame el;
+                           el.tag = FRAME_ENSURE_LOADED;
+                           el.str1 = ikey;
+                           el.v1 = import_set;
+                           el.depth = 0;
+                           K.push_back(std::move(el));
+                           continue;
+                           }
+                        }
+                     throw SchemeSyntaxError(frame.str1 + ie.what(), src_of(import_set));
+                     }
+                  for (const auto& [n, val] : bindings)
+                     im_env->bind(n, val);
+                  frame.depth = (int)im_i + 1;
+                  frame.uid = 0;
+                  K.push_back(std::move(frame));
+                  continue;
+                  }
+
+               // ── FRAME_ENSURE_LOADED ───────────────────────────────────
+               if (ftag == FRAME_ENSURE_LOADED)
+                  {
+                  // Walks the load path for a library: per dir drives <key>.sld's
+                  // forms on the K stack via FRAME_EVAL_FORMS (a fresh parentless
+                  // env), re-checking registration after each dir.  Yields when the
+                  // library is registered or the dirs run out.  (C++ omits the
+                  // Python .py-extension branch.)
+                  const std::string el_key = frame.str1;
+                  size_t el_di = (size_t)frame.depth;
+                  if (library_registered_p(el_key))
+                     {
+                     V = VOID_VALUE;
+                     continue;
+                     }
+                  std::vector<std::string> dirs = _library_load_path();
+                  if (el_di >= dirs.size())
+                     {
+                     V = VOID_VALUE;
+                     continue;
+                     }
+                  // key "scheme.base" -> base path "scheme/base"
+                  std::string bpath;
+                  size_t start = 0;
+                  while (true)
+                     {
+                     size_t dot = el_key.find('.', start);
+                     std::string part = el_key.substr(
+                         start, dot == std::string::npos ? dot : dot - start);
+                     if (!bpath.empty())
+                        bpath += '/';
+                     bpath += part;
+                     if (dot == std::string::npos)
+                        break;
+                     start = dot + 1;
+                     }
+                  const std::string& base = dirs[el_di];
+                  std::string prefix = base.empty() ? bpath : (base + "/" + bpath);
+                  std::string sld = prefix + ".sld";
+                  frame.depth = (int)el_di + 1; // advance; re-check after this dir
+                  K.push_back(std::move(frame));
+                  std::ifstream sld_file(sld);
+                  if (sld_file.is_open())
+                     {
+                     std::string source((std::istreambuf_iterator<char>(sld_file)),
+                                        std::istreambuf_iterator<char>());
+                     sld_file.close();
+                     std::vector<Value> forms = scheme_parse(source, sld);
+                     Environment* fresh_env = gc_alloc_environment(nullptr);
+                     Frame ef;
+                     ef.tag = FRAME_EVAL_FORMS;
+                     ef.list1 = std::move(forms);
+                     ef.env = fresh_env;
+                     ef.depth = 0;
+                     K.push_back(std::move(ef));
+                     }
+                  continue;
                   }
 
                // ── FRAME_CWV_CONSUMER ────────────────────────────────────
@@ -3488,6 +3724,21 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                      new_collected = std::move(prs.body_args);
                      kind = is_primitive(fn_value)
                             ? as_primitive_kind(fn_value) : PRIM_ORDINARY;
+                     }
+                  // load: read + parse the file (native), then evaluate its
+                  // top-level forms on the K stack via FRAME_EVAL_FORMS instead of
+                  // a re-entrant cek_eval per form.  Reached for the operator
+                  // position and (apply load ...) alike.
+                  if (kind == PRIM_LOAD)
+                     {
+                     LoadSetup ls = load_setup(new_collected, saved_env, &app_node);
+                     Frame ef;
+                     ef.tag = FRAME_EVAL_FORMS;
+                     ef.list1 = std::move(ls.forms);
+                     ef.env = ls.eval_env;
+                     ef.depth = 0;
+                     K.push_back(std::move(ef));
+                     continue;
                      }
                      // parameter?
                      {

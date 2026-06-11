@@ -270,6 +270,9 @@ static const std::unordered_map<std::string, int> g_primitive_kind_by_name = {
    {"with-input-from-file",           PRIM_PORT_RUNNER},
    {"with-output-to-file",            PRIM_PORT_RUNNER},
    {"with-input-from-string",         PRIM_PORT_RUNNER},
+   // load: read + parse the file natively, then evaluate its top-level forms on
+   // the K stack via FRAME_EVAL_FORMS -- see load_setup / PRIM_LOAD.
+   {"load",                           PRIM_LOAD},
    };
 
 Value make_primitive(const std::string& name, BuiltinFn fn)

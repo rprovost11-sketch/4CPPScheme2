@@ -272,6 +272,7 @@ constexpr int PRIM_STRING_FOR_EACH        = 21;
 constexpr int PRIM_MEMBER                 = 22;
 constexpr int PRIM_ASSOC                  = 23;
 constexpr int PRIM_PORT_RUNNER            = 24;
+constexpr int PRIM_LOAD                   = 25;
 
 struct Builtin
    {

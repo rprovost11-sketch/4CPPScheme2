@@ -49,6 +49,10 @@ constexpr int FRAME_DYNAMIC_WIND_BEFORE_DONE = 31; // dynamic-wind before-thunk 
 constexpr int FRAME_PARAMETERIZE_STEP = 32;      // parameterize value-converter driver
 constexpr int FRAME_WIND_STEP = 33;              // continuation-jump wind walk driver
 constexpr int FRAME_ERROR_UNWIND = 34;           // error-unwind after-thunk driver
+constexpr int FRAME_EVAL_FORMS = 35;             // evaluate a form list on the K stack
+constexpr int FRAME_LIB_FINALIZE = 36;           // build + register a define-library's exports
+constexpr int FRAME_IMPORT_STEP = 37;            // resolve + bind import sets on the K stack
+constexpr int FRAME_ENSURE_LOADED = 38;          // load-path search + .sld eval on the K stack
 
 // ── Frame struct (runtime continuation entries) ───────────────────────────────
 // Port of Evaluator.py frame tuples.  Each tag uses a subset of fields:
@@ -97,6 +101,18 @@ constexpr int FRAME_ERROR_UNWIND = 34;           // error-unwind after-thunk dri
 //                                 (0=exit, 1=enter), v1=cont, v2=cont_value, depth=index
 //   FRAME_ERROR_UNWIND:         list1=afters, depth=index, exc=original exception_ptr
 //                                 (re-raised once the afters are exhausted)
+//   FRAME_EVAL_FORMS:           list1=forms (parsed, unexpanded), env=eval_env,
+//                                 depth=index (each form expanded then evaluated;
+//                                 result discarded; yields VOID when exhausted)
+//   FRAME_LIB_FINALIZE:         env=lib_env, v1=def_lib_form (for error src),
+//                                 pairs=export_names ((internal_sid, external symbol
+//                                 Value)), str1=key
+//   FRAME_IMPORT_STEP:          list1=import_sets, depth=index, env=bind_env,
+//                                 uid=post_load(0/1), str1=err_prefix
+//   FRAME_ENSURE_LOADED:        str1=key, v1=name_sexpr, depth=dir_index
+//                                 (the load-path dirs are recomputed each step via
+//                                 _library_load_path(); .sld forms driven via
+//                                 FRAME_EVAL_FORMS)
 // (All HOF Values live in v1/v2/list1/list2 so they are GC-traced by the existing
 //  frame trace/forward; the int state lives in depth/uid/ids, which need no tracing.)
 
@@ -167,3 +183,17 @@ CPPSCHEME2_API PortRunnerSetup port_runner_setup(const std::string& name,
                                                  Context* ctx, Environment* env,
                                                  std::vector<Value>& args,
                                                  const Value* app_node);
+
+// ── load setup (PRIM_LOAD) ────────────────────────────────────────────────────
+// Port of pyScheme primitives/meta.py load_setup.  Defined in primitives/meta.cpp.
+// Validates (load filename [environment]) and reads + parses the file, returning
+// the parsed top-level forms + the evaluation environment.  The evaluator drives
+// the forms on the main K stack via FRAME_EVAL_FORMS instead of a re-entrant
+// cek_eval per form.
+struct LoadSetup
+   {
+   std::vector<Value> forms;
+   Environment* eval_env = nullptr;
+   };
+CPPSCHEME2_API LoadSetup load_setup(std::vector<Value>& args, Environment* env,
+                                    const Value* app_node);
