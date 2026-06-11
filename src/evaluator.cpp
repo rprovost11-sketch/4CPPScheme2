@@ -41,12 +41,17 @@ struct EnterResult
       {
       IsValue,
       IsCont,
-      IsEnter
+      IsEnter,
+      IsFrame      // higher-order primitive reached as a callback: push `frame`
+                   // on K and resume the APPLY loop (drives the call on frames
+                   // instead of re-entering cek_eval).  Mirrors pyScheme's
+                   // ('frame', ...) descriptor.
       } kind = IsValue;
    Value v;
    Environment* new_env = nullptr;
    Value seq; // IsEnter: remaining body cons or NIL_VALUE
    KStack new_k;
+   Frame frame; // IsFrame: the driver frame to push onto K
    };
 
 // Thrown when a continuation is invoked from a cek_loop invocation other than
@@ -553,6 +558,89 @@ static void unwind_winds_on_error(Context* ctx, size_t target_depth)
 
 // ── enter_proc ────────────────────────────────────────────────────────────────
 
+// If fn_value is a higher-order primitive whose per-element calls are driven on
+// the K stack -- map/for-each/filter (FRAME_HOF_STEP), the vector/string variants
+// (FRAME_HOF_STEP_IDX), or the 3-arg member/assoc forms (FRAME_SEARCH_STEP) --
+// build and return its driver frame; otherwise std::nullopt.  Shared by the
+// FRAME_CALL terminal dispatch and enter_proc so one of these primitives reached
+// as a callback (e.g. the per-element proc of an outer map, as in (map filter ...))
+// is driven on frames too, rather than re-entering cek_eval through its _prim_*
+// fallback.  Single source of truth -- mirrors pyScheme's _build_hof_frame.
+static std::optional<Frame> build_hof_frame(const Value& fn_value, int kind,
+                                            const std::vector<Value>& collected,
+                                            const Value* app_node)
+   {
+   SourceInfo* src = app_node ? src_of(*app_node) : nullptr;
+   Value app = app_node ? *app_node : NIL_VALUE;
+   if (kind == PRIM_MAP || kind == PRIM_FOR_EACH || kind == PRIM_FILTER)
+      {
+      const std::string& nm = as_primitive_name(fn_value);
+      if (kind == PRIM_FILTER)
+         {
+         if (collected.size() != 2)
+            throw SchemeArityError(
+                arity_mismatch_msg(nm, 2, 2, (int)collected.size()), src);
+         }
+      else if (collected.size() < 2)
+         throw SchemeArityError(
+             arity_mismatch_msg(nm, 2, -1, (int)collected.size()), src);
+      Frame hf;
+      hf.tag = FRAME_HOF_STEP;
+      hf.depth = kind;           // mode
+      hf.uid = 0;                // started = false
+      hf.v1 = collected[0];      // proc
+      hf.v2 = NIL_VALUE;         // acc (reversed cons)
+      hf.list1.assign(collected.begin() + 1, collected.end()); // cursors
+      hf.list2 = {app, NIL_VALUE};  // {app_node, pending}
+      return hf;
+      }
+   if (kind == PRIM_VECTOR_MAP || kind == PRIM_VECTOR_FOR_EACH ||
+       kind == PRIM_STRING_MAP || kind == PRIM_STRING_FOR_EACH)
+      {
+      const std::string& nm = as_primitive_name(fn_value);
+      if (collected.size() < 2)
+         throw SchemeArityError(
+             arity_mismatch_msg(nm, 2, -1, (int)collected.size()), src);
+      bool is_vec = (kind == PRIM_VECTOR_MAP || kind == PRIM_VECTOR_FOR_EACH);
+      for (size_t j = 1; j < collected.size(); ++j)
+         {
+         if (is_vec)
+            {
+            if (!is_vector(collected[j]))
+               throw SchemeTypeError(
+                   nm + ": argument " + std::to_string(j + 1) + " must be a vector", src);
+            }
+         else if (!is_string(collected[j]))
+            throw SchemeTypeError(
+                nm + ": argument " + std::to_string(j + 1) + " must be a string", src);
+         }
+      Frame hf;
+      hf.tag = FRAME_HOF_STEP_IDX;
+      hf.depth = kind;           // mode
+      hf.uid = 0;                // started = false
+      hf.v1 = collected[0];      // proc
+      hf.v2 = NIL_VALUE;         // acc (reversed cons)
+      hf.list1.assign(collected.begin() + 1, collected.end()); // seqs
+      hf.list2 = {app};
+      hf.ids.assign(collected.size() - 1, 0u); // positions, all 0
+      return hf;
+      }
+   if ((kind == PRIM_MEMBER || kind == PRIM_ASSOC) && collected.size() == 3)
+      {
+      Frame hf;
+      hf.tag = FRAME_SEARCH_STEP;
+      hf.depth = kind;              // mode
+      hf.uid = 0;                   // started = false
+      hf.v1 = collected[2];         // proc (comparator)
+      hf.v2 = collected[0];         // target
+      hf.list1 = {collected[1]};    // cursor (list head)
+      hf.list2 = {app};
+      return hf;
+      }
+   return std::nullopt;
+   }
+
+
 static EnterResult enter_proc(const Value& fn_value, std::vector<Value>& args,
                               Context* ctx, Environment* saved_env, const Value* app_node)
    {
@@ -581,6 +669,14 @@ static EnterResult enter_proc(const Value& fn_value, std::vector<Value>& args,
       }
    if (is_primitive(fn_value))
       {
+      auto hof = build_hof_frame(fn_value, as_primitive_kind(fn_value), args, app_node);
+      if (hof.has_value())
+         {
+         EnterResult r;
+         r.kind = EnterResult::IsFrame;
+         r.frame = std::move(*hof);
+         return r;
+         }
       Value v = as_primitive_fn(fn_value)(ctx, saved_env, args, app_node);
       EnterResult r;
       r.kind = EnterResult::IsValue;
@@ -1446,6 +1542,13 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
          V = result.v;
          skip_eval = true;
          }
+      else if (result.kind == EnterResult::IsFrame)
+         {
+         // Handler is itself a frame-driven HOF primitive: push its driver and
+         // resume the APPLY loop (the start-frame ignores the current V).
+         K.push_back(std::move(result.frame));
+         skip_eval = true;
+         }
       else
          {
          C = result.v;
@@ -2022,6 +2125,11 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                      V = result.v;
                      continue;
                      }
+                  if (result.kind == EnterResult::IsFrame)
+                     {
+                     K.push_back(std::move(result.frame));
+                     continue;
+                     }
                   C = result.v;
                   E = result.new_env;
                   if (is_cons(result.seq))
@@ -2106,6 +2214,8 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   if (result.kind == EnterResult::IsValue) { V = result.v; continue; }
                   if (result.kind == EnterResult::IsCont)
                      { K = std::move(result.new_k); V = result.v; continue; }
+                  if (result.kind == EnterResult::IsFrame)
+                     { K.push_back(std::move(result.frame)); continue; }
                   C = result.v;
                   E = result.new_env;
                   if (is_cons(result.seq))
@@ -2203,6 +2313,8 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   if (result.kind == EnterResult::IsValue) { V = result.v; continue; }
                   if (result.kind == EnterResult::IsCont)
                      { K = std::move(result.new_k); V = result.v; continue; }
+                  if (result.kind == EnterResult::IsFrame)
+                     { K.push_back(std::move(result.frame)); continue; }
                   C = result.v;
                   E = result.new_env;
                   if (is_cons(result.seq))
@@ -2274,6 +2386,8 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   if (result.kind == EnterResult::IsValue) { V = result.v; continue; }
                   if (result.kind == EnterResult::IsCont)
                      { K = std::move(result.new_k); V = result.v; continue; }
+                  if (result.kind == EnterResult::IsFrame)
+                     { K.push_back(std::move(result.frame)); continue; }
                   C = result.v;
                   E = result.new_env;
                   if (is_cons(result.seq))
@@ -2355,6 +2469,11 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                         {
                         K = std::move(result.new_k);
                         V = result.v;
+                        continue;
+                        }
+                     if (result.kind == EnterResult::IsFrame)
+                        {
+                        K.push_back(std::move(result.frame));
                         continue;
                         }
                      C = result.v;
@@ -2573,98 +2692,23 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                      kind = is_primitive(fn_value)
                             ? as_primitive_kind(fn_value) : PRIM_ORDINARY;
                      }
-                  // map / for-each / filter: drive the per-element calls on the K
-                  // stack (FRAME_HOF_STEP) instead of the _prim_* loop, which
-                  // re-enters cek_eval per element and grows the C stack when such
-                  // calls nest.  The _prim_* bodies stay as the fallback for the
-                  // rare apply_scheme_proc path (e.g. (map filter ...)).  Reached
-                  // for both operator position and (apply map ...).
-                  if (kind == PRIM_MAP || kind == PRIM_FOR_EACH || kind == PRIM_FILTER)
+                  // map / for-each / filter, the vector/string variants, and 3-arg
+                  // member / assoc: drive the per-element calls on the K stack
+                  // (FRAME_HOF_STEP / _IDX / FRAME_SEARCH_STEP) instead of the
+                  // _prim_* loop, which re-enters cek_eval per element and grows the
+                  // C stack when such calls nest.  build_hof_frame is the single
+                  // source of truth, shared with enter_proc so the same primitive
+                  // reached as a callback is driven on frames too -- no _prim_*
+                  // re-entry on any path.  Reached for both operator position and
+                  // (apply map ...).
+                  {
+                  auto hof = build_hof_frame(fn_value, kind, new_collected, &app_node);
+                  if (hof.has_value())
                      {
-                     const std::string& nm = as_primitive_name(fn_value);
-                     if (kind == PRIM_FILTER)
-                        {
-                        if (new_collected.size() != 2)
-                           throw SchemeArityError(
-                               arity_mismatch_msg(nm, 2, 2, (int)new_collected.size()),
-                               src_of(app_node));
-                        }
-                     else if (new_collected.size() < 2)
-                        throw SchemeArityError(
-                            arity_mismatch_msg(nm, 2, -1, (int)new_collected.size()),
-                            src_of(app_node));
-                     Frame hf;
-                     hf.tag = FRAME_HOF_STEP;
-                     hf.depth = kind;           // mode
-                     hf.uid = 0;                // started = false
-                     hf.v1 = new_collected[0];  // proc
-                     hf.v2 = NIL_VALUE;         // acc (reversed cons)
-                     hf.list1.assign(new_collected.begin() + 1, new_collected.end()); // cursors
-                     hf.list2 = {app_node, NIL_VALUE};  // {app_node, pending}
-                     K.push_back(std::move(hf));
+                     K.push_back(std::move(*hof));
                      continue;
                      }
-                  // vector-map / vector-for-each / string-map / string-for-each:
-                  // the indexed analogue, via FRAME_HOF_STEP_IDX.  Type-check the
-                  // sequences here (the wrap_arity check is bypassed on this fast
-                  // path) and seed one cursor position per sequence to 0.
-                  if (kind == PRIM_VECTOR_MAP || kind == PRIM_VECTOR_FOR_EACH ||
-                      kind == PRIM_STRING_MAP || kind == PRIM_STRING_FOR_EACH)
-                     {
-                     const std::string& nm = as_primitive_name(fn_value);
-                     if (new_collected.size() < 2)
-                        throw SchemeArityError(
-                            arity_mismatch_msg(nm, 2, -1, (int)new_collected.size()),
-                            src_of(app_node));
-                     bool is_vec = (kind == PRIM_VECTOR_MAP || kind == PRIM_VECTOR_FOR_EACH);
-                     for (size_t j = 1; j < new_collected.size(); ++j)
-                        {
-                        if (is_vec)
-                           {
-                           if (!is_vector(new_collected[j]))
-                              throw SchemeTypeError(
-                                  nm + ": argument " + std::to_string(j + 1) + " must be a vector",
-                                  src_of(app_node));
-                           }
-                        else if (!is_string(new_collected[j]))
-                           throw SchemeTypeError(
-                               nm + ": argument " + std::to_string(j + 1) + " must be a string",
-                               src_of(app_node));
-                        }
-                     Frame hf;
-                     hf.tag = FRAME_HOF_STEP_IDX;
-                     hf.depth = kind;           // mode
-                     hf.uid = 0;                // started = false
-                     hf.v1 = new_collected[0];  // proc
-                     hf.v2 = NIL_VALUE;         // acc (reversed cons)
-                     hf.list1.assign(new_collected.begin() + 1, new_collected.end()); // seqs
-                     hf.list2 = {app_node};
-                     hf.ids.assign(new_collected.size() - 1, 0u); // positions, all 0
-                     K.push_back(std::move(hf));
-                     continue;
-                     }
-                  // member / assoc with a custom comparator (the 3-arg R7RS
-                  // forms): drive the per-element comparator calls on the K stack
-                  // via FRAME_SEARCH_STEP so a deeply-recursing comparator costs K
-                  // rather than the C stack (the same overflow class map/for-each
-                  // had).  The 2-arg forms use a built-in equality predicate and
-                  // never re-enter the evaluator, so they fall through to the normal
-                  // primitive call; the _member_search/_assoc_search bodies also stay
-                  // as the fallback for the rare higher-order path (e.g. (map member ...)).
-                  if ((kind == PRIM_MEMBER || kind == PRIM_ASSOC) &&
-                      new_collected.size() == 3)
-                     {
-                     Frame hf;
-                     hf.tag = FRAME_SEARCH_STEP;
-                     hf.depth = kind;              // mode
-                     hf.uid = 0;                   // started = false
-                     hf.v1 = new_collected[2];     // proc (comparator)
-                     hf.v2 = new_collected[0];     // target
-                     hf.list1 = {new_collected[1]};// cursor (list head)
-                     hf.list2 = {app_node};
-                     K.push_back(std::move(hf));
-                     continue;
-                     }
+                  }
                   // call-with-values
                   if (kind == PRIM_CALL_WITH_VALUES)
                      {
