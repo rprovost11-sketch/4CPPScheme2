@@ -372,15 +372,13 @@ Value make_read_error_object(const std::string& message,
 Value make_continuation(void* frames_ptr,
                         std::vector<WindFrame> wind_snapshot,
                         std::vector<Value> handler_snapshot,
-                        std::vector<Value> shadow_snapshot,
-                        uint64_t owner_eval_id)
+                        std::vector<Value> shadow_snapshot)
    {
    Continuation* k = gc_alloc_continuation();
    k->frames_ptr = frames_ptr;
    k->wind_snapshot = std::move(wind_snapshot);
    k->handler_snapshot = std::move(handler_snapshot);
    k->shadow_snapshot = std::move(shadow_snapshot);
-   k->owner_eval_id = owner_eval_id;
    return Value{Value::Repr(k)};
    }
 
@@ -944,11 +942,6 @@ const std::vector<Value>& as_continuation_handlers(const Value& val)
 const std::vector<Value>& as_continuation_shadow(const Value& val)
    {
    return std::get<Continuation*>(val.repr)->shadow_snapshot;
-   }
-
-uint64_t as_continuation_owner(const Value& val)
-   {
-   return std::get<Continuation*>(val.repr)->owner_eval_id;
    }
 
 const std::string& as_syntax_transformer_name(const Value& val)

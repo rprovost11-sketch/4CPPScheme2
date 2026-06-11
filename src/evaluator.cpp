@@ -54,23 +54,6 @@ struct EnterResult
    Frame frame; // IsFrame: the driver frame to push onto K
    };
 
-// Thrown when a continuation is invoked from a cek_loop invocation other than
-// the one that captured it -- i.e. the invocation is nested below the owner on
-// the C++ stack, behind native frames (a for-each / map callback, a
-// dynamic-wind thunk, etc.).  Replacing K locally would only redirect the
-// nested loop and the escape value would be discarded by the native caller, so
-// instead we unwind the C++ stack with this exception until we reach the
-// owning loop, which installs the captured continuation.  `cont` carries the
-// continuation object (re-rooted at the catch site); `args` are the values
-// passed to it.  Deliberately NOT derived from any Scheme error type so the
-// handler/guard machinery never treats an escape as a raised condition.
-struct ContinuationEscape
-   {
-   uint64_t owner_eval_id;
-   Value cont;
-   std::vector<Value> args;
-   };
-
 struct CondClause
    {
    enum Kind
@@ -94,7 +77,6 @@ static BetaResult apply_value(const Value& V, const std::vector<Value>& arg_valu
                               const Value* app_node);
 static EnterResult enter_proc(const Value& fn_value, std::vector<Value>& args,
                               Context* ctx, Environment* saved_env, const Value* app_node);
-static void wind_walk(Context* ctx, const std::vector<WindFrame>& target);
 static void unwind_winds_on_error(Context* ctx, size_t target_depth);
 static std::pair<std::vector<Value>, std::vector<Value>> resolve_parameterize_params(
     const Value& params_list, const Value& values_list, Context* ctx, const Value* app_node);
@@ -395,27 +377,6 @@ static Value continuation_value(const std::vector<Value>& args)
    return make_multi_values(std::vector<Value>(args));
    }
 
-// True when `id` belongs to a cek_loop still live on the C++ stack.  Used to
-// decide whether invoking a continuation owned by `id` must unwind to that loop
-// (escape) or may be installed in place because the loop has already returned
-// (re-entry, e.g. a continuation saved at top level and invoked from a later
-// REPL form).  The stack is shallow, so a linear scan is fine.
-static bool eval_id_active(Context* ctx, uint64_t id)
-   {
-   for (uint64_t e : ctx->eval_id_stack)
-      if (e == id)
-         return true;
-   return false;
-   }
-
-// A continuation must escape (throw to unwind native frames) only when its
-// owning loop is a still-live ancestor other than the current one.  When the
-// owner is the current loop, or has already returned, install it in place.
-static bool continuation_must_escape(Context* ctx, const Value& cont, uint64_t my_eval_id)
-   {
-   uint64_t owner = as_continuation_owner(cont);
-   return owner != my_eval_id && eval_id_active(ctx, owner);
-   }
 
 // ── apply_parameter_if ────────────────────────────────────────────────────────
 
@@ -451,7 +412,7 @@ static void restore_shadow_stack(Context* ctx, const std::vector<Value>& snapsho
       }
    }
 
-// ── value identity pointer (for wind_walk) ────────────────────────────────────
+// ── value identity pointer (for the wind common-prefix diff) ──────────────────
 
 static const void* val_id(const Value& v)
    {
@@ -510,34 +471,6 @@ Value apply_scheme_proc(const Value& fn, std::vector<Value> args,
       return VOID_VALUE;
       }
    throw SchemeTypeError("expected a procedure", src);
-   }
-
-// ── wind_walk ─────────────────────────────────────────────────────────────────
-
-static void wind_walk(Context* ctx, const std::vector<WindFrame>& target)
-   {
-   auto& ws = ctx->wind_stack;
-   size_t common = 0;
-   while (common < ws.size() && common < target.size())
-      {
-      if (val_id(ws[common].before) != val_id(target[common].before) ||
-          val_id(ws[common].after) != val_id(target[common].after))
-         break;
-      ++common;
-      }
-   while (ws.size() > common)
-      {
-      Value after = ws.back().after;
-      ws.pop_back();
-      std::vector<Value> ea;
-      apply_scheme_proc(after, ea, ctx, nullptr, nullptr);
-      }
-   for (size_t i = common; i < target.size(); ++i)
-      {
-      ws.push_back(target[i]);
-      std::vector<Value> ea;
-      apply_scheme_proc(target[i].before, ea, ctx, nullptr, nullptr);
-      }
    }
 
 // ── unwind_winds_on_error ─────────────────────────────────────────────────────
@@ -1012,70 +945,6 @@ static std::vector<std::string> _library_load_path()
    return parts;
    }
 
-// ── _try_load_library_file ────────────────────────────────────────────────────
-// Port of Evaluator.py _try_load_library_file.
-// C++ omits .py extension loading (Python-specific); only handles .sld files.
-
-static bool _try_load_library_file(const Value& name_sexpr, Context* ctx)
-   {
-   std::string key;
-   try
-      {
-      key = library_name_to_key(name_sexpr);
-      }
-   catch (const std::exception&)
-      {
-      return false;
-      }
-   if (library_registered_p(key))
-      return true;
-
-   // Build file base path from key: "scheme.base" -> "scheme/base"
-   std::string base_path;
-   size_t start = 0;
-   while (true)
-      {
-      size_t dot = key.find('.', start);
-      std::string part = key.substr(start,
-                                    dot == std::string::npos ? dot : dot - start);
-      if (!base_path.empty())
-         base_path += '/';
-      base_path += part;
-      if (dot == std::string::npos)
-         break;
-      start = dot + 1;
-      }
-
-   for (const auto& base : _library_load_path())
-      {
-      std::string prefix = base.empty() ? base_path : (base + "/" + base_path);
-      std::string sld_path = prefix + ".sld";
-
-      std::ifstream sld_file(sld_path);
-      if (!sld_file.is_open())
-         continue;
-
-      std::string source((std::istreambuf_iterator<char>(sld_file)),
-                         std::istreambuf_iterator<char>());
-      sld_file.close();
-
-      std::vector<Value> forms = scheme_parse(source, sld_path);
-      Environment* fresh_env = gc_alloc_environment(nullptr);
-      gc_env_root_push(&fresh_env);
-      size_t i = 0;
-      while (i < forms.size())
-         {
-         cek_eval(expand(forms[i]), fresh_env, ctx);
-         i = i + 1;
-         }
-      gc_env_root_pop(&fresh_env);
-
-      if (library_registered_p(key))
-         return true;
-      }
-   return library_registered_p(key);
-   }
-
 // ── _process_one_lib_decl ─────────────────────────────────────────────────────
 // Port of Evaluator.py _process_one_lib_decl.  Collects export names, import-set
 // sexprs, and begin / unknown-decl forms (unexpanded) -- all in declaration
@@ -1224,51 +1093,6 @@ static void _process_one_lib_decl(
    // routes define-syntax through the active per-library macro scope (the
    // FRAME_EVAL_FORMS phase runs while the runtime env is lib_env).
    eval_forms.push_back(decl);
-   }
-
-// ── process_import ────────────────────────────────────────────────────────────
-// Port of Evaluator.py _process_import.
-
-void process_import(const Value& sets_cons, Environment* env, Context* ctx)
-   {
-   Value cur = sets_cons;
-   while (is_cons(cur))
-      {
-      Value import_set = car(cur);
-      cur = cdr(cur);
-      std::unordered_map<std::string, Value> bindings;
-      try
-         {
-         bindings = resolve_import_set(import_set);
-         }
-      catch (const std::runtime_error& e)
-         {
-         bool loaded = false;
-         if (is_cons(import_set) && ctx != nullptr)
-            loaded = _try_load_library_file(import_set, ctx);
-         if (loaded)
-            {
-            try
-               {
-               bindings = resolve_import_set(import_set);
-               }
-            catch (const std::runtime_error& e2)
-               {
-               throw SchemeSyntaxError(
-                   std::string("import: ") + e2.what(),
-                   src_of(import_set));
-               }
-            }
-         else
-            {
-            throw SchemeSyntaxError(
-                std::string("import: ") + e.what(),
-                src_of(import_set));
-            }
-         }
-      for (const auto& [n, val] : bindings)
-         env->bind(n, val);
-      }
    }
 
 // ── define-library ────────────────────────────────────────────────────────────
@@ -1472,28 +1296,6 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
    Environment* E = env;
    KStack K;
    bool skip_eval = false;
-
-   // Claim a unique id for this loop invocation and publish it for the
-   // duration.  Continuations captured here are stamped with my_eval_id; a
-   // ContinuationEscape thrown by a deeper loop is caught here only when its
-   // owner matches.  Push onto eval_id_stack so deeper loops can tell this one
-   // is still alive (escape) rather than already returned (re-entry).  All
-   // state is restored on every exit (normal or exceptional) as the C++ stack
-   // unwinds, so the parent loop's id is reinstated.
-   const uint64_t my_eval_id = ++ctx->eval_id_counter;
-   const uint64_t saved_eval_id = ctx->current_eval_id;
-   ctx->current_eval_id = my_eval_id;
-   ctx->eval_id_stack.push_back(my_eval_id);
-   struct EvalIdGuard
-      {
-      Context* c;
-      uint64_t prev;
-      ~EvalIdGuard()
-         {
-         c->current_eval_id = prev;
-         c->eval_id_stack.pop_back();
-         }
-      } _eval_id_guard{ctx, saved_eval_id};
 
    // Register live CEK state as GC roots so the collector can trace and
    // forward everything reachable from C, V, E, K, and the Context stacks.
@@ -3344,8 +3146,7 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                          k_copy,
                          std::vector<WindFrame>(ctx->wind_stack),
                          std::vector<Value>(ctx->handler_stack),
-                         std::move(shadow_enc),
-                         my_eval_id);
+                         std::move(shadow_enc));
                      fn_value = new_collected[0];
                      new_collected = {cont};
                      kind = is_primitive(fn_value)
@@ -4322,27 +4123,6 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                } // end APPLY loop D
 
             } // end B
-         }
-      catch (ContinuationEscape& esc)
-         {
-         // An escape continuation captured by some loop was invoked below us,
-         // behind native frames, and unwound the C++ stack to here.  Only the
-         // owning loop may install it; otherwise keep unwinding.
-         if (esc.owner_eval_id != my_eval_id)
-            throw;
-         // Re-root the continuation and its arguments: installing winds may
-         // run after-thunks that allocate (and trigger GC), and neither esc
-         // member is otherwise reachable from a GC root during this catch.
-         GcRootGuard cont_root(esc.cont);
-         GcRootVec args_root(esc.args);
-         const Value& cont = cont_root.val;
-         wind_walk(ctx, as_continuation_wind(cont));
-         restore_handler_stack(ctx, as_continuation_handlers(cont));
-         K = *static_cast<const KStack*>(as_continuation_frames(cont));
-         restore_shadow_stack(ctx, as_continuation_shadow(cont));
-         V = continuation_value(esc.args);
-         skip_eval = true; // V is ready; resume in the APPLY phase
-         continue;         // restart loop A
          }
       catch (SchemeRaised& e)
          {

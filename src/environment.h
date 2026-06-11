@@ -11,7 +11,7 @@
 // ── Non-error control escape ─────────────────────────────────────────────────
 // ReplExitSignal unwinds an interactive evaluation back to the REPL top level
 // when (exit) is called from the prompt rather than from a batch file.  Like
-// _QuitSignal and ContinuationEscape it is deliberately a plain struct -- NOT a
+// _QuitSignal it is deliberately a plain struct -- NOT a
 // std::exception and NOT a Scheme error -- so guard / with-exception-handler
 // never intercept it and the generic catch(std::exception&) at the prompt does
 // not swallow it (readEvalPrintLoop catches it by type).  Batch-mode (exit)

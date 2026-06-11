@@ -502,11 +502,6 @@ struct Continuation
    std::vector<WindFrame> wind_snapshot;
    std::vector<Value> handler_snapshot;
    std::vector<Value> shadow_snapshot;
-   // Identity of the cek_loop invocation that captured this continuation.
-   // Used to decide whether invoking it can replace K in the current loop or
-   // must throw a ContinuationEscape to unwind native frames back to the
-   // owning loop (e.g. when invoked from inside a for-each / map callback).
-   uint64_t owner_eval_id = 0;
 
    Continuation() = default;
    ~Continuation();
@@ -768,8 +763,7 @@ CPPSCHEME2_API Value make_read_error_object(const std::string& message,
 CPPSCHEME2_API Value make_continuation(void* frames_ptr,
                                        std::vector<WindFrame> wind_snapshot,
                                        std::vector<Value> handler_snapshot,
-                                       std::vector<Value> shadow_snapshot,
-                                       uint64_t owner_eval_id);
+                                       std::vector<Value> shadow_snapshot);
 CPPSCHEME2_API Value make_syntax_transformer(
     const std::string& name,
     std::vector<uint32_t> literals,
@@ -905,7 +899,6 @@ CPPSCHEME2_API void* as_continuation_frames(const Value& val);
 CPPSCHEME2_API const std::vector<WindFrame>& as_continuation_wind(const Value& val);
 CPPSCHEME2_API const std::vector<Value>& as_continuation_handlers(const Value& val);
 CPPSCHEME2_API const std::vector<Value>& as_continuation_shadow(const Value& val);
-CPPSCHEME2_API uint64_t as_continuation_owner(const Value& val);
 
 CPPSCHEME2_API const std::string& as_syntax_transformer_name(const Value& val);
 CPPSCHEME2_API const std::vector<uint32_t>& as_syntax_transformer_literals(const Value& val);
