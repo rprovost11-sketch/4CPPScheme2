@@ -41,29 +41,17 @@ struct EnterResult
       {
       IsValue,
       IsCont,
-      IsEnter
+      IsEnter,
+      IsFrame      // higher-order primitive reached as a callback: push `frame`
+                   // on K and resume the APPLY loop (drives the call on frames
+                   // instead of re-entering cek_eval).  Mirrors pyScheme's
+                   // ('frame', ...) descriptor.
       } kind = IsValue;
    Value v;
    Environment* new_env = nullptr;
    Value seq; // IsEnter: remaining body cons or NIL_VALUE
    KStack new_k;
-   };
-
-// Thrown when a continuation is invoked from a cek_loop invocation other than
-// the one that captured it -- i.e. the invocation is nested below the owner on
-// the C++ stack, behind native frames (a for-each / map callback, a
-// dynamic-wind thunk, etc.).  Replacing K locally would only redirect the
-// nested loop and the escape value would be discarded by the native caller, so
-// instead we unwind the C++ stack with this exception until we reach the
-// owning loop, which installs the captured continuation.  `cont` carries the
-// continuation object (re-rooted at the catch site); `args` are the values
-// passed to it.  Deliberately NOT derived from any Scheme error type so the
-// handler/guard machinery never treats an escape as a raised condition.
-struct ContinuationEscape
-   {
-   uint64_t owner_eval_id;
-   Value cont;
-   std::vector<Value> args;
+   Frame frame; // IsFrame: the driver frame to push onto K
    };
 
 struct CondClause
@@ -89,11 +77,11 @@ static BetaResult apply_value(const Value& V, const std::vector<Value>& arg_valu
                               const Value* app_node);
 static EnterResult enter_proc(const Value& fn_value, std::vector<Value>& args,
                               Context* ctx, Environment* saved_env, const Value* app_node);
-static void wind_walk(Context* ctx, const std::vector<WindFrame>& target);
 static void unwind_winds_on_error(Context* ctx, size_t target_depth);
-static std::pair<Value, Value> build_parameterize_winds(
-    const Value& params_list, const Value& values_list,
-    Context* ctx, Environment* saved_env, const Value* app_node);
+static std::pair<std::vector<Value>, std::vector<Value>> resolve_parameterize_params(
+    const Value& params_list, const Value& values_list, Context* ctx, const Value* app_node);
+static std::pair<Value, Value> finalize_parameterize_winds(
+    const std::vector<Value>& params, const std::vector<Value>& installed, Context* ctx);
 // Defined in primitives/ports.cpp: maps a current-*-port accessor primitive to
 // its backing parameter object so parameterize can rebind it (R7RS 6.13.1).
 Value port_parameter_for_accessor(const std::string& name, Context* ctx);
@@ -281,7 +269,7 @@ static BetaResult apply_value(const Value& V, const std::vector<Value>& arg_valu
 
 static inline bool is_parameterize_restore_prim(const Value& V)
    {
-   return is_primitive(V) && as_primitive_name(V) == "%parameterize-restore";
+   return is_native_closure(V) && as_native_closure_name(V) == "%parameterize-restore";
    }
 
 // ── is_aux_keyword ────────────────────────────────────────────────────────────
@@ -389,27 +377,6 @@ static Value continuation_value(const std::vector<Value>& args)
    return make_multi_values(std::vector<Value>(args));
    }
 
-// True when `id` belongs to a cek_loop still live on the C++ stack.  Used to
-// decide whether invoking a continuation owned by `id` must unwind to that loop
-// (escape) or may be installed in place because the loop has already returned
-// (re-entry, e.g. a continuation saved at top level and invoked from a later
-// REPL form).  The stack is shallow, so a linear scan is fine.
-static bool eval_id_active(Context* ctx, uint64_t id)
-   {
-   for (uint64_t e : ctx->eval_id_stack)
-      if (e == id)
-         return true;
-   return false;
-   }
-
-// A continuation must escape (throw to unwind native frames) only when its
-// owning loop is a still-live ancestor other than the current one.  When the
-// owner is the current loop, or has already returned, install it in place.
-static bool continuation_must_escape(Context* ctx, const Value& cont, uint64_t my_eval_id)
-   {
-   uint64_t owner = as_continuation_owner(cont);
-   return owner != my_eval_id && eval_id_active(ctx, owner);
-   }
 
 // ── apply_parameter_if ────────────────────────────────────────────────────────
 
@@ -445,7 +412,7 @@ static void restore_shadow_stack(Context* ctx, const std::vector<Value>& snapsho
       }
    }
 
-// ── value identity pointer (for wind_walk) ────────────────────────────────────
+// ── value identity pointer (for the wind common-prefix diff) ──────────────────
 
 static const void* val_id(const Value& v)
    {
@@ -464,6 +431,9 @@ Value apply_scheme_proc(const Value& fn, std::vector<Value> args,
    {
    if (is_primitive(fn))
       return as_primitive_fn(fn)(ctx, env, args, app_node);
+   if (is_native_closure(fn))
+      return as_native_closure_fn(fn)(ctx, env, args,
+                                      as_native_closure_captures(fn), app_node);
    if (is_closure(fn) || is_case_closure(fn))
       {
       BetaResult r = apply_value(fn, args, app_node);
@@ -503,34 +473,6 @@ Value apply_scheme_proc(const Value& fn, std::vector<Value> args,
    throw SchemeTypeError("expected a procedure", src);
    }
 
-// ── wind_walk ─────────────────────────────────────────────────────────────────
-
-static void wind_walk(Context* ctx, const std::vector<WindFrame>& target)
-   {
-   auto& ws = ctx->wind_stack;
-   size_t common = 0;
-   while (common < ws.size() && common < target.size())
-      {
-      if (val_id(ws[common].before) != val_id(target[common].before) ||
-          val_id(ws[common].after) != val_id(target[common].after))
-         break;
-      ++common;
-      }
-   while (ws.size() > common)
-      {
-      Value after = ws.back().after;
-      ws.pop_back();
-      std::vector<Value> ea;
-      apply_scheme_proc(after, ea, ctx, nullptr, nullptr);
-      }
-   for (size_t i = common; i < target.size(); ++i)
-      {
-      ws.push_back(target[i]);
-      std::vector<Value> ea;
-      apply_scheme_proc(target[i].before, ea, ctx, nullptr, nullptr);
-      }
-   }
-
 // ── unwind_winds_on_error ─────────────────────────────────────────────────────
 
 static void unwind_winds_on_error(Context* ctx, size_t target_depth)
@@ -551,24 +493,151 @@ static void unwind_winds_on_error(Context* ctx, size_t target_depth)
       }
    }
 
+// ── make_wind_step_frame (compute_wind_ops) ───────────────────────────────────
+
+// Build the FRAME_WIND_STEP driver for a continuation jump.  Computes the ordered
+// wind operations that transform ctx->wind_stack into `target` (the continuation's
+// wind snapshot) WITHOUT mutating the stack or running any thunk: exits first
+// (innermost-first), then enters (outermost-first).  FRAME_WIND_STEP performs the
+// pops/pushes and runs each thunk on the K stack, so a continuation jump across
+// dynamic-wind / parameterize runs entirely on the one loop (no re-entrant
+// cek_eval / no ContinuationEscape).  Mirrors pyScheme's _compute_wind_ops + the
+// ('frame', (FRAME_WIND_STEP, ...)) descriptor.
+//   ids[i] = 0 -> exit  (pop wind_stack, run list1[i] = the popped after)
+//   ids[i] = 1 -> enter (push {list1[i], list2[i]}, run list1[i] = the before)
+//   v1 = cont, v2 = cont_value, depth = current op index
+static Frame make_wind_step_frame(Context* ctx, const std::vector<WindFrame>& target,
+                                  const Value& cont, const Value& value)
+   {
+   auto& ws = ctx->wind_stack;
+   size_t common = 0;
+   while (common < ws.size() && common < target.size())
+      {
+      if (val_id(ws[common].before) != val_id(target[common].before) ||
+          val_id(ws[common].after) != val_id(target[common].after))
+         break;
+      ++common;
+      }
+   Frame f;
+   f.tag = FRAME_WIND_STEP;
+   f.v1 = cont;
+   f.v2 = value;
+   f.depth = 0;
+   for (size_t j = ws.size(); j > common; --j) // exits, innermost-first
+      {
+      f.ids.push_back(0);
+      f.list1.push_back(ws[j - 1].after);
+      f.list2.push_back(NIL_VALUE);
+      }
+   for (size_t i = common; i < target.size(); ++i) // enters, outermost-first
+      {
+      f.ids.push_back(1);
+      f.list1.push_back(target[i].before);
+      f.list2.push_back(target[i].after);
+      }
+   return f;
+   }
+
 // ── enter_proc ────────────────────────────────────────────────────────────────
+
+// If fn_value is a higher-order primitive whose per-element calls are driven on
+// the K stack -- map/for-each/filter (FRAME_HOF_STEP), the vector/string variants
+// (FRAME_HOF_STEP_IDX), or the 3-arg member/assoc forms (FRAME_SEARCH_STEP) --
+// build and return its driver frame; otherwise std::nullopt.  Shared by the
+// FRAME_CALL terminal dispatch and enter_proc so one of these primitives reached
+// as a callback (e.g. the per-element proc of an outer map, as in (map filter ...))
+// is driven on frames too, rather than re-entering cek_eval through its _prim_*
+// fallback.  Single source of truth -- mirrors pyScheme's _build_hof_frame.
+static std::optional<Frame> build_hof_frame(const Value& fn_value, int kind,
+                                            const std::vector<Value>& collected,
+                                            const Value* app_node)
+   {
+   SourceInfo* src = app_node ? src_of(*app_node) : nullptr;
+   Value app = app_node ? *app_node : NIL_VALUE;
+   if (kind == PRIM_MAP || kind == PRIM_FOR_EACH || kind == PRIM_FILTER)
+      {
+      const std::string& nm = as_primitive_name(fn_value);
+      if (kind == PRIM_FILTER)
+         {
+         if (collected.size() != 2)
+            throw SchemeArityError(
+                arity_mismatch_msg(nm, 2, 2, (int)collected.size()), src);
+         }
+      else if (collected.size() < 2)
+         throw SchemeArityError(
+             arity_mismatch_msg(nm, 2, -1, (int)collected.size()), src);
+      Frame hf;
+      hf.tag = FRAME_HOF_STEP;
+      hf.depth = kind;           // mode
+      hf.uid = 0;                // started = false
+      hf.v1 = collected[0];      // proc
+      hf.v2 = NIL_VALUE;         // acc (reversed cons)
+      hf.list1.assign(collected.begin() + 1, collected.end()); // cursors
+      hf.list2 = {app, NIL_VALUE};  // {app_node, pending}
+      return hf;
+      }
+   if (kind == PRIM_VECTOR_MAP || kind == PRIM_VECTOR_FOR_EACH ||
+       kind == PRIM_STRING_MAP || kind == PRIM_STRING_FOR_EACH)
+      {
+      const std::string& nm = as_primitive_name(fn_value);
+      if (collected.size() < 2)
+         throw SchemeArityError(
+             arity_mismatch_msg(nm, 2, -1, (int)collected.size()), src);
+      bool is_vec = (kind == PRIM_VECTOR_MAP || kind == PRIM_VECTOR_FOR_EACH);
+      for (size_t j = 1; j < collected.size(); ++j)
+         {
+         if (is_vec)
+            {
+            if (!is_vector(collected[j]))
+               throw SchemeTypeError(
+                   nm + ": argument " + std::to_string(j + 1) + " must be a vector", src);
+            }
+         else if (!is_string(collected[j]))
+            throw SchemeTypeError(
+                nm + ": argument " + std::to_string(j + 1) + " must be a string", src);
+         }
+      Frame hf;
+      hf.tag = FRAME_HOF_STEP_IDX;
+      hf.depth = kind;           // mode
+      hf.uid = 0;                // started = false
+      hf.v1 = collected[0];      // proc
+      hf.v2 = NIL_VALUE;         // acc (reversed cons)
+      hf.list1.assign(collected.begin() + 1, collected.end()); // seqs
+      hf.list2 = {app};
+      hf.ids.assign(collected.size() - 1, 0u); // positions, all 0
+      return hf;
+      }
+   if ((kind == PRIM_MEMBER || kind == PRIM_ASSOC) && collected.size() == 3)
+      {
+      Frame hf;
+      hf.tag = FRAME_SEARCH_STEP;
+      hf.depth = kind;              // mode
+      hf.uid = 0;                   // started = false
+      hf.v1 = collected[2];         // proc (comparator)
+      hf.v2 = collected[0];         // target
+      hf.list1 = {collected[1]};    // cursor (list head)
+      hf.list2 = {app};
+      return hf;
+      }
+   return std::nullopt;
+   }
+
 
 static EnterResult enter_proc(const Value& fn_value, std::vector<Value>& args,
                               Context* ctx, Environment* saved_env, const Value* app_node)
    {
    if (is_continuation(fn_value))
       {
-      // Invoked below a still-live owning loop (behind native frames)?  Unwind.
-      if (continuation_must_escape(ctx, fn_value, ctx->current_eval_id))
-         throw ContinuationEscape{as_continuation_owner(fn_value), fn_value, args};
-      wind_walk(ctx, as_continuation_wind(fn_value));
-      restore_handler_stack(ctx, as_continuation_handlers(fn_value));
-      KStack new_k = *static_cast<const KStack*>(as_continuation_frames(fn_value));
-      Value v = continuation_value(args);
+      // Drive the wind walk on the K stack (FRAME_WIND_STEP), which then installs
+      // the continuation.  Delivered via the IsFrame descriptor every enter_proc
+      // caller already handles, so the wind before/after thunks run without
+      // re-entering cek_eval.  (All evaluation now runs on one loop, so a
+      // continuation is always installed in place -- no escape across native
+      // frames is ever needed.)
       EnterResult r;
-      r.kind = EnterResult::IsCont;
-      r.v = v;
-      r.new_k = std::move(new_k);
+      r.kind = EnterResult::IsFrame;
+      r.frame = make_wind_step_frame(ctx, as_continuation_wind(fn_value),
+                                     fn_value, continuation_value(args));
       return r;
       }
    auto pv = apply_parameter_if(fn_value, (int)args.size(), app_node);
@@ -579,8 +648,42 @@ static EnterResult enter_proc(const Value& fn_value, std::vector<Value>& args,
       r.v = *pv;
       return r;
       }
+   if (is_native_closure(fn_value))
+      {
+      Value v = as_native_closure_fn(fn_value)(
+          ctx, saved_env, args, as_native_closure_captures(fn_value), app_node);
+      EnterResult r;
+      r.kind = EnterResult::IsValue;
+      r.v = v;
+      return r;
+      }
    if (is_primitive(fn_value))
       {
+      int pkind = as_primitive_kind(fn_value);
+      auto hof = build_hof_frame(fn_value, pkind, args, app_node);
+      if (hof.has_value())
+         {
+         EnterResult r;
+         r.kind = EnterResult::IsFrame;
+         r.frame = std::move(*hof);
+         return r;
+         }
+      if (pkind == PRIM_LOAD)
+         {
+         // load reached as a callback (e.g. (for-each load files)): read + parse
+         // and drive its forms on the K stack, like the FRAME_CALL interception,
+         // rather than re-entering cek_eval via _prim_load.
+         LoadSetup ls = load_setup(args, saved_env, app_node);
+         Frame ef;
+         ef.tag = FRAME_EVAL_FORMS;
+         ef.list1 = std::move(ls.forms);
+         ef.env = ls.eval_env;
+         ef.depth = 0;
+         EnterResult r;
+         r.kind = EnterResult::IsFrame;
+         r.frame = std::move(ef);
+         return r;
+         }
       Value v = as_primitive_fn(fn_value)(ctx, saved_env, args, app_node);
       EnterResult r;
       r.kind = EnterResult::IsValue;
@@ -680,17 +783,57 @@ static bool is_mv_ok(int ftag)
    case FRAME_HOF_STEP:
    case FRAME_HOF_STEP_IDX:
    case FRAME_SEARCH_STEP:
+   // FRAME_RESTORE_VALUE discards the incoming V (a wind after-thunk's result)
+   // and reinstates a saved value, so a multi-valued after result is harmless.
+   case FRAME_RESTORE_VALUE:
+   // FRAME_DYNAMIC_WIND_BEFORE_DONE discards the before-thunk's result before
+   // tail-calling the body, so a multi-valued before result is harmless.
+   case FRAME_DYNAMIC_WIND_BEFORE_DONE:
+   // FRAME_PARAMETERIZE_STEP collects each converter's result as an installed
+   // parameter value; tolerate a multi-valued converter result as the old
+   // synchronous converter application did.
+   case FRAME_PARAMETERIZE_STEP:
+   // FRAME_WIND_STEP discards each wind thunk's result and finally installs the
+   // continuation's value (which may itself be multiple values).
+   case FRAME_WIND_STEP:
+   // FRAME_ERROR_UNWIND discards each unwind after-thunk's result before
+   // re-raising the original condition.
+   case FRAME_ERROR_UNWIND:
+   // The load / library-loading drivers discard each form's / step's result
+   // and finally yield VOID, so an intermediate multi-valued result is harmless.
+   case FRAME_EVAL_FORMS:
+   case FRAME_LIB_FINALIZE:
+   case FRAME_IMPORT_STEP:
+   case FRAME_ENSURE_LOADED:
       return true;
    default:
       return false;
       }
    }
 
-// ── build_parameterize_winds ──────────────────────────────────────────────────
+// ── parameterize winds ────────────────────────────────────────────────────────
 
-static std::pair<Value, Value> build_parameterize_winds(
-    const Value& params_list, const Value& values_list,
-    Context* ctx, Environment* saved_env, const Value* app_node)
+// Shared body for the %parameterize-install / %parameterize-restore native
+// closures: captures = [params... , values...] (two equal halves); set each
+// parameter to its paired value.  Stateless (a NativeFn function pointer); the
+// captured Values are GC-traced/forwarded by GcType::NativeClosure, unlike the
+// opaque std::function captures of the old make_primitive winds.
+static Value nc_parameterize_set(Context*, Environment*, std::vector<Value>&,
+                                 const std::vector<Value>& cap, const Value*)
+   {
+   size_t n = cap.size() / 2;
+   for (size_t j = 0; j < n; ++j)
+      set_parameter_value(const_cast<Value&>(cap[j]), cap[n + j]);
+   return VOID_VALUE;
+   }
+
+// Phase 1 of parameterize setup: walk the parameter / value lists, resolve
+// current-port accessor primitives to their backing parameters, and validate.
+// Returns (params, new_vals_raw).  Pure -- no converter application, no install --
+// so the converters can run on the K stack (FRAME_PARAMETERIZE_STEP) instead of
+// re-entering cek_eval.  Mirrors pyScheme's _resolve_parameterize_params.
+static std::pair<std::vector<Value>, std::vector<Value>> resolve_parameterize_params(
+    const Value& params_list, const Value& values_list, Context* ctx, const Value* app_node)
    {
    std::vector<Value> params;
    Value cur = params_list;
@@ -722,12 +865,6 @@ static std::pair<Value, Value> build_parameterize_winds(
       }
 
    std::vector<Value> new_vals_raw;
-   // Rooted: new_vals_raw and installed (below) hold user values across the
-   // converter's apply_scheme_proc re-entry, which can trigger a moving minor
-   // GC.  A fresh nursery value (e.g. a converter or parameterize value that is
-   // a young cons) would otherwise be left stale.  (params holds Parameter
-   // objects, which are promoted in place and need no root.)
-   GcRootVec new_vals_raw_root(new_vals_raw);
    cur = values_list;
    while (is_cons(cur))
       {
@@ -744,42 +881,38 @@ static std::pair<Value, Value> build_parameterize_winds(
       SourceInfo* s = app_node ? src_of(*app_node) : nullptr;
       throw SchemeTypeError("%with-parameters: parameter / value count mismatch", s);
       }
+   return {std::move(params), std::move(new_vals_raw)};
+   }
 
-   std::vector<Value> installed;
-   GcRootVec installed_root(installed);
-   for (size_t i = 0; i < params.size(); ++i)
-      {
-      Value conv = as_parameter_converter(params[i]);
-      if (is_nil(conv))
-         {
-         installed.push_back(new_vals_raw[i]);
-         }
-      else
-         {
-         std::vector<Value> ca = {new_vals_raw[i]};
-         installed.push_back(apply_scheme_proc(conv, ca, ctx, saved_env, app_node));
-         }
-      }
+// Phase 2 of parameterize setup, run once FRAME_PARAMETERIZE_STEP has applied
+// every converter and collected the `installed` values: save the current values,
+// install the new ones so the thunk sees them, and return a pair of GC-managed
+// native closures (install, restore) that FRAME_WIND_STEP and
+// FRAME_DYNAMIC_WIND_AFTER / FRAME_ERROR_UNWIND invoke as Scheme procedures.
+// Saving after the converters (not before) matches the old ordering.  Mirrors
+// pyScheme's _finalize_parameterize_winds.
+static std::pair<Value, Value> finalize_parameterize_winds(
+    const std::vector<Value>& params, const std::vector<Value>& installed, Context* ctx)
+   {
+   (void)ctx;
+   size_t n = params.size();
    std::vector<Value> saved_vals;
-   for (size_t i = 0; i < params.size(); ++i)
+   for (size_t i = 0; i < n; ++i)
       saved_vals.push_back(as_parameter_value(params[i]));
-   for (size_t i = 0; i < params.size(); ++i)
-      set_parameter_value(params[i], installed[i]);
-
-   auto inst_fn = [params, installed](Context*, Environment*, std::vector<Value>&, const Value*) -> Value
-   {
-      for (size_t j = 0; j < params.size(); ++j)
-         set_parameter_value(const_cast<Value&>(params[j]), installed[j]);
-      return VOID_VALUE;
-   };
-   auto rest_fn = [params, saved_vals](Context*, Environment*, std::vector<Value>&, const Value*) -> Value
-   {
-      for (size_t j = 0; j < params.size(); ++j)
-         set_parameter_value(const_cast<Value&>(params[j]), saved_vals[j]);
-      return VOID_VALUE;
-   };
-   return {make_primitive("%parameterize-install", inst_fn),
-           make_primitive("%parameterize-restore", rest_fn)};
+   // Install new values now so the thunk sees them.
+   for (size_t i = 0; i < n; ++i)
+      set_parameter_value(const_cast<Value&>(params[i]), installed[i]);
+   // captures = [params... , values...] for the shared nc_parameterize_set body.
+   std::vector<Value> inst_cap;
+   inst_cap.reserve(2 * n);
+   for (size_t i = 0; i < n; ++i) inst_cap.push_back(params[i]);
+   for (size_t i = 0; i < n; ++i) inst_cap.push_back(installed[i]);
+   std::vector<Value> rest_cap;
+   rest_cap.reserve(2 * n);
+   for (size_t i = 0; i < n; ++i) rest_cap.push_back(params[i]);
+   for (size_t i = 0; i < n; ++i) rest_cap.push_back(saved_vals[i]);
+   return {make_native_closure("%parameterize-install", nc_parameterize_set, std::move(inst_cap)),
+           make_native_closure("%parameterize-restore", nc_parameterize_set, std::move(rest_cap))};
    }
 
 // ── _library_load_path ────────────────────────────────────────────────────────
@@ -812,82 +945,26 @@ static std::vector<std::string> _library_load_path()
    return parts;
    }
 
-// ── _try_load_library_file ────────────────────────────────────────────────────
-// Port of Evaluator.py _try_load_library_file.
-// C++ omits .py extension loading (Python-specific); only handles .sld files.
-
-static bool _try_load_library_file(const Value& name_sexpr, Context* ctx)
-   {
-   std::string key;
-   try
-      {
-      key = library_name_to_key(name_sexpr);
-      }
-   catch (const std::exception&)
-      {
-      return false;
-      }
-   if (library_registered_p(key))
-      return true;
-
-   // Build file base path from key: "scheme.base" -> "scheme/base"
-   std::string base_path;
-   size_t start = 0;
-   while (true)
-      {
-      size_t dot = key.find('.', start);
-      std::string part = key.substr(start,
-                                    dot == std::string::npos ? dot : dot - start);
-      if (!base_path.empty())
-         base_path += '/';
-      base_path += part;
-      if (dot == std::string::npos)
-         break;
-      start = dot + 1;
-      }
-
-   for (const auto& base : _library_load_path())
-      {
-      std::string prefix = base.empty() ? base_path : (base + "/" + base_path);
-      std::string sld_path = prefix + ".sld";
-
-      std::ifstream sld_file(sld_path);
-      if (!sld_file.is_open())
-         continue;
-
-      std::string source((std::istreambuf_iterator<char>(sld_file)),
-                         std::istreambuf_iterator<char>());
-      sld_file.close();
-
-      std::vector<Value> forms = scheme_parse(source, sld_path);
-      Environment* fresh_env = gc_alloc_environment(nullptr);
-      gc_env_root_push(&fresh_env);
-      size_t i = 0;
-      while (i < forms.size())
-         {
-         cek_eval(expand(forms[i]), fresh_env, ctx);
-         i = i + 1;
-         }
-      gc_env_root_pop(&fresh_env);
-
-      if (library_registered_p(key))
-         return true;
-      }
-   return library_registered_p(key);
-   }
-
 // ── _process_one_lib_decl ─────────────────────────────────────────────────────
-// Port of Evaluator.py _process_one_lib_decl.
+// Port of Evaluator.py _process_one_lib_decl.  Collects export names, import-set
+// sexprs, and begin / unknown-decl forms (unexpanded) -- all in declaration
+// order.  Nothing is resolved or evaluated here: the imports are bound (loading
+// library files if needed) and the forms evaluated later on the main K stack
+// (FRAME_IMPORT_STEP / FRAME_EVAL_FORMS), so no re-entrant cek_eval.
 // Forward declaration needed because cond-expand recurses into itself.
 
 static void _process_one_lib_decl(
     const Value& decl, Environment* lib_env,
     std::vector<std::pair<std::string, std::string>>& export_names,
+    std::vector<Value>& eval_forms,
+    std::vector<Value>& import_sets,
     Context* ctx);
 
 static void _process_one_lib_decl(
     const Value& decl, Environment* lib_env,
     std::vector<std::pair<std::string, std::string>>& export_names,
+    std::vector<Value>& eval_forms,
+    std::vector<Value>& import_sets,
     Context* ctx)
    {
    if (!is_cons(decl) || !is_symbol(car(decl)))
@@ -902,40 +979,8 @@ static void _process_one_lib_decl(
       Value sets = dbody;
       while (is_cons(sets))
          {
-         Value import_set = car(sets);
+         import_sets.push_back(car(sets));
          sets = cdr(sets);
-         std::unordered_map<std::string, Value> bindings;
-         try
-            {
-            bindings = resolve_import_set(import_set);
-            }
-         catch (const std::runtime_error& e)
-            {
-            bool loaded = false;
-            if (is_cons(import_set))
-               loaded = _try_load_library_file(import_set, ctx);
-            if (loaded)
-               {
-               try
-                  {
-                  bindings = resolve_import_set(import_set);
-                  }
-               catch (const std::runtime_error& e2)
-                  {
-                  throw SchemeSyntaxError(
-                      std::string("define-library: import: ") + e2.what(),
-                      src_of(import_set));
-                  }
-               }
-            else
-               {
-               throw SchemeSyntaxError(
-                   std::string("define-library: import: ") + e.what(),
-                   src_of(import_set));
-               }
-            }
-         for (const auto& [n, val] : bindings)
-            lib_env->bind(n, val);
          }
       return;
       }
@@ -973,12 +1018,9 @@ static void _process_one_lib_decl(
    if (dsym == "begin")
       {
       Value forms = dbody;
-      // Root the remaining body forms: evaluating one can GC and would
-      // otherwise leave the unprocessed tail dangling.
-      GcRootGuard forms_root(forms);
       while (is_cons(forms))
          {
-         cek_eval(expand(car(forms)), lib_env, ctx);
+         eval_forms.push_back(car(forms));
          forms = cdr(forms);
          }
       return;
@@ -1011,7 +1053,8 @@ static void _process_one_lib_decl(
          std::vector<Value> inner_forms = scheme_parse(source, resolved);
          GcRootVec inner_root(inner_forms); // keep pending forms alive across GC
          for (const Value& inner : inner_forms)
-            _process_one_lib_decl(inner, lib_env, export_names, ctx);
+            _process_one_lib_decl(inner, lib_env, export_names,
+                                  eval_forms, import_sets, ctx);
          }
       return;
       }
@@ -1034,7 +1077,8 @@ static void _process_one_lib_decl(
             while (is_cons(cur_inner))
                {
                _process_one_lib_decl(
-                   car(cur_inner), lib_env, export_names, ctx);
+                   car(cur_inner), lib_env, export_names,
+                   eval_forms, import_sets, ctx);
                cur_inner = cdr(cur_inner);
                }
             return;
@@ -1044,117 +1088,95 @@ static void _process_one_lib_decl(
       return;
       }
 
-   // Unknown declaration keyword: expand and evaluate in lib_env.
-   cek_eval(expand(decl), lib_env, ctx);
+   // Unknown declaration keyword: collect for evaluation in lib_env on the main
+   // loop (FRAME_EVAL_FORMS).  Covers stray (define ...) forms; the later expand
+   // routes define-syntax through the active per-library macro scope (the
+   // FRAME_EVAL_FORMS phase runs while the runtime env is lib_env).
+   eval_forms.push_back(decl);
    }
 
-// ── process_import ────────────────────────────────────────────────────────────
-// Port of Evaluator.py _process_import.
+// ── define-library ────────────────────────────────────────────────────────────
+// Port of Evaluator.py define_library_setup / _finalize_define_library /
+// _make_runtime_env_setter.
 
-void process_import(const Value& sets_cons, Environment* env, Context* ctx)
+// Native runtime-env setter: capture[0] is an EnvBox; set the active per-library
+// macro scope (for define-syntax) to it.  Used as a define-library wind's
+// before/after so the scope is established on entry and restored on exit ON THE
+// MAIN LOOP -- across normal return, error unwind, and continuation re-entry
+// (replacing the old try/catch restore).
+static Value nc_set_runtime_env(Context*, Environment*, std::vector<Value>&,
+                                const std::vector<Value>& cap, const Value*)
    {
-   Value cur = sets_cons;
-   while (is_cons(cur))
-      {
-      Value import_set = car(cur);
-      cur = cdr(cur);
-      std::unordered_map<std::string, Value> bindings;
-      try
-         {
-         bindings = resolve_import_set(import_set);
-         }
-      catch (const std::runtime_error& e)
-         {
-         bool loaded = false;
-         if (is_cons(import_set) && ctx != nullptr)
-            loaded = _try_load_library_file(import_set, ctx);
-         if (loaded)
-            {
-            try
-               {
-               bindings = resolve_import_set(import_set);
-               }
-            catch (const std::runtime_error& e2)
-               {
-               throw SchemeSyntaxError(
-                   std::string("import: ") + e2.what(),
-                   src_of(import_set));
-               }
-            }
-         else
-            {
-            throw SchemeSyntaxError(
-                std::string("import: ") + e.what(),
-                src_of(import_set));
-            }
-         }
-      for (const auto& [n, val] : bindings)
-         env->bind(n, val);
-      }
+   set_runtime_env(as_environment(cap[0]));
+   return VOID_VALUE;
    }
 
-// ── process_define_library ────────────────────────────────────────────────────
-// Port of Evaluator.py _process_define_library.
+struct DefineLibrarySetup
+   {
+   Environment* lib_env = nullptr;
+   std::vector<Value> eval_forms;
+   std::vector<std::pair<std::string, std::string>> export_names;
+   std::string key;
+   std::vector<Value> import_sets;
+   };
 
-static void process_define_library(const Value& C, Context* ctx)
+// Pre-pass for (define-library <name> <decl>...): validate, create the library
+// env, and process the declarations IN ORDER -- collecting export names, import
+// sets, and the begin / unknown-decl forms (unexpanded) for evaluation on the
+// main K stack.  Evaluates no form and does NOT swap the runtime env (no
+// define-syntax runs here); the evaluator swaps it around the FRAME_EVAL_FORMS
+// phase and registers the library via FRAME_LIB_FINALIZE.
+static DefineLibrarySetup define_library_setup(const Value& C, Context* ctx)
    {
    if (!is_cons(cdr(C)))
       throw SchemeSyntaxError("define-library: missing library name", src_of(C));
    Value name_sexpr = car(cdr(C));
    Value decls_cons = cdr(cdr(C));
 
-   std::string key;
+   DefineLibrarySetup dl;
    try
       {
-      key = library_name_to_key(name_sexpr);
+      dl.key = library_name_to_key(name_sexpr);
       }
    catch (const std::runtime_error& e)
       {
       throw SchemeSyntaxError(
           std::string("define-library: ") + e.what(), src_of(C));
       }
-
-   Environment* lib_env = gc_alloc_environment(nullptr);
-   gc_env_root_push(&lib_env);
-   std::vector<std::pair<std::string, std::string>> export_names;
-
-   // Swap runtime env so define-syntax inside library's begin binds into lib_env.
-   Environment* outer_env = get_runtime_env();
-   set_runtime_env(lib_env);
-   try
+   dl.lib_env = gc_alloc_environment(nullptr);
+   Value d = decls_cons;
+   while (is_cons(d))
       {
-      Value d = decls_cons;
-      while (is_cons(d))
-         {
-         _process_one_lib_decl(car(d), lib_env, export_names, ctx);
-         d = cdr(d);
-         }
+      _process_one_lib_decl(car(d), dl.lib_env, dl.export_names,
+                            dl.eval_forms, dl.import_sets, ctx);
+      d = cdr(d);
       }
-   catch (...)
-      {
-      set_runtime_env(outer_env);
-      gc_env_root_pop(&lib_env);
-      throw;
-      }
-   set_runtime_env(outer_env);
+   return dl;
+   }
 
-   // Build exports env: copy each (internal, external) entry out of lib_env.
+// Build the exports env from export_pairs + lib_env and register the library.
+// Run by FRAME_LIB_FINALIZE after the library's forms have evaluated on the main
+// loop (so exported names are defined).  export_pairs[i] = (internal sid,
+// external symbol Value); name_src = the define-library form (for error src).
+static void finalize_define_library(
+    Environment* lib_env,
+    const std::vector<std::pair<uint32_t, Value>>& export_pairs,
+    const std::string& key, const Value& name_src)
+   {
    Environment* exports_env = gc_alloc_environment(nullptr);
    gc_env_root_push(&exports_env);
-   size_t i = 0;
-   while (i < export_names.size())
+   for (const auto& ep : export_pairs)
       {
-      const std::string& internal_name = export_names[i].first;
-      const std::string& external_name = export_names[i].second;
-      if (lib_env->_bindings.count(intern_symbol(internal_name)) == 0)
+      uint32_t internal_sid = ep.first;
+      std::string external_name = as_symbol(ep.second);
+      if (lib_env->_bindings.count(internal_sid) == 0)
          {
          gc_env_root_pop(&exports_env);
-         gc_env_root_pop(&lib_env);
          throw SchemeSyntaxError(
-             "define-library: exported name not defined: " + internal_name,
-             src_of(C));
+             "define-library: exported name not defined: " + symbol_name(internal_sid),
+             src_of(name_src));
          }
-      Value val = lib_env->lookup(internal_name);
+      Value val = lib_env->_bindings.at(internal_sid);
       exports_env->bind(external_name, val);
       // A macro's free-identifier aliases (gensyms bound to the library's
       // def-time values in lib_env, the library's parentless "global") are
@@ -1168,18 +1190,13 @@ static void process_define_library(const Value& C, Context* ctx)
             {
             uint32_t gs_sid = kv.second;
             if (lib_env->_bindings.count(gs_sid) && exports_env->_bindings.count(gs_sid) == 0)
-               {
                exports_env->bind(symbol_name(gs_sid), lib_env->_bindings.at(gs_sid));
-               }
             }
          }
-      i = i + 1;
       }
    exports_env->freeze();
    library_register(key, exports_env);
-
    gc_env_root_pop(&exports_env);
-   gc_env_root_pop(&lib_env);
    }
 
 // ── The CEK machine ───────────────────────────────────────────────────────────
@@ -1280,28 +1297,6 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
    KStack K;
    bool skip_eval = false;
 
-   // Claim a unique id for this loop invocation and publish it for the
-   // duration.  Continuations captured here are stamped with my_eval_id; a
-   // ContinuationEscape thrown by a deeper loop is caught here only when its
-   // owner matches.  Push onto eval_id_stack so deeper loops can tell this one
-   // is still alive (escape) rather than already returned (re-entry).  All
-   // state is restored on every exit (normal or exceptional) as the C++ stack
-   // unwinds, so the parent loop's id is reinstated.
-   const uint64_t my_eval_id = ++ctx->eval_id_counter;
-   const uint64_t saved_eval_id = ctx->current_eval_id;
-   ctx->current_eval_id = my_eval_id;
-   ctx->eval_id_stack.push_back(my_eval_id);
-   struct EvalIdGuard
-      {
-      Context* c;
-      uint64_t prev;
-      ~EvalIdGuard()
-         {
-         c->current_eval_id = prev;
-         c->eval_id_stack.pop_back();
-         }
-      } _eval_id_guard{ctx, saved_eval_id};
-
    // Register live CEK state as GC roots so the collector can trace and
    // forward everything reachable from C, V, E, K, and the Context stacks.
    gc_push_trace_hook([&]()
@@ -1353,14 +1348,22 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
    // Returns true if handler found + state updated; false = re-raise.
    auto dispatch_exc = [&](Value raised_value, bool is_scheme_raised, bool continuable) -> bool
    {
-      // The condition object is held across the dynamic-wind after-thunks run
-      // during unwind (apply_scheme_proc below), each of which can trigger a
-      // moving minor GC.  Root it so it isn't left stale before it is stored
-      // into the FRAME_NONCONTIN_RETURN frame / passed to the handler.
+      // The condition object is held while the FRAME_ERROR_UNWIND frame / handler
+      // dispatch is set up; root it so a minor GC cannot leave it stale before it
+      // is stored into a frame / passed to the handler.
       GcRootGuard raised_root(raised_value);
       Value handler_val;
       bool found = false;
       bool is_guard_handler = false;
+      // Walk K ONCE to find a handler frame, COLLECTING (not running) the
+      // FRAME_DYNAMIC_WIND_AFTER thunks for the extents between the raise and the
+      // handler.  A single scan keeps the reinstall accounting correct; the
+      // collected afters are then run on the K stack by FRAME_ERROR_UNWIND (so an
+      // after-thunk's continuation/HOF no longer re-enters cek_eval), which
+      // performs the terminal action -- dispatch handler, or re-raise if none.
+      // Propagate semantics: an after that raises becomes the new in-flight
+      // condition (matches Chez; R7RS-unspecified).
+      std::vector<Value> unwind_afters;
       // A raise-continuable pops its handler off handler_stack but leaves the
       // handler's FRAME_POP_HANDLER / FRAME_GUARD on K, with a
       // FRAME_REINSTALL_HANDLER above it.  When the handler then raises and we
@@ -1386,12 +1389,20 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                --pending_reinstalls;
                continue;
                }
-            if (!ctx->handler_stack.empty())
+            if (ctx->handler_stack.empty())
+               break;
+            if (!unwind_afters.empty())
                {
-               handler_val = std::move(ctx->handler_stack.back());
-               ctx->handler_stack.pop_back();
-               found = true;
+               // Leave the handler installed: the collected afters run within its
+               // dynamic extent, so an after that raises must reach it.
+               // FRAME_ERROR_UNWIND re-raises once the afters are done, and this
+               // frame -- now atop K -- is dispatched with no afters.
+               K.push_back(std::move(f));
+               break;
                }
+            handler_val = std::move(ctx->handler_stack.back());
+            ctx->handler_stack.pop_back();
+            found = true;
             break;
             }
          if (f.tag == FRAME_GUARD)
@@ -1401,31 +1412,45 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                --pending_reinstalls;
                continue;
                }
-            if (!ctx->handler_stack.empty())
+            if (ctx->handler_stack.empty())
+               break;
+            if (!unwind_afters.empty())
                {
-               handler_val = std::move(ctx->handler_stack.back());
-               ctx->handler_stack.pop_back();
-               found = true;
-               is_guard_handler = true;
+               K.push_back(std::move(f));
+               break;
                }
+            handler_val = std::move(ctx->handler_stack.back());
+            ctx->handler_stack.pop_back();
+            found = true;
+            is_guard_handler = true;
             break;
             }
          if (f.tag == FRAME_DYNAMIC_WIND_AFTER)
             {
             if (!ctx->wind_stack.empty())
                ctx->wind_stack.pop_back();
-            try
-               {
-               std::vector<Value> ea;
-               apply_scheme_proc(f.v1, ea, ctx, nullptr, nullptr);
-               }
-            catch (...)
-               {
-               }
+            unwind_afters.push_back(f.v1);
             }
+         }
+      if (!unwind_afters.empty())
+         {
+         // Run the collected afters on the K stack, then re-raise (the handler
+         // frame, if any, was left installed above and is dispatched then).
+         // skip_eval: resume in the APPLY phase to process FRAME_ERROR_UNWIND;
+         // WITHOUT this the loop would re-EVAL the unchanged C -- an infinite loop.
+         Frame eu;
+         eu.tag = FRAME_ERROR_UNWIND;
+         eu.list1 = std::move(unwind_afters);
+         eu.depth = 0;
+         eu.v1 = raised_root.val;          // GC-root the condition across the afters
+         eu.exc = std::current_exception(); // faithfully re-raised when afters done
+         K.push_back(std::move(eu));
+         skip_eval = true;
+         return true;
          }
       if (!found)
          return false;
+      // No winds to run: dispatch the handler inline.
       if (is_scheme_raised && !continuable && !is_guard_handler)
          {
          Frame nf;
@@ -1444,6 +1469,13 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
          {
          K = std::move(result.new_k);
          V = result.v;
+         skip_eval = true;
+         }
+      else if (result.kind == EnterResult::IsFrame)
+         {
+         // Handler is itself a frame-driven HOF primitive: push its driver and
+         // resume the APPLY loop (the start-frame ignores the current V).
+         K.push_back(std::move(result.frame));
          skip_eval = true;
          }
       else
@@ -1532,13 +1564,75 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                               }
                            case SF_IMPORT:
                               {
-                              process_import(cdr(C), E, ctx);
+                              // (import <import-set>...) -- resolve each set and
+                              // bind its exported names into the current env,
+                              // loading library files on the K stack if needed.
+                              // Driven by FRAME_IMPORT_STEP (no re-entrant cek_eval).
+                              Frame im;
+                              im.tag = FRAME_IMPORT_STEP;
+                              for (Value s = cdr(C); is_cons(s); s = cdr(s))
+                                 im.list1.push_back(car(s));
+                              im.depth = 0;
+                              im.env = E;
+                              im.uid = 0; // post_load = false
+                              im.str1 = "import: ";
+                              K.push_back(std::move(im));
                               V = VOID_VALUE;
                               goto eval_break;
                               }
                            case SF_DEFINE_LIBRARY:
                               {
-                              process_define_library(C, ctx);
+                              // (define-library <name> <decl>...): the pre-pass
+                              // resolves the pure decls and collects the import
+                              // sets + begin/unknown forms; those run on the main
+                              // loop (FRAME_IMPORT_STEP then FRAME_EVAL_FORMS) with
+                              // the runtime env swapped to lib_env -- restored via a
+                              // wind so it resets on normal return, error, and
+                              // continuation escape -- then FRAME_LIB_FINALIZE
+                              // builds + registers exports.  No re-entrant cek_eval.
+                              DefineLibrarySetup dl = define_library_setup(C, ctx);
+                              Environment* outer_env = get_runtime_env();
+                              Value install = make_native_closure(
+                                  "%define-library-install-env", nc_set_runtime_env,
+                                  {make_environment(dl.lib_env)});
+                              Value restore = make_native_closure(
+                                  "%define-library-restore-env", nc_set_runtime_env,
+                                  {make_environment(outer_env)});
+                              set_runtime_env(dl.lib_env);
+                              WindFrame wf;
+                              wf.before = install;
+                              wf.after = restore;
+                              ctx->wind_stack.push_back(wf);
+                              Frame da;
+                              da.tag = FRAME_DYNAMIC_WIND_AFTER;
+                              da.v1 = restore;
+                              K.push_back(std::move(da));
+                              Frame lf;
+                              lf.tag = FRAME_LIB_FINALIZE;
+                              lf.env = dl.lib_env;
+                              lf.str1 = dl.key;
+                              lf.v1 = C;
+                              for (const auto& en : dl.export_names)
+                                 lf.pairs.push_back(
+                                     {intern_symbol(en.first), make_symbol(en.second)});
+                              K.push_back(std::move(lf));
+                              Frame ef;
+                              ef.tag = FRAME_EVAL_FORMS;
+                              ef.list1 = std::move(dl.eval_forms);
+                              ef.env = dl.lib_env;
+                              ef.depth = 0;
+                              K.push_back(std::move(ef));
+                              // Imports run first (frame-driven, loading library
+                              // files on the K stack if needed), before the begin
+                              // forms; pushed last so APPLY pops it first.
+                              Frame im;
+                              im.tag = FRAME_IMPORT_STEP;
+                              im.list1 = std::move(dl.import_sets);
+                              im.depth = 0;
+                              im.env = dl.lib_env;
+                              im.uid = 0; // post_load = false
+                              im.str1 = "define-library: import: ";
+                              K.push_back(std::move(im));
                               V = VOID_VALUE;
                               goto eval_break;
                               }
@@ -1985,18 +2079,510 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                // ── FRAME_DYNAMIC_WIND_AFTER ──────────────────────────────
                if (ftag == FRAME_DYNAMIC_WIND_AFTER)
                   {
-                  // Both `after` and the body's result are held across the
-                  // after-thunk's re-entry into the evaluator, which can
-                  // trigger a moving minor GC.  Root them so the forwarded
-                  // pointers are not left stale (mirrors the before-thunk
-                  // path's GcRootGuards).
-                  GcRootGuard after(frame.v1);
-                  GcRootGuard body_result(V);
+                  // The body has produced its value (now in V).  Pop the wind
+                  // entry, then run after_thunk ON THE K STACK (via enter_proc,
+                  // not a re-entrant apply_scheme_proc) for its effect,
+                  // preserving the body result across it with FRAME_RESTORE_VALUE.
+                  Value after = frame.v1;
                   if (!ctx->wind_stack.empty())
                      ctx->wind_stack.pop_back();
+                  Frame rv;
+                  rv.tag = FRAME_RESTORE_VALUE;
+                  rv.v1 = V;
+                  K.push_back(std::move(rv));
                   std::vector<Value> ea;
-                  apply_scheme_proc(after.val, ea, ctx, nullptr, nullptr);
-                  V = body_result.val;
+                  EnterResult result = enter_proc(after, ea, ctx, nullptr, nullptr);
+                  if (result.kind == EnterResult::IsValue)
+                     {
+                     V = result.v;
+                     continue;
+                     }
+                  if (result.kind == EnterResult::IsCont)
+                     {
+                     K = std::move(result.new_k);
+                     V = result.v;
+                     continue;
+                     }
+                  if (result.kind == EnterResult::IsFrame)
+                     {
+                     K.push_back(std::move(result.frame));
+                     continue;
+                     }
+                  C = result.v;
+                  E = result.new_env;
+                  if (is_cons(result.seq))
+                     {
+                     Frame sf;
+                     sf.tag = FRAME_SEQ;
+                     sf.v1 = result.seq;
+                     sf.env = result.new_env;
+                     K.push_back(std::move(sf));
+                     }
+                  break;
+                  }
+
+               // ── FRAME_RESTORE_VALUE ───────────────────────────────────
+               if (ftag == FRAME_RESTORE_VALUE)
+                  {
+                  // Discard the incoming V (a wind after-thunk's result) and
+                  // reinstate the value saved when the frame was pushed.
+                  V = frame.v1;
+                  continue;
+                  }
+
+               // ── FRAME_DYNAMIC_WIND_BEFORE_DONE ────────────────────────
+               if (ftag == FRAME_DYNAMIC_WIND_BEFORE_DONE)
+                  {
+                  // The before-thunk has completed (V is its result, discarded).
+                  // Now the dynamic extent is active: install the wind entry and
+                  // after-frame, then tail-call the body thunk on the K stack.
+                  Value before = frame.v1;
+                  Value thunk = frame.v2;
+                  Value after = frame.list1[0];
+                  WindFrame wf;
+                  wf.before = before;
+                  wf.after = after;
+                  ctx->wind_stack.push_back(wf);
+                  Frame df;
+                  df.tag = FRAME_DYNAMIC_WIND_AFTER;
+                  df.v1 = after;
+                  K.push_back(std::move(df));
+                  std::vector<Value> ea;
+                  EnterResult result = enter_proc(thunk, ea, ctx, nullptr, nullptr);
+                  if (result.kind == EnterResult::IsValue)
+                     {
+                     V = result.v;
+                     continue;
+                     }
+                  if (result.kind == EnterResult::IsCont)
+                     {
+                     K = std::move(result.new_k);
+                     V = result.v;
+                     continue;
+                     }
+                  if (result.kind == EnterResult::IsFrame)
+                     {
+                     K.push_back(std::move(result.frame));
+                     continue;
+                     }
+                  C = result.v;
+                  E = result.new_env;
+                  if (is_cons(result.seq))
+                     {
+                     Frame sf;
+                     sf.tag = FRAME_SEQ;
+                     sf.v1 = result.seq;
+                     sf.env = result.new_env;
+                     K.push_back(std::move(sf));
+                     }
+                  break;
+                  }
+
+               // ── FRAME_WIND_STEP ───────────────────────────────────────
+               if (ftag == FRAME_WIND_STEP)
+                  {
+                  // Drives a continuation jump's wind walk on the K stack: each op
+                  // exits an extent (pop wind_stack, run its after) or enters one
+                  // (push wind_stack, run its before), with the thunk run via
+                  // enter_proc rather than a re-entrant apply_scheme_proc.  The
+                  // incoming V (a wind thunk's result) is discarded.  When the ops
+                  // are exhausted, install the continuation: restore the handler /
+                  // shadow stacks, swap in its K, and deliver its value.
+                  size_t w_i = (size_t)frame.depth;
+                  if (w_i < frame.ids.size())
+                     {
+                     Value w_thunk;
+                     if (frame.ids[w_i] == 0) // exit
+                        {
+                        if (!ctx->wind_stack.empty())
+                           ctx->wind_stack.pop_back();
+                        w_thunk = frame.list1[w_i];
+                        }
+                     else // enter
+                        {
+                        WindFrame wf;
+                        wf.before = frame.list1[w_i];
+                        wf.after = frame.list2[w_i];
+                        ctx->wind_stack.push_back(wf);
+                        w_thunk = frame.list1[w_i];
+                        }
+                     Frame nf = frame;          // re-push self at index+1
+                     nf.depth = (int)w_i + 1;
+                     K.push_back(std::move(nf));
+                     std::vector<Value> ea;
+                     EnterResult result = enter_proc(w_thunk, ea, ctx, nullptr, nullptr);
+                     if (result.kind == EnterResult::IsValue)
+                        {
+                        V = result.v;
+                        continue;
+                        }
+                     if (result.kind == EnterResult::IsCont)
+                        {
+                        K = std::move(result.new_k);
+                        V = result.v;
+                        continue;
+                        }
+                     if (result.kind == EnterResult::IsFrame)
+                        {
+                        K.push_back(std::move(result.frame));
+                        continue;
+                        }
+                     C = result.v;
+                     E = result.new_env;
+                     if (is_cons(result.seq))
+                        {
+                        Frame sf;
+                        sf.tag = FRAME_SEQ;
+                        sf.v1 = result.seq;
+                        sf.env = result.new_env;
+                        K.push_back(std::move(sf));
+                        }
+                     break;
+                     }
+                  // All wind thunks have run: install the continuation.
+                  restore_handler_stack(ctx, as_continuation_handlers(frame.v1));
+                  K = *static_cast<const KStack*>(as_continuation_frames(frame.v1));
+                  restore_shadow_stack(ctx, as_continuation_shadow(frame.v1));
+                  V = frame.v2;
+                  continue;
+                  }
+
+               // ── FRAME_PARAMETERIZE_STEP ───────────────────────────────
+               if (ftag == FRAME_PARAMETERIZE_STEP)
+                  {
+                  // Drives parameterize's value converters on the K stack: for each
+                  // parameter with a converter, tail-call it with the raw value and
+                  // collect the result; parameters without a converter take the raw
+                  // value directly.  When every value is converted, install the winds
+                  // (FRAME_DYNAMIC_WIND_AFTER + wind_stack) and tail-call the body
+                  // thunk.  uid != 0 (awaiting) means V holds the converter result
+                  // for params[index] and must be collected.
+                  std::vector<Value>& p_params = frame.list1;
+                  std::vector<Value>& p_raw = frame.list2;
+                  std::vector<Value> p_acc;
+                  for (auto& pr : frame.pairs)
+                     p_acc.push_back(pr.second);
+                  size_t p_i = (size_t)frame.depth;
+                  Value p_thunk = frame.v1;
+                  Value p_app = frame.v2;
+                  if (frame.uid != 0) // awaiting
+                     {
+                     p_acc.push_back(V);
+                     ++p_i;
+                     }
+                  // Parameters needing no converter take the raw value directly.
+                  while (p_i < p_params.size() &&
+                         is_nil(as_parameter_converter(p_params[p_i])))
+                     {
+                     p_acc.push_back(p_raw[p_i]);
+                     ++p_i;
+                     }
+                  if (p_i < p_params.size())
+                     {
+                     // params[p_i] has a converter: run it on the K stack.
+                     Value conv = as_parameter_converter(p_params[p_i]);
+                     Frame nf;
+                     nf.tag = FRAME_PARAMETERIZE_STEP;
+                     nf.list1 = p_params;
+                     nf.list2 = p_raw;
+                     for (Value& a : p_acc)
+                        nf.pairs.push_back({0u, a});
+                     nf.depth = (int)p_i;
+                     nf.uid = 1; // awaiting
+                     nf.v1 = p_thunk;
+                     nf.v2 = p_app;
+                     K.push_back(std::move(nf));
+                     std::vector<Value> ca = {p_raw[p_i]};
+                     EnterResult result = enter_proc(conv, ca, ctx, nullptr, &p_app);
+                     if (result.kind == EnterResult::IsValue)
+                        {
+                        V = result.v;
+                        continue;
+                        }
+                     if (result.kind == EnterResult::IsCont)
+                        {
+                        K = std::move(result.new_k);
+                        V = result.v;
+                        continue;
+                        }
+                     if (result.kind == EnterResult::IsFrame)
+                        {
+                        K.push_back(std::move(result.frame));
+                        continue;
+                        }
+                     C = result.v;
+                     E = result.new_env;
+                     if (is_cons(result.seq))
+                        {
+                        Frame sf;
+                        sf.tag = FRAME_SEQ;
+                        sf.v1 = result.seq;
+                        sf.env = result.new_env;
+                        K.push_back(std::move(sf));
+                        }
+                     break;
+                     }
+                  // Every value converted: install winds, tail-call the body.
+                  auto pw = finalize_parameterize_winds(p_params, p_acc, ctx);
+                  WindFrame wf;
+                  wf.before = pw.first;
+                  wf.after = pw.second;
+                  ctx->wind_stack.push_back(wf);
+                  Frame df;
+                  df.tag = FRAME_DYNAMIC_WIND_AFTER;
+                  df.v1 = pw.second;
+                  K.push_back(std::move(df));
+                  std::vector<Value> ea;
+                  EnterResult result = enter_proc(p_thunk, ea, ctx, nullptr, &p_app);
+                  if (result.kind == EnterResult::IsValue)
+                     {
+                     V = result.v;
+                     continue;
+                     }
+                  if (result.kind == EnterResult::IsCont)
+                     {
+                     K = std::move(result.new_k);
+                     V = result.v;
+                     continue;
+                     }
+                  if (result.kind == EnterResult::IsFrame)
+                     {
+                     K.push_back(std::move(result.frame));
+                     continue;
+                     }
+                  C = result.v;
+                  E = result.new_env;
+                  if (is_cons(result.seq))
+                     {
+                     Frame sf;
+                     sf.tag = FRAME_SEQ;
+                     sf.v1 = result.seq;
+                     sf.env = result.new_env;
+                     K.push_back(std::move(sf));
+                     }
+                  break;
+                  }
+
+               // ── FRAME_ERROR_UNWIND ────────────────────────────────────
+               if (ftag == FRAME_ERROR_UNWIND)
+                  {
+                  // Runs the dynamic-wind after-thunks for the extents between a
+                  // raise and its handler ON THE K STACK (the dispatch_exc scan
+                  // collected them in one pass, preserving its reinstall
+                  // accounting, and left the handler frame installed below so it
+                  // still protects these afters).  Each after's result is
+                  // discarded.  When the afters are exhausted, re-raise the
+                  // original condition: the still-installed handler frame is now
+                  // atop K, so dispatch_exc handles it via its no-afters path.
+                  // Propagate semantics (matches Chez): an after that raises
+                  // becomes the new in-flight condition, caught by that handler.
+                  size_t eu_i = (size_t)frame.depth;
+                  if (eu_i < frame.list1.size())
+                     {
+                     Value after = frame.list1[eu_i];
+                     Frame nf = frame;          // re-push self at index+1
+                     nf.depth = (int)eu_i + 1;
+                     K.push_back(std::move(nf));
+                     std::vector<Value> ea;
+                     EnterResult result = enter_proc(after, ea, ctx, nullptr, nullptr);
+                     if (result.kind == EnterResult::IsValue)
+                        {
+                        V = result.v;
+                        continue;
+                        }
+                     if (result.kind == EnterResult::IsCont)
+                        {
+                        K = std::move(result.new_k);
+                        V = result.v;
+                        continue;
+                        }
+                     if (result.kind == EnterResult::IsFrame)
+                        {
+                        K.push_back(std::move(result.frame));
+                        continue;
+                        }
+                     C = result.v;
+                     E = result.new_env;
+                     if (is_cons(result.seq))
+                        {
+                        Frame sf;
+                        sf.tag = FRAME_SEQ;
+                        sf.v1 = result.seq;
+                        sf.env = result.new_env;
+                        K.push_back(std::move(sf));
+                        }
+                     break;
+                     }
+                  // Afters exhausted: re-raise the original condition.  For a
+                  // SchemeRaised, reinstate the (GC-forwarded) condition Value
+                  // from frame.v1 -- a minor GC during the afters may have moved
+                  // it, leaving the value stored inside the exception stale.
+                  try
+                     {
+                     std::rethrow_exception(frame.exc);
+                     }
+                  catch (SchemeRaised& e)
+                     {
+                     e.value = frame.v1;
+                     throw;
+                     }
+                  }
+
+               // ── FRAME_EVAL_FORMS ──────────────────────────────────────
+               if (ftag == FRAME_EVAL_FORMS)
+                  {
+                  // Evaluates a list of top-level forms in sequence ON THE MAIN K
+                  // STACK (load / library loading), instead of a re-entrant
+                  // cek_eval per form.  Each form is expanded then evaluated; its
+                  // result is discarded.  (C++ does not run the Analyzer pass on
+                  // these paths -- matching the old _prim_load / _try_load /
+                  // define-library cek_eval(expand(form)) calls.)  Yields VOID when
+                  // the forms are exhausted.
+                  size_t ef_i = (size_t)frame.depth;
+                  if (ef_i >= frame.list1.size())
+                     {
+                     V = VOID_VALUE;
+                     continue;
+                     }
+                  GcRootGuard raw(frame.list1[ef_i]); // rooted across expand
+                  Environment* ef_env = frame.env;
+                  Frame nf = std::move(frame);        // preserves list1/env
+                  nf.depth = (int)ef_i + 1;
+                  K.push_back(std::move(nf));
+                  C = expand(raw.val);
+                  E = ef_env;
+                  break;
+                  }
+
+               // ── FRAME_LIB_FINALIZE ────────────────────────────────────
+               if (ftag == FRAME_LIB_FINALIZE)
+                  {
+                  // The library's forms have evaluated on the main loop; build +
+                  // register its exports.  Reached only on normal completion (a
+                  // library form that raised unwinds past this frame), so a failed
+                  // library is not registered.  The runtime-env restore rides a
+                  // wind beneath this frame.
+                  finalize_define_library(frame.env, frame.pairs, frame.str1, frame.v1);
+                  V = VOID_VALUE;
+                  continue;
+                  }
+
+               // ── FRAME_IMPORT_STEP ─────────────────────────────────────
+               if (ftag == FRAME_IMPORT_STEP)
+                  {
+                  // Resolves each import-set and binds its exports into env.  When
+                  // a set names an unregistered library, frame-drives a load
+                  // (FRAME_ENSURE_LOADED) then retries (post_load=true), so library
+                  // files evaluate on the main K stack instead of a re-entrant
+                  // cek_eval.  Used for top-level import and library imports.
+                  size_t im_i = (size_t)frame.depth;
+                  if (im_i >= frame.list1.size())
+                     {
+                     V = VOID_VALUE;
+                     continue;
+                     }
+                  Value import_set = frame.list1[im_i];
+                  Environment* im_env = frame.env;
+                  bool im_post = (frame.uid != 0);
+                  std::unordered_map<std::string, Value> bindings;
+                  try
+                     {
+                     bindings = resolve_import_set(import_set);
+                     }
+                  catch (const std::runtime_error& ie)
+                     {
+                     if (!im_post && is_cons(import_set))
+                        {
+                        std::string ikey;
+                        bool have_key = true;
+                        try
+                           {
+                           ikey = library_name_to_key(import_set);
+                           }
+                        catch (const std::exception&)
+                           {
+                           have_key = false;
+                           }
+                        if (have_key && !library_registered_p(ikey))
+                           {
+                           frame.depth = (int)im_i; // retry this set after load
+                           frame.uid = 1;           // post_load = true
+                           K.push_back(std::move(frame));
+                           Frame el;
+                           el.tag = FRAME_ENSURE_LOADED;
+                           el.str1 = ikey;
+                           el.v1 = import_set;
+                           el.depth = 0;
+                           K.push_back(std::move(el));
+                           continue;
+                           }
+                        }
+                     throw SchemeSyntaxError(frame.str1 + ie.what(), src_of(import_set));
+                     }
+                  for (const auto& [n, val] : bindings)
+                     im_env->bind(n, val);
+                  frame.depth = (int)im_i + 1;
+                  frame.uid = 0;
+                  K.push_back(std::move(frame));
+                  continue;
+                  }
+
+               // ── FRAME_ENSURE_LOADED ───────────────────────────────────
+               if (ftag == FRAME_ENSURE_LOADED)
+                  {
+                  // Walks the load path for a library: per dir drives <key>.sld's
+                  // forms on the K stack via FRAME_EVAL_FORMS (a fresh parentless
+                  // env), re-checking registration after each dir.  Yields when the
+                  // library is registered or the dirs run out.  (C++ omits the
+                  // Python .py-extension branch.)
+                  const std::string el_key = frame.str1;
+                  size_t el_di = (size_t)frame.depth;
+                  if (library_registered_p(el_key))
+                     {
+                     V = VOID_VALUE;
+                     continue;
+                     }
+                  std::vector<std::string> dirs = _library_load_path();
+                  if (el_di >= dirs.size())
+                     {
+                     V = VOID_VALUE;
+                     continue;
+                     }
+                  // key "scheme.base" -> base path "scheme/base"
+                  std::string bpath;
+                  size_t start = 0;
+                  while (true)
+                     {
+                     size_t dot = el_key.find('.', start);
+                     std::string part = el_key.substr(
+                         start, dot == std::string::npos ? dot : dot - start);
+                     if (!bpath.empty())
+                        bpath += '/';
+                     bpath += part;
+                     if (dot == std::string::npos)
+                        break;
+                     start = dot + 1;
+                     }
+                  const std::string& base = dirs[el_di];
+                  std::string prefix = base.empty() ? bpath : (base + "/" + bpath);
+                  std::string sld = prefix + ".sld";
+                  frame.depth = (int)el_di + 1; // advance; re-check after this dir
+                  K.push_back(std::move(frame));
+                  std::ifstream sld_file(sld);
+                  if (sld_file.is_open())
+                     {
+                     std::string source((std::istreambuf_iterator<char>(sld_file)),
+                                        std::istreambuf_iterator<char>());
+                     sld_file.close();
+                     std::vector<Value> forms = scheme_parse(source, sld);
+                     Environment* fresh_env = gc_alloc_environment(nullptr);
+                     Frame ef;
+                     ef.tag = FRAME_EVAL_FORMS;
+                     ef.list1 = std::move(forms);
+                     ef.env = fresh_env;
+                     ef.depth = 0;
+                     K.push_back(std::move(ef));
+                     }
                   continue;
                   }
 
@@ -2020,6 +2606,11 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                      {
                      K = std::move(result.new_k);
                      V = result.v;
+                     continue;
+                     }
+                  if (result.kind == EnterResult::IsFrame)
+                     {
+                     K.push_back(std::move(result.frame));
                      continue;
                      }
                   C = result.v;
@@ -2106,6 +2697,8 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   if (result.kind == EnterResult::IsValue) { V = result.v; continue; }
                   if (result.kind == EnterResult::IsCont)
                      { K = std::move(result.new_k); V = result.v; continue; }
+                  if (result.kind == EnterResult::IsFrame)
+                     { K.push_back(std::move(result.frame)); continue; }
                   C = result.v;
                   E = result.new_env;
                   if (is_cons(result.seq))
@@ -2203,6 +2796,8 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   if (result.kind == EnterResult::IsValue) { V = result.v; continue; }
                   if (result.kind == EnterResult::IsCont)
                      { K = std::move(result.new_k); V = result.v; continue; }
+                  if (result.kind == EnterResult::IsFrame)
+                     { K.push_back(std::move(result.frame)); continue; }
                   C = result.v;
                   E = result.new_env;
                   if (is_cons(result.seq))
@@ -2274,6 +2869,8 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   if (result.kind == EnterResult::IsValue) { V = result.v; continue; }
                   if (result.kind == EnterResult::IsCont)
                      { K = std::move(result.new_k); V = result.v; continue; }
+                  if (result.kind == EnterResult::IsFrame)
+                     { K.push_back(std::move(result.frame)); continue; }
                   C = result.v;
                   E = result.new_env;
                   if (is_cons(result.seq))
@@ -2357,6 +2954,11 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                         V = result.v;
                         continue;
                         }
+                     if (result.kind == EnterResult::IsFrame)
+                        {
+                        K.push_back(std::move(result.frame));
+                        continue;
+                        }
                      C = result.v;
                      E = result.new_env;
                      if (is_cons(result.seq))
@@ -2385,13 +2987,8 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                      // V is the fn; 0 args
                      if (is_continuation(V))
                         {
-                        if (continuation_must_escape(ctx, V, my_eval_id))
-                           throw ContinuationEscape{as_continuation_owner(V), V, {}};
-                        wind_walk(ctx, as_continuation_wind(V));
-                        restore_handler_stack(ctx, as_continuation_handlers(V));
-                        K = *static_cast<const KStack*>(as_continuation_frames(V));
-                        restore_shadow_stack(ctx, as_continuation_shadow(V));
-                        V = continuation_value({});
+                        K.push_back(make_wind_step_frame(
+                            ctx, as_continuation_wind(V), V, continuation_value({})));
                         continue;
                         }
                      auto pv = apply_parameter_if(V, 0, &app_node);
@@ -2511,14 +3108,13 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   // All args collected; invoke.
                   if (is_continuation(fn_value))
                      {
-                     if (continuation_must_escape(ctx, fn_value, my_eval_id))
-                        throw ContinuationEscape{as_continuation_owner(fn_value),
-                                                 fn_value, new_collected};
-                     wind_walk(ctx, as_continuation_wind(fn_value));
-                     restore_handler_stack(ctx, as_continuation_handlers(fn_value));
-                     K = *static_cast<const KStack*>(as_continuation_frames(fn_value));
-                     restore_shadow_stack(ctx, as_continuation_shadow(fn_value));
-                     V = continuation_value(new_collected);
+                     // Drive the wind walk on the K stack via FRAME_WIND_STEP,
+                     // which then restores the handler / shadow stacks, swaps in
+                     // the continuation's K, and delivers its value -- entirely on
+                     // the one loop (no re-entrant cek_eval / no escape throw).
+                     K.push_back(make_wind_step_frame(
+                         ctx, as_continuation_wind(fn_value), fn_value,
+                         continuation_value(new_collected)));
                      continue;
                      }
                   // #2: classify the operator once, then dispatch on the
@@ -2550,8 +3146,7 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                          k_copy,
                          std::vector<WindFrame>(ctx->wind_stack),
                          std::vector<Value>(ctx->handler_stack),
-                         std::move(shadow_enc),
-                         my_eval_id);
+                         std::move(shadow_enc));
                      fn_value = new_collected[0];
                      new_collected = {cont};
                      kind = is_primitive(fn_value)
@@ -2573,98 +3168,23 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                      kind = is_primitive(fn_value)
                             ? as_primitive_kind(fn_value) : PRIM_ORDINARY;
                      }
-                  // map / for-each / filter: drive the per-element calls on the K
-                  // stack (FRAME_HOF_STEP) instead of the _prim_* loop, which
-                  // re-enters cek_eval per element and grows the C stack when such
-                  // calls nest.  The _prim_* bodies stay as the fallback for the
-                  // rare apply_scheme_proc path (e.g. (map filter ...)).  Reached
-                  // for both operator position and (apply map ...).
-                  if (kind == PRIM_MAP || kind == PRIM_FOR_EACH || kind == PRIM_FILTER)
+                  // map / for-each / filter, the vector/string variants, and 3-arg
+                  // member / assoc: drive the per-element calls on the K stack
+                  // (FRAME_HOF_STEP / _IDX / FRAME_SEARCH_STEP) instead of the
+                  // _prim_* loop, which re-enters cek_eval per element and grows the
+                  // C stack when such calls nest.  build_hof_frame is the single
+                  // source of truth, shared with enter_proc so the same primitive
+                  // reached as a callback is driven on frames too -- no _prim_*
+                  // re-entry on any path.  Reached for both operator position and
+                  // (apply map ...).
+                  {
+                  auto hof = build_hof_frame(fn_value, kind, new_collected, &app_node);
+                  if (hof.has_value())
                      {
-                     const std::string& nm = as_primitive_name(fn_value);
-                     if (kind == PRIM_FILTER)
-                        {
-                        if (new_collected.size() != 2)
-                           throw SchemeArityError(
-                               arity_mismatch_msg(nm, 2, 2, (int)new_collected.size()),
-                               src_of(app_node));
-                        }
-                     else if (new_collected.size() < 2)
-                        throw SchemeArityError(
-                            arity_mismatch_msg(nm, 2, -1, (int)new_collected.size()),
-                            src_of(app_node));
-                     Frame hf;
-                     hf.tag = FRAME_HOF_STEP;
-                     hf.depth = kind;           // mode
-                     hf.uid = 0;                // started = false
-                     hf.v1 = new_collected[0];  // proc
-                     hf.v2 = NIL_VALUE;         // acc (reversed cons)
-                     hf.list1.assign(new_collected.begin() + 1, new_collected.end()); // cursors
-                     hf.list2 = {app_node, NIL_VALUE};  // {app_node, pending}
-                     K.push_back(std::move(hf));
+                     K.push_back(std::move(*hof));
                      continue;
                      }
-                  // vector-map / vector-for-each / string-map / string-for-each:
-                  // the indexed analogue, via FRAME_HOF_STEP_IDX.  Type-check the
-                  // sequences here (the wrap_arity check is bypassed on this fast
-                  // path) and seed one cursor position per sequence to 0.
-                  if (kind == PRIM_VECTOR_MAP || kind == PRIM_VECTOR_FOR_EACH ||
-                      kind == PRIM_STRING_MAP || kind == PRIM_STRING_FOR_EACH)
-                     {
-                     const std::string& nm = as_primitive_name(fn_value);
-                     if (new_collected.size() < 2)
-                        throw SchemeArityError(
-                            arity_mismatch_msg(nm, 2, -1, (int)new_collected.size()),
-                            src_of(app_node));
-                     bool is_vec = (kind == PRIM_VECTOR_MAP || kind == PRIM_VECTOR_FOR_EACH);
-                     for (size_t j = 1; j < new_collected.size(); ++j)
-                        {
-                        if (is_vec)
-                           {
-                           if (!is_vector(new_collected[j]))
-                              throw SchemeTypeError(
-                                  nm + ": argument " + std::to_string(j + 1) + " must be a vector",
-                                  src_of(app_node));
-                           }
-                        else if (!is_string(new_collected[j]))
-                           throw SchemeTypeError(
-                               nm + ": argument " + std::to_string(j + 1) + " must be a string",
-                               src_of(app_node));
-                        }
-                     Frame hf;
-                     hf.tag = FRAME_HOF_STEP_IDX;
-                     hf.depth = kind;           // mode
-                     hf.uid = 0;                // started = false
-                     hf.v1 = new_collected[0];  // proc
-                     hf.v2 = NIL_VALUE;         // acc (reversed cons)
-                     hf.list1.assign(new_collected.begin() + 1, new_collected.end()); // seqs
-                     hf.list2 = {app_node};
-                     hf.ids.assign(new_collected.size() - 1, 0u); // positions, all 0
-                     K.push_back(std::move(hf));
-                     continue;
-                     }
-                  // member / assoc with a custom comparator (the 3-arg R7RS
-                  // forms): drive the per-element comparator calls on the K stack
-                  // via FRAME_SEARCH_STEP so a deeply-recursing comparator costs K
-                  // rather than the C stack (the same overflow class map/for-each
-                  // had).  The 2-arg forms use a built-in equality predicate and
-                  // never re-enter the evaluator, so they fall through to the normal
-                  // primitive call; the _member_search/_assoc_search bodies also stay
-                  // as the fallback for the rare higher-order path (e.g. (map member ...)).
-                  if ((kind == PRIM_MEMBER || kind == PRIM_ASSOC) &&
-                      new_collected.size() == 3)
-                     {
-                     Frame hf;
-                     hf.tag = FRAME_SEARCH_STEP;
-                     hf.depth = kind;              // mode
-                     hf.uid = 0;                   // started = false
-                     hf.v1 = new_collected[2];     // proc (comparator)
-                     hf.v2 = new_collected[0];     // target
-                     hf.list1 = {new_collected[1]};// cursor (list head)
-                     hf.list2 = {app_node};
-                     K.push_back(std::move(hf));
-                     continue;
-                     }
+                  }
                   // call-with-values
                   if (kind == PRIM_CALL_WITH_VALUES)
                      {
@@ -2937,20 +3457,22 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                            apply_scheme_proc(prev_restore, ea, ctx, saved_env, &app_node);
                            }
                         }
-                     auto [inst, rest] = build_parameterize_winds(
-                         new_collected[0], new_collected[1], ctx, saved_env, &app_node);
-                     WindFrame wf;
-                     wf.before = inst;
-                     wf.after = rest;
-                     ctx->wind_stack.push_back(wf);
-                     Frame df;
-                     df.tag = FRAME_DYNAMIC_WIND_AFTER;
-                     df.v1 = rest;
-                     K.push_back(std::move(df));
-                     fn_value = new_collected[2];
-                     new_collected = {};
-                     kind = is_primitive(fn_value)
-                            ? as_primitive_kind(fn_value) : PRIM_ORDINARY;
+                     // Resolve params/values (pure), then drive the value converters
+                     // on the K stack via FRAME_PARAMETERIZE_STEP; its final step
+                     // installs the winds (native-closure install/restore) and
+                     // tail-calls the body thunk.  No re-entrant apply_scheme_proc.
+                     auto pp = resolve_parameterize_params(
+                         new_collected[0], new_collected[1], ctx, &app_node);
+                     Frame ps;
+                     ps.tag = FRAME_PARAMETERIZE_STEP;
+                     ps.list1 = std::move(pp.first);   // params
+                     ps.list2 = std::move(pp.second);  // raw_vals
+                     ps.depth = 0;                     // index
+                     ps.uid = 0;                       // awaiting = false
+                     ps.v1 = new_collected[2];         // thunk
+                     ps.v2 = app_node;                 // app_node
+                     K.push_back(std::move(ps));
+                     continue;
                      }
                   // dynamic-wind
                   if (kind == PRIM_DYNAMIC_WIND)
@@ -2961,27 +3483,63 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                         throw SchemeArityError(
                             arity_mismatch_msg("dynamic-wind", 3, 3, (int)new_collected.size()), src);
                         }
-                     Value before = new_collected[0];
-                     Value thunk = new_collected[1];
-                     Value after = new_collected[2];
-                     // Root all three across the before-thunk call: it can
-                     // trigger GC, and thunk/after are not yet on the wind
-                     // stack (after is pushed below).  Without rooting, a
-                     // collection during `before` relocates/reclaims them,
-                     // leaving stale closures (garbage arity, corrupt body).
-                     GcRootGuard rg_before(before), rg_thunk(thunk), rg_after(after);
-                     std::vector<Value> ea;
-                     apply_scheme_proc(before, ea, ctx, saved_env, &app_node);
+                     // Run the before-thunk ON THE K STACK (not via a re-entrant
+                     // apply_scheme_proc); when it returns,
+                     // FRAME_DYNAMIC_WIND_BEFORE_DONE installs the wind +
+                     // after-frame and tail-calls the body.  If before raises, no
+                     // wind is installed (the frame is discarded during unwind) --
+                     // matching the old eager call.  (No GcRootGuards needed: the
+                     // before/thunk/after Values ride on the frame, which is
+                     // GC-traced, and enter_proc itself does not collect.)
+                     Frame bd;
+                     bd.tag = FRAME_DYNAMIC_WIND_BEFORE_DONE;
+                     bd.v1 = new_collected[0];        // before
+                     bd.v2 = new_collected[1];        // thunk
+                     bd.list1 = {new_collected[2]};   // {after}
+                     K.push_back(std::move(bd));
+                     fn_value = new_collected[0];
+                     new_collected = {};
+                     // kind stays PRIM_DYNAMIC_WIND so the PRIM_PORT_RUNNER block
+                     // below does not re-fire; the terminal apply dispatches the
+                     // before-thunk fresh on fn_value.
+                     }
+                  // port runners (call-with-port / call-with-{input,output}-file /
+                  // with-{input,output}-{from,to}-{file,string}): open + set up,
+                  // then ride the dynamic-wind machinery -- a native after-thunk
+                  // (close port; with-* also restore a current-port param) runs on
+                  // every exit, and the proc/thunk is tail-called on the K stack.
+                  if (kind == PRIM_PORT_RUNNER)
+                     {
+                     PortRunnerSetup prs = port_runner_setup(
+                         as_primitive_name(fn_value), ctx, saved_env,
+                         new_collected, &app_node);
                      WindFrame wf;
-                     wf.before = before;
-                     wf.after = after;
+                     wf.before = prs.before;
+                     wf.after = prs.after;
                      ctx->wind_stack.push_back(wf);
                      Frame df;
                      df.tag = FRAME_DYNAMIC_WIND_AFTER;
-                     df.v1 = after;
+                     df.v1 = prs.after;
                      K.push_back(std::move(df));
-                     fn_value = thunk;
-                     new_collected = {};
+                     fn_value = prs.body_proc;
+                     new_collected = std::move(prs.body_args);
+                     kind = is_primitive(fn_value)
+                            ? as_primitive_kind(fn_value) : PRIM_ORDINARY;
+                     }
+                  // load: read + parse the file (native), then evaluate its
+                  // top-level forms on the K stack via FRAME_EVAL_FORMS instead of
+                  // a re-entrant cek_eval per form.  Reached for the operator
+                  // position and (apply load ...) alike.
+                  if (kind == PRIM_LOAD)
+                     {
+                     LoadSetup ls = load_setup(new_collected, saved_env, &app_node);
+                     Frame ef;
+                     ef.tag = FRAME_EVAL_FORMS;
+                     ef.list1 = std::move(ls.forms);
+                     ef.env = ls.eval_env;
+                     ef.depth = 0;
+                     K.push_back(std::move(ef));
+                     continue;
                      }
                      // parameter?
                      {
@@ -3274,12 +3832,9 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   Environment* saved_env = frame.env;
                   if (is_continuation(V))
                      {
-                     if (continuation_must_escape(ctx, V, my_eval_id))
-                        throw ContinuationEscape{as_continuation_owner(V), V, {test_value}};
-                     wind_walk(ctx, as_continuation_wind(V));
-                     restore_handler_stack(ctx, as_continuation_handlers(V));
-                     K = *static_cast<const KStack*>(as_continuation_frames(V));
-                     V = continuation_value({test_value});
+                     K.push_back(make_wind_step_frame(
+                         ctx, as_continuation_wind(V), V,
+                         continuation_value({test_value})));
                      continue;
                      }
                   auto pv = apply_parameter_if(V, 1, nullptr);
@@ -3315,12 +3870,9 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   Environment* saved_env = frame.env;
                   if (is_continuation(V))
                      {
-                     if (continuation_must_escape(ctx, V, my_eval_id))
-                        throw ContinuationEscape{as_continuation_owner(V), V, {key_value}};
-                     wind_walk(ctx, as_continuation_wind(V));
-                     restore_handler_stack(ctx, as_continuation_handlers(V));
-                     K = *static_cast<const KStack*>(as_continuation_frames(V));
-                     V = continuation_value({key_value});
+                     K.push_back(make_wind_step_frame(
+                         ctx, as_continuation_wind(V), V,
+                         continuation_value({key_value})));
                      continue;
                      }
                   auto pv = apply_parameter_if(V, 1, nullptr);
@@ -3571,27 +4123,6 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                } // end APPLY loop D
 
             } // end B
-         }
-      catch (ContinuationEscape& esc)
-         {
-         // An escape continuation captured by some loop was invoked below us,
-         // behind native frames, and unwound the C++ stack to here.  Only the
-         // owning loop may install it; otherwise keep unwinding.
-         if (esc.owner_eval_id != my_eval_id)
-            throw;
-         // Re-root the continuation and its arguments: installing winds may
-         // run after-thunks that allocate (and trigger GC), and neither esc
-         // member is otherwise reachable from a GC root during this catch.
-         GcRootGuard cont_root(esc.cont);
-         GcRootVec args_root(esc.args);
-         const Value& cont = cont_root.val;
-         wind_walk(ctx, as_continuation_wind(cont));
-         restore_handler_stack(ctx, as_continuation_handlers(cont));
-         K = *static_cast<const KStack*>(as_continuation_frames(cont));
-         restore_shadow_stack(ctx, as_continuation_shadow(cont));
-         V = continuation_value(esc.args);
-         skip_eval = true; // V is ready; resume in the APPLY phase
-         continue;         // restart loop A
          }
       catch (SchemeRaised& e)
          {

@@ -261,6 +261,18 @@ static const std::unordered_map<std::string, int> g_primitive_kind_by_name = {
    {"string-for-each",                PRIM_STRING_FOR_EACH},
    {"member",                         PRIM_MEMBER},
    {"assoc",                          PRIM_ASSOC},
+   // Port runners: open/validate then ride the dynamic-wind machinery with a
+   // native after-thunk (close port; with-* also restore a current-port param)
+   // -- see port_runner_setup / PRIM_PORT_RUNNER in the evaluator.
+   {"call-with-port",                 PRIM_PORT_RUNNER},
+   {"call-with-input-file",           PRIM_PORT_RUNNER},
+   {"call-with-output-file",          PRIM_PORT_RUNNER},
+   {"with-input-from-file",           PRIM_PORT_RUNNER},
+   {"with-output-to-file",            PRIM_PORT_RUNNER},
+   {"with-input-from-string",         PRIM_PORT_RUNNER},
+   // load: read + parse the file natively, then evaluate its top-level forms on
+   // the K stack via FRAME_EVAL_FORMS -- see load_setup / PRIM_LOAD.
+   {"load",                           PRIM_LOAD},
    };
 
 Value make_primitive(const std::string& name, BuiltinFn fn)
@@ -271,6 +283,16 @@ Value make_primitive(const std::string& name, BuiltinFn fn)
    Builtin* ptr = b.get();
    g_builtins.push_back(std::move(b));
    return Value{Value::Repr(ptr)};
+   }
+
+Value make_native_closure(const std::string& name, NativeFn fn,
+                          std::vector<Value> captures)
+   {
+   NativeClosure* nc = gc_alloc_native_closure();
+   nc->name = name;
+   nc->fn = fn;
+   nc->captures = std::move(captures);
+   return Value{Value::Repr(nc)};
    }
 
 Value make_case_closure(std::vector<CaseClosure::Clause> clauses,
@@ -350,15 +372,13 @@ Value make_read_error_object(const std::string& message,
 Value make_continuation(void* frames_ptr,
                         std::vector<WindFrame> wind_snapshot,
                         std::vector<Value> handler_snapshot,
-                        std::vector<Value> shadow_snapshot,
-                        uint64_t owner_eval_id)
+                        std::vector<Value> shadow_snapshot)
    {
    Continuation* k = gc_alloc_continuation();
    k->frames_ptr = frames_ptr;
    k->wind_snapshot = std::move(wind_snapshot);
    k->handler_snapshot = std::move(handler_snapshot);
    k->shadow_snapshot = std::move(shadow_snapshot);
-   k->owner_eval_id = owner_eval_id;
    return Value{Value::Repr(k)};
    }
 
@@ -769,6 +789,26 @@ int as_primitive_kind(const Value& val)
    return std::get<Builtin*>(val.repr)->kind;
    }
 
+bool is_native_closure(const Value& val)
+   {
+   return std::holds_alternative<NativeClosure*>(val.repr);
+   }
+
+NativeFn as_native_closure_fn(const Value& val)
+   {
+   return std::get<NativeClosure*>(val.repr)->fn;
+   }
+
+std::vector<Value>& as_native_closure_captures(const Value& val)
+   {
+   return std::get<NativeClosure*>(val.repr)->captures;
+   }
+
+const std::string& as_native_closure_name(const Value& val)
+   {
+   return std::get<NativeClosure*>(val.repr)->name;
+   }
+
 const std::vector<CaseClosure::Clause>& as_case_closure_clauses(const Value& val)
    {
    return std::get<CaseClosure*>(val.repr)->clauses;
@@ -902,11 +942,6 @@ const std::vector<Value>& as_continuation_handlers(const Value& val)
 const std::vector<Value>& as_continuation_shadow(const Value& val)
    {
    return std::get<Continuation*>(val.repr)->shadow_snapshot;
-   }
-
-uint64_t as_continuation_owner(const Value& val)
-   {
-   return std::get<Continuation*>(val.repr)->owner_eval_id;
    }
 
 const std::string& as_syntax_transformer_name(const Value& val)
@@ -1229,6 +1264,7 @@ GcHeader* gc_value_header(const Value& val)
    HDR_CASE(SchemeChar)
    HDR_CASE(RecordAccessor)
    HDR_CASE(RecordMutator)
+   HDR_CASE(NativeClosure)
    // EnvBox* is GC-managed; GcHeader is at offset 0 by invariant.
    if (auto* pp = std::get_if<EnvBox*>(&val.repr))
       return *pp ? reinterpret_cast<GcHeader*>(*pp) : nullptr;
@@ -1272,6 +1308,7 @@ void gc_forward_value(Value& val)
    FWD_CASE(SchemeChar)
    FWD_CASE(RecordAccessor)
    FWD_CASE(RecordMutator)
+   FWD_CASE(NativeClosure)
    // EnvBox* forwarding via raw GcHeader cast (type is incomplete here).
    if (auto* pp = std::get_if<EnvBox*>(&val.repr))
       {

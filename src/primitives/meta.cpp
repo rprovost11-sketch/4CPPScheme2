@@ -320,6 +320,37 @@ static Value _prim_load(Context* ctx, Environment* env, std::vector<Value>& args
    return VOID_VALUE;
    }
 
+// ── load_setup (PRIM_LOAD) ─────────────────────────────────────────────────────
+// Validate (load filename [environment]) and read + parse the file, returning the
+// parsed (unexpanded) forms + the evaluation environment.  The evaluator drives
+// the forms on the main K stack via FRAME_EVAL_FORMS instead of a re-entrant
+// cek_eval per form, so a continuation captured outside the load no longer crosses
+// a nested evaluator activation.  Mirrors _prim_load's setup (pyScheme load_setup).
+LoadSetup load_setup(std::vector<Value>& args, Environment* env, const Value* app)
+   {
+   if (args.size() < 1 || args.size() > 2)
+      throw SchemeArityError(arity_mismatch_msg("load", 1, 2, (int)args.size()), _src(app));
+   if (!is_string(args[0]))
+      throw SchemeTypeError("load: filename must be a string", _src(app));
+   Environment* eval_env = env;
+   if (args.size() >= 2)
+      {
+      if (!is_environment(args[1]))
+         throw SchemeTypeError("load: second argument must be an environment specifier", _src(app));
+      eval_env = as_environment(args[1]);
+      }
+   const std::string path = as_string(args[0]);
+   std::ifstream f(path);
+   if (!f.is_open())
+      throw SchemeFileError("load: cannot open file: " + path, _src(app));
+   std::string source((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+   f.close();
+   LoadSetup ls;
+   ls.forms = scheme_parse(source, path);
+   ls.eval_env = eval_env;
+   return ls;
+   }
+
 // ── process context ───────────────────────────────────────────────────────────
 
 extern int __argc;

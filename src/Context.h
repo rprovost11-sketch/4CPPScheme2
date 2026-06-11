@@ -32,18 +32,6 @@ struct CPPSCHEME2_API Context
    bool timeout_active = false;
    uint32_t _timeout_step = 0;
 
-   // Continuation-escape bookkeeping.  Each cek_loop invocation claims a unique
-   // id from eval_id_counter and publishes it in current_eval_id while running;
-   // continuations record the id of the loop that captured them.  eval_id_stack
-   // holds the ids of every loop currently live on the C++ stack (outermost
-   // first), so an invocation can tell whether a continuation's owning loop is
-   // still an ancestor (escape -- unwind to it) or has already returned
-   // (re-entry -- install in place, as the original machine always did).
-   // See Evaluator.cpp ContinuationEscape and eval_id_active.
-   uint64_t eval_id_counter = 0;
-   uint64_t current_eval_id = 0;
-   std::vector<uint64_t> eval_id_stack;
-
    // nullptr → defaults to std::cout
    explicit Context(std::ostream* out = nullptr);
 
