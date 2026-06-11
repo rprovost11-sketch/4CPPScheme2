@@ -1117,6 +1117,113 @@ static Value _prim_with_input_from_string(Context* ctx, Environment* env, std::v
    return result;
    }
 
+// ── Port runners (PRIM_PORT_RUNNER) ───────────────────────────────────────────
+// Cleanup native closures: stateless fns + GC-traced captures (the close /
+// param-restore the old try/finally did), run on the K stack via the
+// dynamic-wind machinery so the proc/thunk no longer re-enters cek_eval.  Port
+// of pyScheme ports.py _close_port_obj + the with-* finally blocks.
+
+static Value _nc_port_noop(Context*, Environment*, std::vector<Value>&,
+                           const std::vector<Value>&, const Value*)
+   {
+   return VOID_VALUE;
+   }
+
+// captures: {port}
+static Value _nc_port_close(Context*, Environment*, std::vector<Value>&,
+                            const std::vector<Value>& cap, const Value*)
+   {
+   _close_port_impl(as_port(cap[0]));
+   return VOID_VALUE;
+   }
+
+// captures: {param, old_val, port}
+static Value _nc_port_restore_close(Context*, Environment*, std::vector<Value>&,
+                                    const std::vector<Value>& cap, const Value*)
+   {
+   set_parameter_value(const_cast<Value&>(cap[0]), cap[1]);
+   _close_port_impl(as_port(cap[2]));
+   return VOID_VALUE;
+   }
+
+PortRunnerSetup port_runner_setup(const std::string& name, Context* ctx,
+                                  Environment* env, std::vector<Value>& args,
+                                  const Value* app)
+   {
+   if (args.size() != 2)
+      throw SchemeArityError(arity_mismatch_msg(name, 2, 2, (int)args.size()), _src(app));
+   PortRunnerSetup s;
+   s.before = make_native_closure("%port-runner-before", _nc_port_noop, {});
+
+   // call-with-port / call-with-{input,output}-file: body = (proc port);
+   // cleanup = close the port.
+   if (name == "call-with-port" || name == "call-with-input-file" ||
+       name == "call-with-output-file")
+      {
+      GcRootGuard port_val;
+      if (name == "call-with-port")
+         {
+         _check_port(args[0], name.c_str(), app); // validate
+         port_val.val = args[0];
+         }
+      else
+         {
+         if (!is_string(args[0]))
+            throw SchemeTypeError(name + ": filename must be a string", _src(app));
+         std::vector<Value> open_args = {args[0]};
+         port_val.val = (name == "call-with-input-file")
+                            ? _prim_open_input_file(ctx, env, open_args, app)
+                            : _prim_open_output_file(ctx, env, open_args, app);
+         }
+      s.after = make_native_closure("%port-runner-after", _nc_port_close, {port_val.val});
+      s.body_proc = args[1];
+      s.body_args = {port_val.val};
+      return s;
+      }
+
+   // with-{input,output}-{from,to}-{file,string}: body = (thunk); set the
+   // current-port parameter now, restore it and close the port on exit.
+   GcRootGuard port_val;
+   Value param;
+   if (name == "with-input-from-file")
+      {
+      if (!is_string(args[0]))
+         throw SchemeTypeError(name + ": filename must be a string", _src(app));
+      std::vector<Value> open_args = {args[0]};
+      port_val.val = _prim_open_input_file(ctx, env, open_args, app);
+      _get_current_input(ctx);
+      param = s_current_input_param;
+      }
+   else if (name == "with-input-from-string")
+      {
+      if (!is_string(args[0]))
+         throw SchemeTypeError(name + ": first argument must be a string", _src(app));
+      std::vector<Value> open_args = {args[0]};
+      port_val.val = _prim_open_input_string(ctx, env, open_args, app);
+      _get_current_input(ctx);
+      param = s_current_input_param;
+      }
+   else if (name == "with-output-to-file")
+      {
+      if (!is_string(args[0]))
+         throw SchemeTypeError(name + ": filename must be a string", _src(app));
+      std::vector<Value> open_args = {args[0]};
+      port_val.val = _prim_open_output_file(ctx, env, open_args, app);
+      _get_current_output(ctx);
+      param = s_current_output_param;
+      }
+   else
+      throw SchemeTypeError("port_runner_setup: unknown port runner " + name, _src(app));
+
+   GcRootGuard old_val(as_parameter_value(param));
+   set_parameter_value(param, port_val.val);
+   s.after = make_native_closure("%port-runner-after", _nc_port_restore_close,
+                                 {param, old_val.val, port_val.val});
+   s.body_proc = args[1];
+   s.body_args = {};
+   return s;
+   }
+
 // ── Registration ──────────────────────────────────────────────────────────────
 
 void register_ports()

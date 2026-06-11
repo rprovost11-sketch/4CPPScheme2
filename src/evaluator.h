@@ -125,3 +125,23 @@ CPPSCHEME2_API Value sorted_sym_list(const std::unordered_set<std::string>& fns)
 // Process top-level (import ...) form.  Binds exported names into env.
 // Port of Evaluator.py _process_import.
 CPPSCHEME2_API void process_import(const Value& sets_cons, Environment* env, Context* ctx);
+
+// ── Port-runner setup (PRIM_PORT_RUNNER) ──────────────────────────────────────
+// Port of pyScheme primitives/ports.py port_runner_setup.  Defined in
+// primitives/ports.cpp (needs port internals).  Validates and opens as the
+// _prim_* bodies did, then returns the pieces the evaluator pushes: a
+// dynamic-wind entry (before, after) -- after is a GC-managed native closure
+// that closes the port and, for the with-* forms, restores the current-port
+// parameter -- plus the body proc/thunk to tail-call (body_args is {port} for
+// call-with-* and {} for the with-* thunk forms).
+struct PortRunnerSetup
+   {
+   Value before;
+   Value after;
+   Value body_proc;
+   std::vector<Value> body_args;
+   };
+CPPSCHEME2_API PortRunnerSetup port_runner_setup(const std::string& name,
+                                                 Context* ctx, Environment* env,
+                                                 std::vector<Value>& args,
+                                                 const Value* app_node);

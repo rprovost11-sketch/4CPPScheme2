@@ -261,6 +261,15 @@ static const std::unordered_map<std::string, int> g_primitive_kind_by_name = {
    {"string-for-each",                PRIM_STRING_FOR_EACH},
    {"member",                         PRIM_MEMBER},
    {"assoc",                          PRIM_ASSOC},
+   // Port runners: open/validate then ride the dynamic-wind machinery with a
+   // native after-thunk (close port; with-* also restore a current-port param)
+   // -- see port_runner_setup / PRIM_PORT_RUNNER in the evaluator.
+   {"call-with-port",                 PRIM_PORT_RUNNER},
+   {"call-with-input-file",           PRIM_PORT_RUNNER},
+   {"call-with-output-file",          PRIM_PORT_RUNNER},
+   {"with-input-from-file",           PRIM_PORT_RUNNER},
+   {"with-output-to-file",            PRIM_PORT_RUNNER},
+   {"with-input-from-string",         PRIM_PORT_RUNNER},
    };
 
 Value make_primitive(const std::string& name, BuiltinFn fn)

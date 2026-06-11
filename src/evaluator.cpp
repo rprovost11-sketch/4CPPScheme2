@@ -3039,6 +3039,29 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                      fn_value = thunk;
                      new_collected = {};
                      }
+                  // port runners (call-with-port / call-with-{input,output}-file /
+                  // with-{input,output}-{from,to}-{file,string}): open + set up,
+                  // then ride the dynamic-wind machinery -- a native after-thunk
+                  // (close port; with-* also restore a current-port param) runs on
+                  // every exit, and the proc/thunk is tail-called on the K stack.
+                  if (kind == PRIM_PORT_RUNNER)
+                     {
+                     PortRunnerSetup prs = port_runner_setup(
+                         as_primitive_name(fn_value), ctx, saved_env,
+                         new_collected, &app_node);
+                     WindFrame wf;
+                     wf.before = prs.before;
+                     wf.after = prs.after;
+                     ctx->wind_stack.push_back(wf);
+                     Frame df;
+                     df.tag = FRAME_DYNAMIC_WIND_AFTER;
+                     df.v1 = prs.after;
+                     K.push_back(std::move(df));
+                     fn_value = prs.body_proc;
+                     new_collected = std::move(prs.body_args);
+                     kind = is_primitive(fn_value)
+                            ? as_primitive_kind(fn_value) : PRIM_ORDINARY;
+                     }
                      // parameter?
                      {
                      auto pv = apply_parameter_if(fn_value, (int)new_collected.size(), &app_node);
