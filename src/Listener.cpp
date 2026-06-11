@@ -1772,7 +1772,6 @@ void Listener::_cmd_suites(std::vector<std::string>& args)
       total_pass += sr.p;
       total_fail += sr.f;
       }
-   (void)total_pass;
 
    std::cout << BOLD << "===== SUITES COMPLETE =====" << RESET << '\n';
    for (const SuiteResult& sr : results)
@@ -1785,6 +1784,8 @@ void Listener::_cmd_suites(std::vector<std::string>& args)
                   std::to_string(sr.p + sr.f) + " failed" + RESET;
       std::cout << "  " << _ljust(sr.label, 28) << ' ' << detail << '\n';
       }
+   std::cout << "  " << _ljust("Total test cases", 28) << ' '
+             << BOLD << (total_pass + total_fail) << RESET << '\n';
    if (total_fail == 0)
       std::cout << BOLD << GREEN << "  ALL SUITES PASSED" << RESET << '\n';
    else
