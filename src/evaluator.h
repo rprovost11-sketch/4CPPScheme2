@@ -5,6 +5,7 @@
 #include "Context.h"
 #include "Environment.h"
 #include "scheme_export.h"
+#include <exception>
 #include <string>
 #include <unordered_set>
 #include <utility>
@@ -43,6 +44,11 @@ constexpr int FRAME_GUARD = 26;
 constexpr int FRAME_HOF_STEP = 27;       // map / for-each / filter driver
 constexpr int FRAME_HOF_STEP_IDX = 28;   // vector/string -map / -for-each driver
 constexpr int FRAME_SEARCH_STEP = 29;    // member / assoc 3-arg comparator driver
+constexpr int FRAME_RESTORE_VALUE = 30;          // reinstate a saved V after a wind thunk
+constexpr int FRAME_DYNAMIC_WIND_BEFORE_DONE = 31; // dynamic-wind before-thunk completed
+constexpr int FRAME_PARAMETERIZE_STEP = 32;      // parameterize value-converter driver
+constexpr int FRAME_WIND_STEP = 33;              // continuation-jump wind walk driver
+constexpr int FRAME_ERROR_UNWIND = 34;           // error-unwind after-thunk driver
 
 // ── Frame struct (runtime continuation entries) ───────────────────────────────
 // Port of Evaluator.py frame tuples.  Each tag uses a subset of fields:
@@ -80,6 +86,17 @@ constexpr int FRAME_SEARCH_STEP = 29;    // member / assoc 3-arg comparator driv
 //   FRAME_SEARCH_STEP:          v1=proc, v2=target, list1={cursor} (the cons cell
 //                                 currently under test), list2={app_node},
 //                                 depth=mode (PRIM_MEMBER/PRIM_ASSOC), uid=started
+//   FRAME_RESTORE_VALUE:        v1=saved_value (discard incoming V, reinstate v1)
+//   FRAME_DYNAMIC_WIND_BEFORE_DONE: v1=before, v2=thunk, list1={after}
+//   FRAME_PARAMETERIZE_STEP:    list1=params, list2=raw_vals, pairs=acc (running
+//                                 converted values, in .second; .first unused),
+//                                 v1=thunk, v2=app_node, depth=index, uid=awaiting(0/1)
+//   FRAME_WIND_STEP:            list1=op_thunks (per op: exit=after, enter=before),
+//                                 list2=op_after (the entry.after to push for an
+//                                 enter op; NIL for an exit op), ids=op_kinds
+//                                 (0=exit, 1=enter), v1=cont, v2=cont_value, depth=index
+//   FRAME_ERROR_UNWIND:         list1=afters, depth=index, exc=original exception_ptr
+//                                 (re-raised once the afters are exhausted)
 // (All HOF Values live in v1/v2/list1/list2 so they are GC-traced by the existing
 //  frame trace/forward; the int state lives in depth/uid/ids, which need no tracing.)
 
@@ -97,6 +114,11 @@ struct Frame
    uint32_t uid = 0;
    int depth = 0;
    std::string str1;
+   // FRAME_ERROR_UNWIND only: the original in-flight exception, captured via
+   // std::current_exception() in the handler-dispatch scan and re-raised once the
+   // collected after-thunks have run (propagate semantics).  Null for all other
+   // frames.  Not GC-relevant (holds a C++ exception, not a Value).
+   std::exception_ptr exc;
    };
 
 using KStack = std::vector<Frame>;
