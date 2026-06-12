@@ -37,6 +37,19 @@
 
 namespace fs = std::filesystem;
 
+// ── ANSI SGR escapes ──────────────────────────────────────────────────────────
+// Colorized-output escape codes, defined in one place (mirrors Listener.py
+// _ANSI_CODES).  Call sites use `color ? ansi::BOLD : ""` etc.
+namespace ansi {
+constexpr const char* BOLD = "\033[1;97m";  // bold white
+constexpr const char* BOLD_GREEN = "\033[1;92m";
+constexpr const char* GREEN = "\033[92m";
+constexpr const char* RED = "\033[91m";
+constexpr const char* DIM = "\033[2m";
+constexpr const char* CYAN = "\033[96m";
+constexpr const char* RESET = "\033[0m";
+}
+
 // ── Class-level statics ───────────────────────────────────────────────────────
 bool Listener::s_rl_initialized = false;
 int Listener::s_history_max = 500;
@@ -426,9 +439,9 @@ std::vector<Listener::LogEntry> Listener::parse_log(const std::string& text)
 void Listener::print_welcome_banner(bool use_color)
    {
    bool color = use_color;
-   std::string BOLD_GREEN = color ? "\033[1;92m" : "";
-   std::string CYAN = color ? "\033[96m" : "";
-   std::string RESET = color ? "\033[0m" : "";
+   std::string BOLD_GREEN = color ? ansi::BOLD_GREEN : "";
+   std::string CYAN = color ? ansi::CYAN : "";
+   std::string RESET = color ? ansi::RESET : "";
    std::cout << "Enter any expression to have it evaluated by the interpreter.\n";
    std::cout << "Evaluate '" << CYAN << "(help)" << RESET << "' for online help.\n";
    std::cout << "Type  '" << CYAN << "]help" << RESET << "' to list Listener commands.\n";
@@ -567,9 +580,9 @@ bool Listener::_use_color() const
 void Listener::_banner()
    {
    bool color = _use_color();
-   std::string BOLD_WHITE = color ? "\033[1;97m" : "";
-   std::string DIM = color ? "\033[2m" : "";
-   std::string RESET = color ? "\033[0m" : "";
+   std::string BOLD_WHITE = color ? ansi::BOLD : "";
+   std::string DIM = color ? ansi::DIM : "";
+   std::string RESET = color ? ansi::RESET : "";
    std::cout << BOLD_WHITE << _language << ' ' << _version << " by " << _author << RESET << '\n';
    std::cout << DIM << "Project home " << _project << RESET << '\n';
    std::cout << '\n';
@@ -593,9 +606,9 @@ void Listener::_writeLn(const std::string& value, std::ostream* file, bool flush
 void Listener::_writeResult(const std::string& text)
    {
    bool color = _use_color();
-   std::string GREEN = color ? "\033[92m" : "";
-   std::string BOLD = color ? "\033[1;97m" : "";
-   std::string RESET = color ? "\033[0m" : "";
+   std::string GREEN = color ? ansi::GREEN : "";
+   std::string BOLD = color ? ansi::BOLD : "";
+   std::string RESET = color ? ansi::RESET : "";
 
    std::vector<std::string> parts;
    size_t pos = 0;
@@ -624,8 +637,8 @@ void Listener::_writeResult(const std::string& text)
 void Listener::_writeErrorMsg(const std::string& errMsg)
    {
    bool color = _use_color();
-   std::string RED = color ? "\033[91m" : "";
-   std::string RESET = color ? "\033[0m" : "";
+   std::string RED = color ? ansi::RED : "";
+   std::string RESET = color ? ansi::RESET : "";
 
    std::vector<std::string> parts;
    size_t pos = 0;
@@ -785,8 +798,8 @@ void Listener::readEvalPrintLoop()
          // (exit) at an interactive prompt: unwind to top level and note it
          // quietly (dim), then carry on at the next '>>> '.
          bool color = _use_color();
-         std::string DIM = color ? "\033[2m" : "";
-         std::string RESET = color ? "\033[0m" : "";
+         std::string DIM = color ? ansi::DIM : "";
+         std::string RESET = color ? ansi::RESET : "";
          std::cout << DIM << "; (exit) ignored at REPL top level" << RESET << '\n';
          }
       catch (ReadlineInterruptError&)
@@ -886,11 +899,11 @@ TestResult Listener::sessionLog_test(const std::string& filename, int verbosity)
    f.close();
 
    bool color = _use_color();
-   std::string BOLD = color ? "\033[1;97m" : "";
-   std::string GREEN = color ? "\033[92m" : "";
-   std::string RED = color ? "\033[91m" : "";
-   std::string DIM = color ? "\033[2m" : "";
-   std::string RESET = color ? "\033[0m" : "";
+   std::string BOLD = color ? ansi::BOLD : "";
+   std::string GREEN = color ? ansi::GREEN : "";
+   std::string RED = color ? ansi::RED : "";
+   std::string DIM = color ? ansi::DIM : "";
+   std::string RESET = color ? ansi::RESET : "";
 
    auto entries = parse_log(text);
    int n_pass = 0;
@@ -1126,10 +1139,10 @@ TestResult Listener::_runTestFiles(const std::vector<std::string>& filenames, co
    GcStressRunGuard stress_guard(suite == "compliance" || suite == "feature");
 
    bool color = _use_color();
-   std::string BOLD = color ? "\033[1;97m" : "";
-   std::string GREEN = color ? "\033[92m" : "";
-   std::string RED = color ? "\033[91m" : "";
-   std::string RESET = color ? "\033[0m" : "";
+   std::string BOLD = color ? ansi::BOLD : "";
+   std::string GREEN = color ? ansi::GREEN : "";
+   std::string RED = color ? ansi::RED : "";
+   std::string RESET = color ? ansi::RESET : "";
 
    // Prepare a run report file for every run.
    std::ofstream* runFile = nullptr;
@@ -1318,9 +1331,9 @@ void Listener::_cmd_help(std::vector<std::string>& args)
       return;
       }
    bool color = _use_color();
-   std::string BOLD = color ? "\033[1;97m" : "";
-   std::string CYAN = color ? "\033[96m" : "";
-   std::string RESET = color ? "\033[0m" : "";
+   std::string BOLD = color ? ansi::BOLD : "";
+   std::string CYAN = color ? ansi::CYAN : "";
+   std::string RESET = color ? ansi::RESET : "";
 
    std::vector<std::string> names;
    for (const auto& [n, fn] : _commands)
@@ -1361,8 +1374,8 @@ void Listener::_cmd_reboot(std::vector<std::string>& args)
    if (_logStream)
       throw ListenerCommandError("Please close the log file before rebooting (]close).");
    bool color = _use_color();
-   std::string DIM = color ? "\033[2m" : "";
-   std::string RESET = color ? "\033[0m" : "";
+   std::string DIM = color ? ansi::DIM : "";
+   std::string RESET = color ? ansi::RESET : "";
    std::cout << DIM << "- Initializing interpreter" << RESET << '\n';
    _interp->reboot();
    std::cout << '\n';
@@ -1389,8 +1402,8 @@ void Listener::_cmd_readsrc(std::vector<std::string>& args)
       throw;
       }
    bool color = _use_color();
-   std::string GREEN = color ? "\033[92m" : "";
-   std::string RESET = color ? "\033[0m" : "";
+   std::string GREEN = color ? ansi::GREEN : "";
+   std::string RESET = color ? ansi::RESET : "";
    std::cout << GREEN << "Source file read successfully:" << RESET << " " << filename << '\n';
    }
 
@@ -1415,8 +1428,8 @@ void Listener::_cmd_readlog(std::vector<std::string>& args)
       }
    sessionLog_restore(args[0], verbosity);
    bool color = _use_color();
-   std::string GREEN = color ? "\033[92m" : "";
-   std::string RESET = color ? "\033[0m" : "";
+   std::string GREEN = color ? ansi::GREEN : "";
+   std::string RESET = color ? ansi::RESET : "";
    std::cout << GREEN << "Log file read successfully:" << RESET << " " << args[0] << '\n';
    }
 
@@ -1712,10 +1725,10 @@ void Listener::_cmd_suites(std::vector<std::string>& args)
       plan.push_back("regression");
 
    bool color = _use_color();
-   std::string BOLD = color ? "\033[1;97m" : "";
-   std::string GREEN = color ? "\033[92m" : "";
-   std::string RED = color ? "\033[91m" : "";
-   std::string RESET = color ? "\033[0m" : "";
+   std::string BOLD = color ? ansi::BOLD : "";
+   std::string GREEN = color ? ansi::GREEN : "";
+   std::string RED = color ? ansi::RED : "";
+   std::string RESET = color ? ansi::RESET : "";
 
    std::string planStr;
    for (size_t i = 0; i < plan.size(); ++i)
@@ -1875,8 +1888,8 @@ void Listener::_cmd_cd(std::vector<std::string>& args)
       throw ListenerCommandError("Not a directory: " + target);
    fs::current_path(target);
    bool color = _use_color();
-   std::string DIM = color ? "\033[2m" : "";
-   std::string RESET = color ? "\033[0m" : "";
+   std::string DIM = color ? ansi::DIM : "";
+   std::string RESET = color ? ansi::RESET : "";
    std::cout << DIM << fs::current_path().string() << RESET << '\n';
    }
 
