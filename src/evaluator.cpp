@@ -40,7 +40,6 @@ struct EnterResult
    enum Kind
       {
       IsValue,
-      IsCont,
       IsEnter,
       IsFrame      // higher-order primitive reached as a callback: push `frame`
                    // on K and resume the APPLY loop (drives the call on frames
@@ -50,7 +49,6 @@ struct EnterResult
    Value v;
    Environment* new_env = nullptr;
    Value seq; // IsEnter: remaining body cons or NIL_VALUE
-   KStack new_k;
    Frame frame; // IsFrame: the driver frame to push onto K
    };
 
@@ -734,6 +732,47 @@ static EnterResult enter_proc(const Value& fn_value, std::vector<Value>& args,
       return r;
       }
    throw SchemeTypeError("expected a procedure", src);
+   }
+
+// ── apply_enter_result ────────────────────────────────────────────────────────
+// Outcome of applying an enter_proc descriptor to the CEK registers.
+enum class EnterAction { DoApply, DoEval };
+
+// Apply an enter_proc descriptor to the CEK registers and report what the APPLY
+// loop should do next.  K is mutated in place when a frame must be pushed; V is
+// set for a produced value; C/E are set when a closure body is entered.
+//   DoApply -- a value was produced (or a frame-driven callback was pushed):
+//              stay in / resume the APPLY phase (caller: continue, or set
+//              skip_eval at the handler-dispatch site)
+//   DoEval  -- a closure body was entered: evaluate C in E (caller: break)
+// enter_proc never yields IsCont since the single-loop rewrite (a continuation
+// arrives as a FRAME_WIND_STEP IsFrame), so that case is gone.  Mirrors
+// pyScheme's _apply_enter_result.
+static EnterAction apply_enter_result(EnterResult& result, KStack& K,
+                                      Value& V, Value& C, Environment*& E)
+   {
+   if (result.kind == EnterResult::IsValue)
+      {
+      V = result.v;
+      return EnterAction::DoApply;
+      }
+   if (result.kind == EnterResult::IsFrame)
+      {
+      K.push_back(std::move(result.frame));
+      return EnterAction::DoApply;
+      }
+   // IsEnter: a closure body to evaluate; push FRAME_SEQ for a multi-form body.
+   C = result.v;
+   E = result.new_env;
+   if (is_cons(result.seq))
+      {
+      Frame sf;
+      sf.tag = FRAME_SEQ;
+      sf.v1 = result.seq;
+      sf.env = result.new_env;
+      K.push_back(std::move(sf));
+      }
+   return EnterAction::DoEval;
    }
 
 // ── unpack_apply_args ─────────────────────────────────────────────────────────
@@ -1460,37 +1499,15 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
          }
       std::vector<Value> hargs = {raised_root.val};
       EnterResult result = enter_proc(handler_val, hargs, ctx, E, nullptr);
-      if (result.kind == EnterResult::IsValue)
+      if (apply_enter_result(result, K, V, C, E) == EnterAction::DoApply)
          {
-         V = result.v;
+         // Handler produced a value, or is itself a frame-driven HOF primitive
+         // whose driver was just pushed; resume the APPLY loop (the start-frame
+         // ignores the current V).
          skip_eval = true;
          }
-      else if (result.kind == EnterResult::IsCont)
-         {
-         K = std::move(result.new_k);
-         V = result.v;
-         skip_eval = true;
-         }
-      else if (result.kind == EnterResult::IsFrame)
-         {
-         // Handler is itself a frame-driven HOF primitive: push its driver and
-         // resume the APPLY loop (the start-frame ignores the current V).
-         K.push_back(std::move(result.frame));
-         skip_eval = true;
-         }
-      else
-         {
-         C = result.v;
-         E = result.new_env;
-         if (is_cons(result.seq))
-            {
-            Frame sf;
-            sf.tag = FRAME_SEQ;
-            sf.v1 = result.seq;
-            sf.env = result.new_env;
-            K.push_back(std::move(sf));
-            }
-         }
+      // else DoEval: handler is a closure body; C and E are set and skip_eval
+      // stays false so the loop evaluates it.
       return true;
    };
 
@@ -2092,32 +2109,8 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   K.push_back(std::move(rv));
                   std::vector<Value> ea;
                   EnterResult result = enter_proc(after, ea, ctx, nullptr, nullptr);
-                  if (result.kind == EnterResult::IsValue)
-                     {
-                     V = result.v;
+                  if (apply_enter_result(result, K, V, C, E) == EnterAction::DoApply)
                      continue;
-                     }
-                  if (result.kind == EnterResult::IsCont)
-                     {
-                     K = std::move(result.new_k);
-                     V = result.v;
-                     continue;
-                     }
-                  if (result.kind == EnterResult::IsFrame)
-                     {
-                     K.push_back(std::move(result.frame));
-                     continue;
-                     }
-                  C = result.v;
-                  E = result.new_env;
-                  if (is_cons(result.seq))
-                     {
-                     Frame sf;
-                     sf.tag = FRAME_SEQ;
-                     sf.v1 = result.seq;
-                     sf.env = result.new_env;
-                     K.push_back(std::move(sf));
-                     }
                   break;
                   }
 
@@ -2149,32 +2142,8 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   K.push_back(std::move(df));
                   std::vector<Value> ea;
                   EnterResult result = enter_proc(thunk, ea, ctx, nullptr, nullptr);
-                  if (result.kind == EnterResult::IsValue)
-                     {
-                     V = result.v;
+                  if (apply_enter_result(result, K, V, C, E) == EnterAction::DoApply)
                      continue;
-                     }
-                  if (result.kind == EnterResult::IsCont)
-                     {
-                     K = std::move(result.new_k);
-                     V = result.v;
-                     continue;
-                     }
-                  if (result.kind == EnterResult::IsFrame)
-                     {
-                     K.push_back(std::move(result.frame));
-                     continue;
-                     }
-                  C = result.v;
-                  E = result.new_env;
-                  if (is_cons(result.seq))
-                     {
-                     Frame sf;
-                     sf.tag = FRAME_SEQ;
-                     sf.v1 = result.seq;
-                     sf.env = result.new_env;
-                     K.push_back(std::move(sf));
-                     }
                   break;
                   }
 
@@ -2211,32 +2180,8 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                      K.push_back(std::move(nf));
                      std::vector<Value> ea;
                      EnterResult result = enter_proc(w_thunk, ea, ctx, nullptr, nullptr);
-                     if (result.kind == EnterResult::IsValue)
-                        {
-                        V = result.v;
+                     if (apply_enter_result(result, K, V, C, E) == EnterAction::DoApply)
                         continue;
-                        }
-                     if (result.kind == EnterResult::IsCont)
-                        {
-                        K = std::move(result.new_k);
-                        V = result.v;
-                        continue;
-                        }
-                     if (result.kind == EnterResult::IsFrame)
-                        {
-                        K.push_back(std::move(result.frame));
-                        continue;
-                        }
-                     C = result.v;
-                     E = result.new_env;
-                     if (is_cons(result.seq))
-                        {
-                        Frame sf;
-                        sf.tag = FRAME_SEQ;
-                        sf.v1 = result.seq;
-                        sf.env = result.new_env;
-                        K.push_back(std::move(sf));
-                        }
                      break;
                      }
                   // All wind thunks have run: install the continuation.
@@ -2294,32 +2239,8 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                      K.push_back(std::move(nf));
                      std::vector<Value> ca = {p_raw[p_i]};
                      EnterResult result = enter_proc(conv, ca, ctx, nullptr, &p_app);
-                     if (result.kind == EnterResult::IsValue)
-                        {
-                        V = result.v;
+                     if (apply_enter_result(result, K, V, C, E) == EnterAction::DoApply)
                         continue;
-                        }
-                     if (result.kind == EnterResult::IsCont)
-                        {
-                        K = std::move(result.new_k);
-                        V = result.v;
-                        continue;
-                        }
-                     if (result.kind == EnterResult::IsFrame)
-                        {
-                        K.push_back(std::move(result.frame));
-                        continue;
-                        }
-                     C = result.v;
-                     E = result.new_env;
-                     if (is_cons(result.seq))
-                        {
-                        Frame sf;
-                        sf.tag = FRAME_SEQ;
-                        sf.v1 = result.seq;
-                        sf.env = result.new_env;
-                        K.push_back(std::move(sf));
-                        }
                      break;
                      }
                   // Every value converted: install winds, tail-call the body.
@@ -2334,32 +2255,8 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   K.push_back(std::move(df));
                   std::vector<Value> ea;
                   EnterResult result = enter_proc(p_thunk, ea, ctx, nullptr, &p_app);
-                  if (result.kind == EnterResult::IsValue)
-                     {
-                     V = result.v;
+                  if (apply_enter_result(result, K, V, C, E) == EnterAction::DoApply)
                      continue;
-                     }
-                  if (result.kind == EnterResult::IsCont)
-                     {
-                     K = std::move(result.new_k);
-                     V = result.v;
-                     continue;
-                     }
-                  if (result.kind == EnterResult::IsFrame)
-                     {
-                     K.push_back(std::move(result.frame));
-                     continue;
-                     }
-                  C = result.v;
-                  E = result.new_env;
-                  if (is_cons(result.seq))
-                     {
-                     Frame sf;
-                     sf.tag = FRAME_SEQ;
-                     sf.v1 = result.seq;
-                     sf.env = result.new_env;
-                     K.push_back(std::move(sf));
-                     }
                   break;
                   }
 
@@ -2385,32 +2282,8 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                      K.push_back(std::move(nf));
                      std::vector<Value> ea;
                      EnterResult result = enter_proc(after, ea, ctx, nullptr, nullptr);
-                     if (result.kind == EnterResult::IsValue)
-                        {
-                        V = result.v;
+                     if (apply_enter_result(result, K, V, C, E) == EnterAction::DoApply)
                         continue;
-                        }
-                     if (result.kind == EnterResult::IsCont)
-                        {
-                        K = std::move(result.new_k);
-                        V = result.v;
-                        continue;
-                        }
-                     if (result.kind == EnterResult::IsFrame)
-                        {
-                        K.push_back(std::move(result.frame));
-                        continue;
-                        }
-                     C = result.v;
-                     E = result.new_env;
-                     if (is_cons(result.seq))
-                        {
-                        Frame sf;
-                        sf.tag = FRAME_SEQ;
-                        sf.v1 = result.seq;
-                        sf.env = result.new_env;
-                        K.push_back(std::move(sf));
-                        }
                      break;
                      }
                   // Afters exhausted: re-raise the original condition.  For a
@@ -2597,32 +2470,8 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   else
                      consumer_args = {V};
                   EnterResult result = enter_proc(consumer, consumer_args, ctx, E, &app_node);
-                  if (result.kind == EnterResult::IsValue)
-                     {
-                     V = result.v;
+                  if (apply_enter_result(result, K, V, C, E) == EnterAction::DoApply)
                      continue;
-                     }
-                  if (result.kind == EnterResult::IsCont)
-                     {
-                     K = std::move(result.new_k);
-                     V = result.v;
-                     continue;
-                     }
-                  if (result.kind == EnterResult::IsFrame)
-                     {
-                     K.push_back(std::move(result.frame));
-                     continue;
-                     }
-                  C = result.v;
-                  E = result.new_env;
-                  if (is_cons(result.seq))
-                     {
-                     Frame sf;
-                     sf.tag = FRAME_SEQ;
-                     sf.v1 = result.seq;
-                     sf.env = result.new_env;
-                     K.push_back(std::move(sf));
-                     }
                   break;
                   }
 
@@ -2694,21 +2543,8 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   nf.list2 = {app_node.val, next_pending};
                   K.push_back(std::move(nf));
                   EnterResult result = enter_proc(proc.val, row, ctx, E, &app_node.val);
-                  if (result.kind == EnterResult::IsValue) { V = result.v; continue; }
-                  if (result.kind == EnterResult::IsCont)
-                     { K = std::move(result.new_k); V = result.v; continue; }
-                  if (result.kind == EnterResult::IsFrame)
-                     { K.push_back(std::move(result.frame)); continue; }
-                  C = result.v;
-                  E = result.new_env;
-                  if (is_cons(result.seq))
-                     {
-                     Frame sf;
-                     sf.tag = FRAME_SEQ;
-                     sf.v1 = result.seq;
-                     sf.env = result.new_env;
-                     K.push_back(std::move(sf));
-                     }
+                  if (apply_enter_result(result, K, V, C, E) == EnterAction::DoApply)
+                     continue;
                   break;
                   }
 
@@ -2793,21 +2629,8 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   nf.ids = std::move(positions);
                   K.push_back(std::move(nf));
                   EnterResult result = enter_proc(proc.val, row, ctx, E, &app_node.val);
-                  if (result.kind == EnterResult::IsValue) { V = result.v; continue; }
-                  if (result.kind == EnterResult::IsCont)
-                     { K = std::move(result.new_k); V = result.v; continue; }
-                  if (result.kind == EnterResult::IsFrame)
-                     { K.push_back(std::move(result.frame)); continue; }
-                  C = result.v;
-                  E = result.new_env;
-                  if (is_cons(result.seq))
-                     {
-                     Frame sf;
-                     sf.tag = FRAME_SEQ;
-                     sf.v1 = result.seq;
-                     sf.env = result.new_env;
-                     K.push_back(std::move(sf));
-                     }
+                  if (apply_enter_result(result, K, V, C, E) == EnterAction::DoApply)
+                     continue;
                   break;
                   }
 
@@ -2866,21 +2689,8 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   K.push_back(std::move(nf));
                   std::vector<Value> row = {target.val, item};
                   EnterResult result = enter_proc(proc.val, row, ctx, E, &app_node.val);
-                  if (result.kind == EnterResult::IsValue) { V = result.v; continue; }
-                  if (result.kind == EnterResult::IsCont)
-                     { K = std::move(result.new_k); V = result.v; continue; }
-                  if (result.kind == EnterResult::IsFrame)
-                     { K.push_back(std::move(result.frame)); continue; }
-                  C = result.v;
-                  E = result.new_env;
-                  if (is_cons(result.seq))
-                     {
-                     Frame sf;
-                     sf.tag = FRAME_SEQ;
-                     sf.v1 = result.seq;
-                     sf.env = result.new_env;
-                     K.push_back(std::move(sf));
-                     }
+                  if (apply_enter_result(result, K, V, C, E) == EnterAction::DoApply)
+                     continue;
                   break;
                   }
 
@@ -2943,32 +2753,8 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                      Value thunk = as_promise_payload(p);
                      std::vector<Value> ea;
                      EnterResult result = enter_proc(thunk, ea, ctx, E, nullptr);
-                     if (result.kind == EnterResult::IsValue)
-                        {
-                        V = result.v;
+                     if (apply_enter_result(result, K, V, C, E) == EnterAction::DoApply)
                         continue;
-                        }
-                     if (result.kind == EnterResult::IsCont)
-                        {
-                        K = std::move(result.new_k);
-                        V = result.v;
-                        continue;
-                        }
-                     if (result.kind == EnterResult::IsFrame)
-                        {
-                        K.push_back(std::move(result.frame));
-                        continue;
-                        }
-                     C = result.v;
-                     E = result.new_env;
-                     if (is_cons(result.seq))
-                        {
-                        Frame sf;
-                        sf.tag = FRAME_SEQ;
-                        sf.v1 = result.seq;
-                        sf.env = result.new_env;
-                        K.push_back(std::move(sf));
-                        }
                      break;
                      }
                   promise_resolve(p, V);
