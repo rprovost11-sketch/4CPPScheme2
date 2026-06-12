@@ -16,6 +16,7 @@
 #include <variant>
 #include <limits>
 #include <cstdint>
+#include <utility>
 #include <cstring>
 #include <cstdio>
 #include <charconv>
@@ -1012,37 +1013,57 @@ static Value _prim_abs(Context* ctx, Environment* env, std::vector<Value>& args,
         } }, n);
    }
 
+// Shared bodies for the integer-division family (quotient/remainder/modulo and
+// the R7RS floor-/truncate- forms).  fn carries the per-op arithmetic --
+// including the floor / sign adjustments that C++'s truncating / and % need
+// (Python's // and % already floor).  divzero is the per-op message ('division
+// by zero' for the original trio, 'divide by zero' for the R7RS group -- both
+// pinned by feature test020).  Mirrors arithmetic.py _int_div1 / _int_div2.
+static Value _int_div1(const char* name, std::vector<Value>& args, const Value* app,
+                       const char* divzero, int64_t (*fn)(int64_t, int64_t))
+   {
+   auto n = _check_int_x(args[0], name, app, 1);
+   auto d = _check_int_x(args[1], name, app, 2);
+   if (d.re == 0)
+      throw SchemeTypeError(std::string(name) + ": " + divzero, _src(app));
+   int64_t r = fn(n.re, d.re);
+   return (!n.exact || !d.exact) ? make_real((double)r) : make_integer(r);
+   }
+
+static Value _int_div2(const char* name, std::vector<Value>& args, const Value* app,
+                       const char* divzero,
+                       std::pair<int64_t, int64_t> (*fn)(int64_t, int64_t))
+   {
+   auto n = _check_int_x(args[0], name, app, 1);
+   auto d = _check_int_x(args[1], name, app, 2);
+   if (d.re == 0)
+      throw SchemeTypeError(std::string(name) + ": " + divzero, _src(app));
+   std::pair<int64_t, int64_t> qr = fn(n.re, d.re);
+   bool inexact = !n.exact || !d.exact;
+   return make_multi_values({inexact ? make_real((double)qr.first) : make_integer(qr.first),
+                             inexact ? make_real((double)qr.second) : make_integer(qr.second)});
+   }
+
 static Value _prim_quotient(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   auto n = _check_int_x(args[0], "quotient", app, 1);
-   auto d = _check_int_x(args[1], "quotient", app, 2);
-   if (d.re == 0)
-      throw SchemeTypeError("quotient: division by zero", _src(app));
-   int64_t r = _trunc_div(n.re, d.re);
-   return (!n.exact || !d.exact) ? make_real((double)r) : make_integer(r);
+   return _int_div1("quotient", args, app, "division by zero",
+                    +[](int64_t nn, int64_t dd) -> int64_t { return _trunc_div(nn, dd); });
    }
 
 static Value _prim_remainder(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   auto n = _check_int_x(args[0], "remainder", app, 1);
-   auto d = _check_int_x(args[1], "remainder", app, 2);
-   if (d.re == 0)
-      throw SchemeTypeError("remainder: division by zero", _src(app));
-   int64_t r = n.re - d.re * _trunc_div(n.re, d.re);
-   return (!n.exact || !d.exact) ? make_real((double)r) : make_integer(r);
+   return _int_div1("remainder", args, app, "division by zero",
+                    +[](int64_t nn, int64_t dd) -> int64_t { return nn - dd * _trunc_div(nn, dd); });
    }
 
 static Value _prim_modulo(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   auto n = _check_int_x(args[0], "modulo", app, 1);
-   auto d = _check_int_x(args[1], "modulo", app, 2);
-   if (d.re == 0)
-      throw SchemeTypeError("modulo: division by zero", _src(app));
-   int64_t r = n.re % d.re;
-   // Adjust: result must have sign of d (Python semantics).
-   if (r != 0 && ((r < 0) != (d.re < 0)))
-      r += d.re;
-   return (!n.exact || !d.exact) ? make_real((double)r) : make_integer(r);
+   return _int_div1("modulo", args, app, "division by zero",
+                    +[](int64_t nn, int64_t dd) -> int64_t {
+                       int64_t r = nn % dd;
+                       if (r != 0 && ((r < 0) != (dd < 0))) r += dd;
+                       return r;
+                    });
    }
 
 static Value _prim_min(Context*, Environment*, std::vector<Value>& args, const Value* app)
@@ -1665,75 +1686,53 @@ static Value _prim_string_to_number(Context*, Environment*, std::vector<Value>& 
 
 static Value _prim_floor_quotient(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   auto n = _check_int_x(args[0], "floor-quotient", app, 1);
-   auto d = _check_int_x(args[1], "floor-quotient", app, 2);
-   if (d.re == 0)
-      throw SchemeTypeError("floor-quotient: divide by zero", _src(app));
-   int64_t r = n.re / d.re;
-   // Adjust toward -inf for floor division.
-   if ((n.re ^ d.re) < 0 && r * d.re != n.re)
-      --r;
-   return (!n.exact || !d.exact) ? make_real((double)r) : make_integer(r);
+   return _int_div1("floor-quotient", args, app, "divide by zero",
+                    +[](int64_t nn, int64_t dd) -> int64_t {
+                       int64_t r = nn / dd;
+                       if ((nn ^ dd) < 0 && r * dd != nn) --r;
+                       return r;
+                    });
    }
 
 static Value _prim_floor_remainder(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   auto n = _check_int_x(args[0], "floor-remainder", app, 1);
-   auto d = _check_int_x(args[1], "floor-remainder", app, 2);
-   if (d.re == 0)
-      throw SchemeTypeError("floor-remainder: divide by zero", _src(app));
-   int64_t r = n.re % d.re;
-   if (r != 0 && ((r < 0) != (d.re < 0)))
-      r += d.re;
-   return (!n.exact || !d.exact) ? make_real((double)r) : make_integer(r);
+   return _int_div1("floor-remainder", args, app, "divide by zero",
+                    +[](int64_t nn, int64_t dd) -> int64_t {
+                       int64_t r = nn % dd;
+                       if (r != 0 && ((r < 0) != (dd < 0))) r += dd;
+                       return r;
+                    });
    }
 
 static Value _prim_floor_div(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   auto n = _check_int_x(args[0], "floor/", app, 1);
-   auto d = _check_int_x(args[1], "floor/", app, 2);
-   if (d.re == 0)
-      throw SchemeTypeError("floor/: divide by zero", _src(app));
-   int64_t q = n.re / d.re;
-   if ((n.re ^ d.re) < 0 && q * d.re != n.re)
-      --q;
-   int64_t r = n.re - q * d.re;
-   bool inexact = !n.exact || !d.exact;
-   return make_multi_values({inexact ? make_real((double)q) : make_integer(q),
-                             inexact ? make_real((double)r) : make_integer(r)});
+   return _int_div2("floor/", args, app, "divide by zero",
+                    +[](int64_t nn, int64_t dd) -> std::pair<int64_t, int64_t> {
+                       int64_t q = nn / dd;
+                       if ((nn ^ dd) < 0 && q * dd != nn) --q;
+                       return {q, nn - q * dd};
+                    });
    }
 
 static Value _prim_truncate_quotient(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   auto n = _check_int_x(args[0], "truncate-quotient", app, 1);
-   auto d = _check_int_x(args[1], "truncate-quotient", app, 2);
-   if (d.re == 0)
-      throw SchemeTypeError("truncate-quotient: divide by zero", _src(app));
-   int64_t r = _trunc_div(n.re, d.re);
-   return (!n.exact || !d.exact) ? make_real((double)r) : make_integer(r);
+   return _int_div1("truncate-quotient", args, app, "divide by zero",
+                    +[](int64_t nn, int64_t dd) -> int64_t { return _trunc_div(nn, dd); });
    }
 
 static Value _prim_truncate_remainder(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   auto n = _check_int_x(args[0], "truncate-remainder", app, 1);
-   auto d = _check_int_x(args[1], "truncate-remainder", app, 2);
-   if (d.re == 0)
-      throw SchemeTypeError("truncate-remainder: divide by zero", _src(app));
-   int64_t r = n.re - _trunc_div(n.re, d.re) * d.re;
-   return (!n.exact || !d.exact) ? make_real((double)r) : make_integer(r);
+   return _int_div1("truncate-remainder", args, app, "divide by zero",
+                    +[](int64_t nn, int64_t dd) -> int64_t { return nn - _trunc_div(nn, dd) * dd; });
    }
 
 static Value _prim_truncate_div(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   auto n = _check_int_x(args[0], "truncate/", app, 1);
-   auto d = _check_int_x(args[1], "truncate/", app, 2);
-   if (d.re == 0)
-      throw SchemeTypeError("truncate/: divide by zero", _src(app));
-   int64_t q = _trunc_div(n.re, d.re);
-   int64_t r = n.re - q * d.re;
-   bool inexact = !n.exact || !d.exact;
-   return make_multi_values({inexact ? make_real((double)q) : make_integer(q),
-                             inexact ? make_real((double)r) : make_integer(r)});
+   return _int_div2("truncate/", args, app, "divide by zero",
+                    +[](int64_t nn, int64_t dd) -> std::pair<int64_t, int64_t> {
+                       int64_t q = _trunc_div(nn, dd);
+                       return {q, nn - q * dd};
+                    });
    }
 
 static Value _prim_exact_integer_sqrt(Context*, Environment*, std::vector<Value>& args, const Value* app)
