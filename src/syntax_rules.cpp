@@ -237,47 +237,70 @@ static void collect_free_ids(const Value& tmpl,
    }
 
 // ── Binding-site intro-name collector ─────────────────────────────────────
-// Port of syntax_rules.py _cbi_formals, _cbi_let_bindings, collect_binding_intros.
+// Port of syntax_rules.py formals_bound_names / let_binding_names / _cbi_* /
+// collect_binding_intros.
+//
+// Binding forms: shared roster for the two hygiene walkers.  Two walkers must
+// know which heads introduce *bindings*, and must not silently drift apart:
+//   * collect_binding_intros (below) walks RAW syntax-rules TEMPLATES, adding
+//     binder-position names to the per-expansion gensym set.
+//   * Expander's rename_refs_in_form walks ALREADY-EXPANDED forms, masking
+//     re-bound names while it renames free references.
+// They deliberately cover DIFFERENT head subsets because they see different
+// input languages: a template can contain `define` (internal defines are
+// lowered to letrec* before the expanded-form walker runs, so it never sees
+// one), while case-lambda / let-syntax / letrec-syntax survive into expanded
+// code (so the expanded-form walker masks them).  Both share the binder
+// extractors formals_bound_names / let_binding_names below.  Adding a binding
+// form means deciding which walker(s) it reaches and updating the matching
+// dispatch.  (Mirrors syntax_rules.py's BINDING_FORM_HEADS comment; here the
+// per-head dispatch keys off interned sid_* ids rather than a name set.)
+
+std::vector<uint32_t> formals_bound_names(const Value& formals)
+   {
+   std::vector<uint32_t> names;
+   Value cur = formals;
+   while (is_cons(cur))
+      {
+      if (is_symbol(car(cur)))
+         names.push_back(as_symbol_id(car(cur)));
+      cur = cdr(cur);
+      }
+   if (is_symbol(cur))
+      names.push_back(as_symbol_id(cur));
+   return names;
+   }
+
+std::vector<uint32_t> let_binding_names(const Value& bindings)
+   {
+   std::vector<uint32_t> names;
+   Value cur = bindings;
+   while (is_cons(cur))
+      {
+      Value b = car(cur);
+      if (is_cons(b) && is_symbol(car(b)))
+         names.push_back(as_symbol_id(car(b)));
+      cur = cdr(cur);
+      }
+   return names;
+   }
 
 static void cbi_formals(const Value& formals,
                         const std::unordered_set<uint32_t>& pvars,
                         std::unordered_set<uint32_t>& out)
    {
-   Value cur = formals;
-   while (is_cons(cur))
-      {
-      if (is_symbol(car(cur)))
-         {
-         uint32_t n_sid = as_symbol_id(car(cur));
-         if (!pvars.count(n_sid))
-            out.insert(n_sid);
-         }
-      cur = cdr(cur);
-      }
-   if (is_symbol(cur))
-      {
-      uint32_t n_sid = as_symbol_id(cur);
+   for (uint32_t n_sid : formals_bound_names(formals))
       if (!pvars.count(n_sid))
          out.insert(n_sid);
-      }
    }
 
 static void cbi_let_bindings(const Value& bindings,
                              const std::unordered_set<uint32_t>& pvars,
                              std::unordered_set<uint32_t>& out)
    {
-   Value cur = bindings;
-   while (is_cons(cur))
-      {
-      Value b = car(cur);
-      if (is_cons(b) && is_symbol(car(b)))
-         {
-         uint32_t n_sid = as_symbol_id(car(b));
-         if (!pvars.count(n_sid))
-            out.insert(n_sid);
-         }
-      cur = cdr(cur);
-      }
+   for (uint32_t n_sid : let_binding_names(bindings))
+      if (!pvars.count(n_sid))
+         out.insert(n_sid);
    }
 
 static void collect_binding_intros(const Value& tmpl,

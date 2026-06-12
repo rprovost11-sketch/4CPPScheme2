@@ -236,33 +236,21 @@ Value lookup_macro(const Value& sym)
 
 // ── Alpha-rename helpers ──────────────────────────────────────────────────────
 
+// Both delegate to the shared binder-extractors in syntax_rules so the two
+// hygiene walkers can't disagree on what a binder position binds.  See the
+// roster comment above collect_binding_intros in syntax_rules.cpp for why
+// rename_refs_in_form (expanded forms) and collect_binding_intros (raw
+// templates) handle different binding-form heads.
 static std::unordered_set<uint32_t> collect_formals_names(const Value& formals)
    {
-   std::unordered_set<uint32_t> names;
-   Value cur = formals;
-   while (is_cons(cur))
-      {
-      if (is_symbol(car(cur)))
-         names.insert(as_symbol_id(car(cur)));
-      cur = cdr(cur);
-      }
-   if (is_symbol(cur))
-      names.insert(as_symbol_id(cur));
-   return names;
+   std::vector<uint32_t> v = formals_bound_names(formals);
+   return std::unordered_set<uint32_t>(v.begin(), v.end());
    }
 
 static std::unordered_set<uint32_t> collect_let_bound_names(const Value& bindings)
    {
-   std::unordered_set<uint32_t> names;
-   Value cur = bindings;
-   while (is_cons(cur))
-      {
-      Value pair = car(cur);
-      if (is_cons(pair) && is_symbol(car(pair)))
-         names.insert(as_symbol_id(car(pair)));
-      cur = cdr(cur);
-      }
-   return names;
+   std::vector<uint32_t> v = let_binding_names(bindings);
+   return std::unordered_set<uint32_t>(v.begin(), v.end());
    }
 
 static RenameTable mask_table(const RenameTable& table,
