@@ -125,7 +125,7 @@ int main(int argc, char* argv[])
        &interp,
        testdir,
        "cppscheme2",
-       "0.6.0",
+       "0.6.2",
        "Ron Provost/Longo",
        "https://github.com/rprovost11/cppscheme2",
        compliancedir,
