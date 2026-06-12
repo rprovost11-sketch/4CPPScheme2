@@ -118,7 +118,7 @@ static void check_invariants(const char* label)
       size_t marked_count = 0;
       auto check_mark = [&](GcHeader* h)
       {
-         if (h->marked.load(std::memory_order_relaxed))
+         if (h->marked)
             ++marked_count;
       };
       gc_test_walk_young(check_mark);

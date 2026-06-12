@@ -109,7 +109,7 @@ void gc_write_barrier(GcHeader* parent, GcHeader* child)
       return;
    if (parent->gen == 1 && child->gen == 0)
       g_remembered_set.insert(parent);
-   if (g_gc_phase == GcPhase::Marking && parent->marked.load(std::memory_order_relaxed) && child->gen == 1)
+   if (g_gc_phase == GcPhase::Marking && parent->marked && child->gen == 1)
       shade_gray(child);
    }
 
@@ -134,9 +134,9 @@ static void shade_gray(GcHeader* header)
    {
    if (!header || header->gen != 1)
       return;
-   if (header->marked.load(std::memory_order_relaxed))
+   if (header->marked)
       return;
-   header->marked.store(true, std::memory_order_relaxed);
+   header->marked = true;
    g_gray_stack.push_back(header);
    }
 
@@ -371,9 +371,9 @@ static inline void mark_enqueue(GcHeader* header, bool minor_only)
       return;
    if (minor_only && header->gen == 1)
       return;
-   if (header->marked.load(std::memory_order_relaxed))
+   if (header->marked)
       return;
-   header->marked.store(true, std::memory_order_relaxed);
+   header->marked = true;
    g_mark_worklist.push_back(header);
    }
 
@@ -431,9 +431,9 @@ static void process_object_children(GcHeader* header, bool minor_only)
          return;
       if (minor_only && next->gen == 1)
          return;
-      if (next->marked.load(std::memory_order_relaxed))
+      if (next->marked)
          return;
-      next->marked.store(true, std::memory_order_relaxed);
+      next->marked = true;
       header = next;
       }
 
@@ -577,7 +577,7 @@ static void nursery_evacuate_and_forward(
    for (size_t i = 0; i < g_nursery_bump; ++i)
       {
       ConsCell* old_cell = &g_nursery[i];
-      if (!old_cell->header.marked.load(std::memory_order_relaxed))
+      if (!old_cell->header.marked)
          {
          // Dead nursery cell: release owned SourceInfo.  alloc_cons clones
          // src on construction, so each cons cell exclusively owns its src.
@@ -601,7 +601,7 @@ static void nursery_evacuate_and_forward(
          shade_gray(&new_cell->header);
       else if (g_gc_phase == GcPhase::Sweeping)
          {
-         new_cell->header.marked.store(true, std::memory_order_relaxed);
+         new_cell->header.marked = true;
          g_promoted_during_sweep.push_back(&new_cell->header);
          }
 
@@ -666,9 +666,9 @@ static void minor_collect()
             abort();
             }
          GcHeader* obj = *prev;
-         if (obj->marked.load(std::memory_order_relaxed))
+         if (obj->marked)
             {
-            obj->marked.store(false, std::memory_order_relaxed);
+            obj->marked = false;
             obj->gen = 1;
             *prev = obj->next;
             obj->next = g_old_head;
@@ -678,7 +678,7 @@ static void minor_collect()
             freshly_promoted.push_back(obj);
             if (g_gc_phase == GcPhase::Sweeping)
                {
-               obj->marked.store(true, std::memory_order_relaxed);
+               obj->marked = true;
                g_promoted_during_sweep.push_back(obj);
                }
             }
@@ -705,7 +705,7 @@ static void gc_major_start()
    // shade_gray() returns early for already-marked objects, so without this
    // their children would never be traced and would be freed as garbage.
    for (GcHeader* obj : g_promoted_during_sweep)
-      obj->marked.store(false, std::memory_order_relaxed);
+      obj->marked = false;
    g_promoted_during_sweep.clear();
 
    g_gc_phase = GcPhase::Marking;
@@ -761,9 +761,9 @@ static void gc_sweep_step()
    while (g_sweep_cursor && *g_sweep_cursor && processed < SWEEP_STEP_BUDGET)
       {
       GcHeader* obj = *g_sweep_cursor;
-      if (obj->marked.load(std::memory_order_relaxed))
+      if (obj->marked)
          {
-         obj->marked.store(false, std::memory_order_relaxed);
+         obj->marked = false;
          g_sweep_cursor = &obj->next;
          }
       else
@@ -792,7 +792,7 @@ static void gc_sweep_step()
       // major GC can shade them correctly.  (gc_major_start also clears them,
       // but if no major GC triggers before check_invariants, we'd fail.)
       for (GcHeader* obj : g_promoted_during_sweep)
-         obj->marked.store(false, std::memory_order_relaxed);
+         obj->marked = false;
       g_promoted_during_sweep.clear();
 
       g_gc_phase = GcPhase::Idle;

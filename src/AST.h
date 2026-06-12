@@ -10,7 +10,6 @@
 #include "scheme_export.h"
 #include "mini-gmp/mini-gmp.h"
 #include <cstdint>
-#include <atomic>
 #include <variant>
 #include <string>
 #include <vector>
@@ -95,13 +94,14 @@ enum class GcType : uint8_t
 
 // ── GC intrusive header ───────────────────────────────────────────────────────
 // Every GC-managed heap object must begin with this header.
-// marked and gen are std::atomic so the concurrent marking thread can safely
-// read and CAS them while the mutator runs.
+// marked and gen are plain scalars: the collector runs entirely on the mutator
+// thread (incremental marking on one loop, no background/concurrent marker), so
+// no atomic synchronization is needed.
 
 struct GcHeader
    {
-   std::atomic<bool> marked{false};
-   std::atomic<uint8_t> gen{0}; // 0=young, 1=old
+   bool marked = false;
+   uint8_t gen = 0; // 0=young, 1=old
    GcType type;
    GcHeader* next = nullptr;
    GcHeader* forward = nullptr; // forwarding pointer (generational minor GC)
