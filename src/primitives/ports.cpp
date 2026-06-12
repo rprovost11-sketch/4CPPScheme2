@@ -930,25 +930,20 @@ static Value _prim_current_error_port(Context* ctx, Environment*, std::vector<Va
    return _get_current_error(ctx);
    }
 
+// Re-entrant fallback for the port runners: port_runner_setup is the single
+// source of their open / validate / teardown logic (the evaluator's FRAME_CALL
+// and apply paths drive the body frame-based off it, no re-entry).  These
+// _prim_* bodies are reached only when a runner is applied through a path that
+// calls a primitive body directly (HOF callback, cond/case => target); they
+// reuse that one source by running its body + cleanup re-entrantly, so the
+// open/validate/close logic is no longer duplicated here.
+static Value run_port_runner_reentrant(const std::string& name, Context* ctx,
+                                       Environment* env, std::vector<Value>& args,
+                                       const Value* app);
+
 static Value _prim_call_with_port(Context* ctx, Environment* env, std::vector<Value>& args, const Value* app)
    {
-   Port* p = _check_port(args[0], "call-with-port", app);
-   GcRootGuard port_val(args[0]);
-   GcRootGuard proc(args[1]);
-   Value result;
-   try
-      {
-      std::vector<Value> call_args = {port_val.val};
-      GcRootVec call_args_root(call_args);
-      result = apply_scheme_proc(proc.val, call_args, ctx, env, app);
-      }
-   catch (...)
-      {
-      _close_port_impl(p);
-      throw;
-      }
-   _close_port_impl(p);
-   return result;
+   return run_port_runner_reentrant("call-with-port", ctx, env, args, app);
    }
 
 // ── File I/O wrappers ─────────────────────────────────────────────────────────
@@ -989,132 +984,28 @@ static Value _prim_rename_file(Context*, Environment*, std::vector<Value>& args,
 
 static Value _prim_call_with_input_file(Context* ctx, Environment* env, std::vector<Value>& args, const Value* app)
    {
-   if (!is_string(args[0]))
-      throw SchemeTypeError("call-with-input-file: filename must be a string", _src(app));
-   GcRootGuard proc(args[1]);
-   std::vector<Value> open_args = {args[0]};
-   GcRootGuard port_val(_prim_open_input_file(ctx, env, open_args, app));
-   Port* p = as_port(port_val.val);
-   Value result;
-   try
-      {
-      std::vector<Value> call_args = {port_val.val};
-      GcRootVec call_args_root(call_args);
-      result = apply_scheme_proc(proc.val, call_args, ctx, env, app);
-      }
-   catch (...)
-      {
-      _close_port_impl(p);
-      throw;
-      }
-   _close_port_impl(p);
-   return result;
+   return run_port_runner_reentrant("call-with-input-file", ctx, env, args, app);
    }
 
 static Value _prim_call_with_output_file(Context* ctx, Environment* env, std::vector<Value>& args, const Value* app)
    {
-   if (!is_string(args[0]))
-      throw SchemeTypeError("call-with-output-file: filename must be a string", _src(app));
-   GcRootGuard proc(args[1]);
-   std::vector<Value> open_args = {args[0]};
-   GcRootGuard port_val(_prim_open_output_file(ctx, env, open_args, app));
-   Port* p = as_port(port_val.val);
-   Value result;
-   try
-      {
-      std::vector<Value> call_args = {port_val.val};
-      GcRootVec call_args_root(call_args);
-      result = apply_scheme_proc(proc.val, call_args, ctx, env, app);
-      }
-   catch (...)
-      {
-      _close_port_impl(p);
-      throw;
-      }
-   _close_port_impl(p);
-   return result;
+   return run_port_runner_reentrant("call-with-output-file", ctx, env, args, app);
    }
 
 static Value _prim_with_input_from_file(Context* ctx, Environment* env, std::vector<Value>& args, const Value* app)
    {
-   if (!is_string(args[0]))
-      throw SchemeTypeError("with-input-from-file: filename must be a string", _src(app));
-   GcRootGuard thunk(args[1]);
-   std::vector<Value> open_args = {args[0]};
-   GcRootGuard port_val(_prim_open_input_file(ctx, env, open_args, app));
-   _get_current_input(ctx); // ensure initialized
-   GcRootGuard old_val(as_parameter_value(s_current_input_param));
-   set_parameter_value(s_current_input_param, port_val.val);
-   Value result;
-   try
-      {
-      std::vector<Value> thunk_args;
-      result = apply_scheme_proc(thunk.val, thunk_args, ctx, env, app);
-      }
-   catch (...)
-      {
-      set_parameter_value(s_current_input_param, old_val.val);
-      _close_port_impl(as_port(port_val.val));
-      throw;
-      }
-   set_parameter_value(s_current_input_param, old_val.val);
-   _close_port_impl(as_port(port_val.val));
-   return result;
+   return run_port_runner_reentrant("with-input-from-file", ctx, env, args, app);
    }
 
 static Value _prim_with_output_to_file(Context* ctx, Environment* env, std::vector<Value>& args, const Value* app)
    {
-   if (!is_string(args[0]))
-      throw SchemeTypeError("with-output-to-file: filename must be a string", _src(app));
-   GcRootGuard thunk(args[1]);
-   std::vector<Value> open_args = {args[0]};
-   GcRootGuard port_val(_prim_open_output_file(ctx, env, open_args, app));
-   _get_current_output(ctx); // ensure initialized
-   GcRootGuard old_val(as_parameter_value(s_current_output_param));
-   set_parameter_value(s_current_output_param, port_val.val);
-   Value result;
-   try
-      {
-      std::vector<Value> thunk_args;
-      result = apply_scheme_proc(thunk.val, thunk_args, ctx, env, app);
-      }
-   catch (...)
-      {
-      set_parameter_value(s_current_output_param, old_val.val);
-      _close_port_impl(as_port(port_val.val));
-      throw;
-      }
-   set_parameter_value(s_current_output_param, old_val.val);
-   _close_port_impl(as_port(port_val.val));
-   return result;
+   return run_port_runner_reentrant("with-output-to-file", ctx, env, args, app);
    }
 
 // Common (non-R7RS) extension: like with-input-from-file but reads from a string.
 static Value _prim_with_input_from_string(Context* ctx, Environment* env, std::vector<Value>& args, const Value* app)
    {
-   if (!is_string(args[0]))
-      throw SchemeTypeError("with-input-from-string: first argument must be a string", _src(app));
-   GcRootGuard thunk(args[1]);
-   std::vector<Value> open_args = {args[0]};
-   GcRootGuard port_val(_prim_open_input_string(ctx, env, open_args, app));
-   _get_current_input(ctx); // ensure initialized
-   GcRootGuard old_val(as_parameter_value(s_current_input_param));
-   set_parameter_value(s_current_input_param, port_val.val);
-   Value result;
-   try
-      {
-      std::vector<Value> thunk_args;
-      result = apply_scheme_proc(thunk.val, thunk_args, ctx, env, app);
-      }
-   catch (...)
-      {
-      set_parameter_value(s_current_input_param, old_val.val);
-      _close_port_impl(as_port(port_val.val));
-      throw;
-      }
-   set_parameter_value(s_current_input_param, old_val.val);
-   _close_port_impl(as_port(port_val.val));
-   return result;
+   return run_port_runner_reentrant("with-input-from-string", ctx, env, args, app);
    }
 
 // ── Port runners (PRIM_PORT_RUNNER) ───────────────────────────────────────────
@@ -1222,6 +1113,33 @@ PortRunnerSetup port_runner_setup(const std::string& name, Context* ctx,
    s.body_proc = args[1];
    s.body_args = {};
    return s;
+   }
+
+// Re-entrant fallback: run a port runner's body + cleanup off the single
+// port_runner_setup source (see the comment on the _prim_* bodies above).
+static Value run_port_runner_reentrant(const std::string& name, Context* ctx,
+                                       Environment* env, std::vector<Value>& args,
+                                       const Value* app)
+   {
+   PortRunnerSetup s = port_runner_setup(name, ctx, env, args, app);
+   GcRootGuard body_proc(s.body_proc);
+   GcRootGuard after(s.after);
+   GcRootVec body_args_root(s.body_args);
+   std::vector<Value> after_args;
+   Value result;
+   try
+      {
+      result = apply_scheme_proc(body_proc.val, s.body_args, ctx, env, app);
+      }
+   catch (...)
+      {
+      as_native_closure_fn(after.val)(
+          ctx, env, after_args, as_native_closure_captures(after.val), app);
+      throw;
+      }
+   as_native_closure_fn(after.val)(
+       ctx, env, after_args, as_native_closure_captures(after.val), app);
+   return result;
    }
 
 // ── Registration ──────────────────────────────────────────────────────────────
