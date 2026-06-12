@@ -3,7 +3,6 @@
 #include "syntax_rules.h"
 #include "Parser.h"        // SchemeSyntaxError
 #include "PrettyPrinter.h" // scheme_pretty_print
-#include <atomic>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -59,7 +58,7 @@ static const std::unordered_set<std::string> SYNTACTIC_KEYWORDS = {
     "...",
 };
 
-static std::atomic<int> s_gensym_counter{0};
+static int s_gensym_counter = 0;
 
 // ── hygiene_gensym ─────────────────────────────────────────────────────────
 
