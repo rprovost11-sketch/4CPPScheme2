@@ -151,18 +151,35 @@ static void shade_gray_env(Environment* env)
       shade_gray(reinterpret_cast<GcHeader*>(env));
    }
 
-// ── Incremental marking ───────────────────────────────────────────────────────
-// process_gray_object: shade each directly reachable old-gen child gray.
-
-static void process_gray_object(GcHeader* header)
+// ── for_each_child ────────────────────────────────────────────────────────────
+// The single source of truth for "what are a heap object's traced children."
+// Walks every child slot of `header` and dispatches each to the visitor, which
+// decides the operation (shade / mark / forward).  The four GC passes
+// (process_gray_object, process_object_children, trace_remembered_children,
+// forward_object_value_fields) used to repeat this 27-arm switch verbatim;
+// now they each supply a small visitor.  Adding a heap type means adding one
+// case here -- every pass inherits it.
+//
+// Visitor contract (all methods required):
+//   v.value(Value&)                      -- a Value-typed child field
+//   v.env(Environment*)                  -- a raw Environment* child (closure env)
+//   v.record_type(RecordType*)           -- a record-type header child
+//   v.continuation_frames(Continuation*) -- the saved K-frame array
+//   v.environment_node(Environment*)     -- an Environment object's own children
+//   v.envbox(EnvBox*)                    -- a first-class environment box
+// Immediate / leaf types (String, numbers, Bytevector, Port, ...) have no
+// traced children.  Value& is passed by reference so a forwarding visitor can
+// rewrite the slot in place.
+template <class V>
+static void for_each_child(GcHeader* header, V& v)
    {
    switch (header->type)
       {
    case GcType::Cons:
       {
       auto* c = reinterpret_cast<ConsCell*>(header);
-      shade_gray_value(c->car);
-      shade_gray_value(c->cdr);
+      v.value(c->car);
+      v.value(c->cdr);
       break;
       }
    case GcType::String:
@@ -170,42 +187,42 @@ static void process_gray_object(GcHeader* header)
    case GcType::Closure:
       {
       auto* cl = reinterpret_cast<SchemeClosure*>(header);
-      shade_gray_value(cl->body);
-      shade_gray_env(cl->env);
+      v.value(cl->body);
+      v.env(cl->env);
       break;
       }
    case GcType::NativeClosure:
       {
       auto* nc = reinterpret_cast<NativeClosure*>(header);
-      for (Value& v : nc->captures)
-         shade_gray_value(v);
+      for (Value& x : nc->captures)
+         v.value(x);
       break;
       }
    case GcType::CaseClosure:
       {
       auto* cc = reinterpret_cast<CaseClosure*>(header);
       for (auto& clause : cc->clauses)
-         shade_gray_value(clause.body);
-      shade_gray_env(cc->env);
+         v.value(clause.body);
+      v.env(cc->env);
       break;
       }
    case GcType::Promise:
-      shade_gray_value(reinterpret_cast<Promise*>(header)->payload);
+      v.value(reinterpret_cast<Promise*>(header)->payload);
       break;
    case GcType::MultiValues:
       {
       auto* mv = reinterpret_cast<MultiValues*>(header);
-      for (auto& v : mv->values)
-         shade_gray_value(v);
+      for (auto& x : mv->values)
+         v.value(x);
       break;
       }
    case GcType::Record:
       {
       auto* rec = reinterpret_cast<Record*>(header);
       for (auto& fv : rec->field_values)
-         shade_gray_value(fv);
+         v.value(fv);
       if (rec->record_type)
-         shade_gray(&rec->record_type->header);
+         v.record_type(rec->record_type);
       break;
       }
    case GcType::RecordType:
@@ -213,30 +230,30 @@ static void process_gray_object(GcHeader* header)
    case GcType::Parameter:
       {
       auto* p = reinterpret_cast<Parameter*>(header);
-      shade_gray_value(p->value);
-      shade_gray_value(p->converter);
+      v.value(p->value);
+      v.value(p->converter);
       break;
       }
    case GcType::ErrorObject:
       {
       auto* eo = reinterpret_cast<ErrorObject*>(header);
       for (auto& irr : eo->irritants)
-         shade_gray_value(irr);
+         v.value(irr);
       break;
       }
    case GcType::Continuation:
       {
       auto* k = reinterpret_cast<Continuation*>(header);
-      gc_trace_continuation_frames(k);
+      v.continuation_frames(k);
       for (auto& wf : k->wind_snapshot)
          {
-         shade_gray_value(wf.before);
-         shade_gray_value(wf.after);
+         v.value(wf.before);
+         v.value(wf.after);
          }
-      for (auto& v : k->handler_snapshot)
-         shade_gray_value(v);
-      for (auto& v : k->shadow_snapshot)
-         shade_gray_value(v);
+      for (auto& x : k->handler_snapshot)
+         v.value(x);
+      for (auto& x : k->shadow_snapshot)
+         v.value(x);
       break;
       }
    case GcType::SyntaxTransformer:
@@ -244,16 +261,16 @@ static void process_gray_object(GcHeader* header)
       auto* st = reinterpret_cast<SyntaxTransformer*>(header);
       for (auto& rule : st->rules)
          {
-         shade_gray_value(rule.pattern);
-         shade_gray_value(rule.tmpl);
+         v.value(rule.pattern);
+         v.value(rule.tmpl);
          }
       break;
       }
    case GcType::Vector:
       {
-      auto* v = reinterpret_cast<SchemeVector*>(header);
-      for (auto& elem : v->elements)
-         shade_gray_value(elem);
+      auto* vec = reinterpret_cast<SchemeVector*>(header);
+      for (auto& elem : vec->elements)
+         v.value(elem);
       break;
       }
    case GcType::Bytevector:
@@ -268,27 +285,51 @@ static void process_gray_object(GcHeader* header)
    case GcType::ExactComplex:
       {
       auto* ec = reinterpret_cast<ExactComplex*>(header);
-      shade_gray_value(ec->re);
-      shade_gray_value(ec->im);
+      v.value(ec->re);
+      v.value(ec->im);
       break;
       }
    case GcType::RecordAccessor:
-      if (reinterpret_cast<RecordAccessor*>(header)->record_type)
-         shade_gray(&reinterpret_cast<RecordAccessor*>(header)->record_type->header);
-      break;
-   case GcType::RecordMutator:
-      if (reinterpret_cast<RecordMutator*>(header)->record_type)
-         shade_gray(&reinterpret_cast<RecordMutator*>(header)->record_type->header);
-      break;
-   case GcType::Environment:
-      gc_trace_environment_children(
-          reinterpret_cast<Environment*>(header), /*minor_only=*/false);
-      break;
-   case GcType::EnvBox:
-      if (reinterpret_cast<EnvBox*>(header)->env)
-         shade_gray(&reinterpret_cast<EnvBox*>(header)->env->header);
+      {
+      auto* ra = reinterpret_cast<RecordAccessor*>(header);
+      if (ra->record_type)
+         v.record_type(ra->record_type);
       break;
       }
+   case GcType::RecordMutator:
+      {
+      auto* rm = reinterpret_cast<RecordMutator*>(header);
+      if (rm->record_type)
+         v.record_type(rm->record_type);
+      break;
+      }
+   case GcType::Environment:
+      v.environment_node(reinterpret_cast<Environment*>(header));
+      break;
+   case GcType::EnvBox:
+      v.envbox(reinterpret_cast<EnvBox*>(header));
+      break;
+      }
+   }
+
+// Incremental tri-color shade: enqueue each old-gen child onto the gray stack.
+struct ShadeVisitor
+   {
+   void value(Value& v) { shade_gray_value(v); }
+   void env(Environment* e) { shade_gray_env(e); }
+   void record_type(RecordType* rt) { shade_gray(&rt->header); }
+   void continuation_frames(Continuation* k) { gc_trace_continuation_frames(k); }
+   void environment_node(Environment* e) { gc_trace_environment_children(e, false); }
+   void envbox(EnvBox* eb) { if (eb->env) shade_gray(&eb->env->header); }
+   };
+
+// ── Incremental marking ───────────────────────────────────────────────────────
+// process_gray_object: shade each directly reachable old-gen child gray.
+
+static void process_gray_object(GcHeader* header)
+   {
+   ShadeVisitor v;
+   for_each_child(header, v);
    }
 
 // ── Minor/major marking ───────────────────────────────────────────────────────
@@ -305,6 +346,21 @@ static void mark_value(Value val, bool minor_only);
 static void mark_object(GcHeader* header, bool minor_only);
 static void mark_environment(Environment* env, bool minor_only);
 static void process_object_children(GcHeader* header, bool minor_only);
+
+// Mark phase: enqueue each child onto the mark worklist (honouring minor_only).
+// Used by both the full mark (process_object_children) and the remembered-set
+// trace (trace_remembered_children, with minor_only=true).
+struct MarkVisitor
+   {
+   bool minor_only;
+   explicit MarkVisitor(bool m) : minor_only(m) {}
+   void value(Value& v) { mark_value(v, minor_only); }
+   void env(Environment* e) { mark_environment(e, minor_only); }
+   void record_type(RecordType* rt) { mark_object(&rt->header, minor_only); }
+   void continuation_frames(Continuation* k) { gc_trace_continuation_frames(k); }
+   void environment_node(Environment* e) { gc_trace_environment_children(e, minor_only); }
+   void envbox(EnvBox* eb) { if (eb->env) mark_environment(eb->env, minor_only); }
+   };
 
 static std::vector<GcHeader*> g_mark_worklist;
 static bool g_mark_draining = false;
@@ -381,136 +437,11 @@ static void process_object_children(GcHeader* header, bool minor_only)
       header = next;
       }
 
-   switch (header->type)
-      {
-   case GcType::Cons:
-      // unreachable: handled by the loop above
-      break;
-   case GcType::String:
-      break;
-   case GcType::Closure:
-      {
-      auto* cl = reinterpret_cast<SchemeClosure*>(header);
-      mark_value(cl->body, minor_only);
-      mark_environment(cl->env, minor_only);
-      break;
-      }
-   case GcType::NativeClosure:
-      {
-      auto* nc = reinterpret_cast<NativeClosure*>(header);
-      for (Value& v : nc->captures)
-         mark_value(v, minor_only);
-      break;
-      }
-   case GcType::CaseClosure:
-      {
-      auto* cc = reinterpret_cast<CaseClosure*>(header);
-      for (auto& clause : cc->clauses)
-         mark_value(clause.body, minor_only);
-      mark_environment(cc->env, minor_only);
-      break;
-      }
-   case GcType::Promise:
-      mark_value(reinterpret_cast<Promise*>(header)->payload, minor_only);
-      break;
-   case GcType::MultiValues:
-      {
-      auto* mv = reinterpret_cast<MultiValues*>(header);
-      for (auto& v : mv->values)
-         mark_value(v, minor_only);
-      break;
-      }
-   case GcType::Record:
-      {
-      auto* rec = reinterpret_cast<Record*>(header);
-      for (auto& fv : rec->field_values)
-         mark_value(fv, minor_only);
-      if (rec->record_type)
-         mark_object(&rec->record_type->header, minor_only);
-      break;
-      }
-   case GcType::RecordType:
-      break;
-   case GcType::Parameter:
-      {
-      auto* p = reinterpret_cast<Parameter*>(header);
-      mark_value(p->value, minor_only);
-      mark_value(p->converter, minor_only);
-      break;
-      }
-   case GcType::ErrorObject:
-      {
-      auto* eo = reinterpret_cast<ErrorObject*>(header);
-      for (auto& irr : eo->irritants)
-         mark_value(irr, minor_only);
-      break;
-      }
-   case GcType::Continuation:
-      {
-      auto* k = reinterpret_cast<Continuation*>(header);
-      gc_trace_continuation_frames(k);
-      for (auto& wf : k->wind_snapshot)
-         {
-         mark_value(wf.before, minor_only);
-         mark_value(wf.after, minor_only);
-         }
-      for (auto& v : k->handler_snapshot)
-         mark_value(v, minor_only);
-      for (auto& v : k->shadow_snapshot)
-         mark_value(v, minor_only);
-      break;
-      }
-   case GcType::SyntaxTransformer:
-      {
-      auto* st = reinterpret_cast<SyntaxTransformer*>(header);
-      for (auto& rule : st->rules)
-         {
-         mark_value(rule.pattern, minor_only);
-         mark_value(rule.tmpl, minor_only);
-         }
-      break;
-      }
-   case GcType::Vector:
-      {
-      auto* v = reinterpret_cast<SchemeVector*>(header);
-      for (auto& elem : v->elements)
-         mark_value(elem, minor_only);
-      break;
-      }
-   case GcType::Bytevector:
-   case GcType::Port:
-   case GcType::Complex:
-   case GcType::Rational:
-   case GcType::Bignum:
-   case GcType::Integer:
-   case GcType::Real:
-   case GcType::Char:
-      break;
-   case GcType::ExactComplex:
-      {
-      auto* ec = reinterpret_cast<ExactComplex*>(header);
-      mark_value(ec->re, minor_only);
-      mark_value(ec->im, minor_only);
-      break;
-      }
-   case GcType::RecordAccessor:
-      if (reinterpret_cast<RecordAccessor*>(header)->record_type)
-         mark_object(&reinterpret_cast<RecordAccessor*>(header)->record_type->header, minor_only);
-      break;
-   case GcType::RecordMutator:
-      if (reinterpret_cast<RecordMutator*>(header)->record_type)
-         mark_object(&reinterpret_cast<RecordMutator*>(header)->record_type->header, minor_only);
-      break;
-   case GcType::Environment:
-      // This env header was already mark-enqueued; trace its children directly
-      // (calling mark_environment here would just see it marked and skip them).
-      gc_trace_environment_children(reinterpret_cast<Environment*>(header), minor_only);
-      break;
-   case GcType::EnvBox:
-      if (reinterpret_cast<EnvBox*>(header)->env)
-         mark_environment(reinterpret_cast<EnvBox*>(header)->env, minor_only);
-      break;
-      }
+   // header is now the non-cons tail of the chain (or a non-cons object);
+   // trace its children via the shared walker.  (The Environment case traces
+   // children directly here rather than re-enqueuing the already-marked node.)
+   MarkVisitor mv(minor_only);
+   for_each_child(header, mv);
    }
 
 static void mark_roots(bool minor_only)
@@ -534,263 +465,34 @@ static void mark_roots(bool minor_only)
 
 static void trace_remembered_children(GcHeader* header)
    {
-   switch (header->type)
-      {
-   case GcType::Cons:
-      {
-      auto* c = reinterpret_cast<ConsCell*>(header);
-      mark_value(c->car, true);
-      mark_value(c->cdr, true);
-      break;
-      }
-   case GcType::String:
-      break;
-   case GcType::Closure:
-      {
-      auto* cl = reinterpret_cast<SchemeClosure*>(header);
-      mark_value(cl->body, true);
-      mark_environment(cl->env, true);
-      break;
-      }
-   case GcType::NativeClosure:
-      {
-      auto* nc = reinterpret_cast<NativeClosure*>(header);
-      for (Value& v : nc->captures)
-         mark_value(v, true);
-      break;
-      }
-   case GcType::CaseClosure:
-      {
-      auto* cc = reinterpret_cast<CaseClosure*>(header);
-      for (auto& clause : cc->clauses)
-         mark_value(clause.body, true);
-      mark_environment(cc->env, true);
-      break;
-      }
-   case GcType::Promise:
-      mark_value(reinterpret_cast<Promise*>(header)->payload, true);
-      break;
-   case GcType::MultiValues:
-      {
-      auto* mv = reinterpret_cast<MultiValues*>(header);
-      for (auto& v : mv->values)
-         mark_value(v, true);
-      break;
-      }
-   case GcType::Record:
-      {
-      auto* rec = reinterpret_cast<Record*>(header);
-      for (auto& fv : rec->field_values)
-         mark_value(fv, true);
-      if (rec->record_type)
-         mark_object(&rec->record_type->header, true);
-      break;
-      }
-   case GcType::RecordType:
-      break;
-   case GcType::Parameter:
-      {
-      auto* p = reinterpret_cast<Parameter*>(header);
-      mark_value(p->value, true);
-      mark_value(p->converter, true);
-      break;
-      }
-   case GcType::ErrorObject:
-      {
-      auto* eo = reinterpret_cast<ErrorObject*>(header);
-      for (auto& irr : eo->irritants)
-         mark_value(irr, true);
-      break;
-      }
-   case GcType::Continuation:
-      {
-      auto* k = reinterpret_cast<Continuation*>(header);
-      gc_trace_continuation_frames(k);
-      for (auto& wf : k->wind_snapshot)
-         {
-         mark_value(wf.before, true);
-         mark_value(wf.after, true);
-         }
-      for (auto& v : k->handler_snapshot)
-         mark_value(v, true);
-      for (auto& v : k->shadow_snapshot)
-         mark_value(v, true);
-      break;
-      }
-   case GcType::SyntaxTransformer:
-      {
-      auto* st = reinterpret_cast<SyntaxTransformer*>(header);
-      for (auto& rule : st->rules)
-         {
-         mark_value(rule.pattern, true);
-         mark_value(rule.tmpl, true);
-         }
-      break;
-      }
-   case GcType::Vector:
-      {
-      auto* v = reinterpret_cast<SchemeVector*>(header);
-      for (auto& elem : v->elements)
-         mark_value(elem, true);
-      break;
-      }
-   case GcType::Bytevector:
-   case GcType::Port:
-   case GcType::Complex:
-   case GcType::Rational:
-   case GcType::Bignum:
-   case GcType::Integer:
-   case GcType::Real:
-   case GcType::Char:
-      break;
-   case GcType::ExactComplex:
-      {
-      auto* ec = reinterpret_cast<ExactComplex*>(header);
-      mark_value(ec->re, true);
-      mark_value(ec->im, true);
-      break;
-      }
-   case GcType::RecordAccessor:
-      if (reinterpret_cast<RecordAccessor*>(header)->record_type)
-         mark_object(&reinterpret_cast<RecordAccessor*>(header)->record_type->header, true);
-      break;
-   case GcType::RecordMutator:
-      if (reinterpret_cast<RecordMutator*>(header)->record_type)
-         mark_object(&reinterpret_cast<RecordMutator*>(header)->record_type->header, true);
-      break;
-   case GcType::Environment:
-      gc_trace_environment_children(reinterpret_cast<Environment*>(header), true);
-      break;
-   case GcType::EnvBox:
-      if (reinterpret_cast<EnvBox*>(header)->env)
-         mark_environment(reinterpret_cast<EnvBox*>(header)->env, true);
-      break;
-      }
+   // Trace young-gen children of an old-gen object during minor GC: the mark
+   // pass with minor_only=true.  (No cons-spine fast path here -- remembered
+   // objects are visited individually from the remembered set.)
+   MarkVisitor mv(true);
+   for_each_child(header, mv);
    }
 
 // ── Forward helpers ───────────────────────────────────────────────────────────
 
+// Pointer fix-up after a minor copy: rewrite each Value child whose target was
+// evacuated.  env() and record_type() are deliberate no-ops -- environments and
+// record types are never nursery-allocated, so those pointers never move.  (The
+// old forward switch silently omitted them; routing through for_each_child makes
+// the skip explicit instead of an undocumented divergence from the trace passes.)
+struct ForwardVisitor
+   {
+   void value(Value& v) { gc_forward_value(v); }
+   void env(Environment*) {}
+   void record_type(RecordType*) {}
+   void continuation_frames(Continuation* k) { gc_forward_continuation_frames(k); }
+   void environment_node(Environment* e) { gc_forward_environment_children(e); }
+   void envbox(EnvBox* eb) { gc_copy_forward_env(eb->env); }
+   };
+
 static void forward_object_value_fields(GcHeader* header)
    {
-   switch (header->type)
-      {
-   case GcType::Cons:
-      {
-      auto* c = reinterpret_cast<ConsCell*>(header);
-      gc_forward_value(c->car);
-      gc_forward_value(c->cdr);
-      break;
-      }
-   case GcType::String:
-      break;
-   case GcType::Closure:
-      gc_forward_value(reinterpret_cast<SchemeClosure*>(header)->body);
-      break;
-   case GcType::NativeClosure:
-      {
-      auto* nc = reinterpret_cast<NativeClosure*>(header);
-      for (Value& v : nc->captures)
-         gc_forward_value(v);
-      break;
-      }
-   case GcType::CaseClosure:
-      {
-      auto* cc = reinterpret_cast<CaseClosure*>(header);
-      for (auto& clause : cc->clauses)
-         gc_forward_value(clause.body);
-      break;
-      }
-   case GcType::Promise:
-      gc_forward_value(reinterpret_cast<Promise*>(header)->payload);
-      break;
-   case GcType::MultiValues:
-      {
-      auto* mv = reinterpret_cast<MultiValues*>(header);
-      for (auto& v : mv->values)
-         gc_forward_value(v);
-      break;
-      }
-   case GcType::Record:
-      {
-      auto* rec = reinterpret_cast<Record*>(header);
-      for (auto& fv : rec->field_values)
-         gc_forward_value(fv);
-      break;
-      }
-   case GcType::RecordType:
-      break;
-   case GcType::Parameter:
-      {
-      auto* p = reinterpret_cast<Parameter*>(header);
-      gc_forward_value(p->value);
-      gc_forward_value(p->converter);
-      break;
-      }
-   case GcType::ErrorObject:
-      {
-      auto* eo = reinterpret_cast<ErrorObject*>(header);
-      for (auto& irr : eo->irritants)
-         gc_forward_value(irr);
-      break;
-      }
-   case GcType::Continuation:
-      {
-      auto* k = reinterpret_cast<Continuation*>(header);
-      gc_forward_continuation_frames(k);
-      for (auto& wf : k->wind_snapshot)
-         {
-         gc_forward_value(wf.before);
-         gc_forward_value(wf.after);
-         }
-      for (auto& v : k->handler_snapshot)
-         gc_forward_value(v);
-      for (auto& v : k->shadow_snapshot)
-         gc_forward_value(v);
-      break;
-      }
-   case GcType::SyntaxTransformer:
-      {
-      auto* st = reinterpret_cast<SyntaxTransformer*>(header);
-      for (auto& rule : st->rules)
-         {
-         gc_forward_value(rule.pattern);
-         gc_forward_value(rule.tmpl);
-         }
-      break;
-      }
-   case GcType::Vector:
-      {
-      auto* v = reinterpret_cast<SchemeVector*>(header);
-      for (auto& elem : v->elements)
-         gc_forward_value(elem);
-      break;
-      }
-   case GcType::Bytevector:
-   case GcType::Port:
-   case GcType::Complex:
-   case GcType::Rational:
-   case GcType::Bignum:
-   case GcType::Integer:
-   case GcType::Real:
-   case GcType::Char:
-      break;
-   case GcType::ExactComplex:
-      {
-      auto* ec = reinterpret_cast<ExactComplex*>(header);
-      gc_forward_value(ec->re);
-      gc_forward_value(ec->im);
-      break;
-      }
-   case GcType::RecordAccessor:
-   case GcType::RecordMutator:
-      break; // record_type is never in the nursery
-   case GcType::Environment:
-      gc_forward_environment_children(reinterpret_cast<Environment*>(header));
-      break;
-   case GcType::EnvBox:
-      gc_copy_forward_env(reinterpret_cast<EnvBox*>(header)->env);
-      break;
-      }
+   ForwardVisitor v;
+   for_each_child(header, v);
    }
 
 // ── Sweep helpers ─────────────────────────────────────────────────────────────
