@@ -172,69 +172,58 @@ static bool any_eq(const NumAny& a, const NumAny& b)
 
 // ── Primitives ────────────────────────────────────────────────────────────────
 
-static Value _prim_num_eq(Context*, Environment*, std::vector<Value>& args, const Value* app)
+// Monotonic pairwise comparison chain shared by =, <, >, <=, >=.  T is the
+// extracted element type -- NumAny for = (admits complex), NumReal for the
+// orderings; extract pulls a T from each arg and op is the pairwise predicate.
+// Mirrors comparison.py _num_compare (and the char_compare pattern in chars.cpp).
+template <class T, class Extract, class Op>
+static Value num_compare(std::vector<Value>& args, const Value* app,
+                         Extract extract, Op op)
    {
-   NumAny prev = _num_eq_val(args[0], app, 1);
+   T prev = extract(args[0], app, 1);
    for (int i = 1; i < static_cast<int>(args.size()); ++i)
       {
-      NumAny cur = _num_eq_val(args[i], app, i + 1);
-      if (!any_eq(prev, cur))
+      T cur = extract(args[i], app, i + 1);
+      if (!op(prev, cur))
          return make_boolean(false);
       prev = cur;
       }
    return make_boolean(true);
+   }
+
+static Value _prim_num_eq(Context*, Environment*, std::vector<Value>& args, const Value* app)
+   {
+   return num_compare<NumAny>(args, app,
+       [](const Value& v, const Value* a, int i) { return _num_eq_val(v, a, i); },
+       [](const NumAny& x, const NumAny& y) { return any_eq(x, y); });
    }
 
 static Value _prim_num_lt(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   NumReal prev = _num(args[0], "<", app, 1);
-   for (int i = 1; i < static_cast<int>(args.size()); ++i)
-      {
-      NumReal cur = _num(args[i], "<", app, i + 1);
-      if (!real_lt(prev, cur))
-         return make_boolean(false);
-      prev = cur;
-      }
-   return make_boolean(true);
+   return num_compare<NumReal>(args, app,
+       [](const Value& v, const Value* a, int i) { return _num(v, "<", a, i); },
+       [](const NumReal& x, const NumReal& y) { return real_lt(x, y); });
    }
 
 static Value _prim_num_gt(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   NumReal prev = _num(args[0], ">", app, 1);
-   for (int i = 1; i < static_cast<int>(args.size()); ++i)
-      {
-      NumReal cur = _num(args[i], ">", app, i + 1);
-      if (!real_lt(cur, prev))
-         return make_boolean(false);
-      prev = cur;
-      }
-   return make_boolean(true);
+   return num_compare<NumReal>(args, app,
+       [](const Value& v, const Value* a, int i) { return _num(v, ">", a, i); },
+       [](const NumReal& x, const NumReal& y) { return real_lt(y, x); });
    }
 
 static Value _prim_num_le(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   NumReal prev = _num(args[0], "<=", app, 1);
-   for (int i = 1; i < static_cast<int>(args.size()); ++i)
-      {
-      NumReal cur = _num(args[i], "<=", app, i + 1);
-      if (!real_le(prev, cur))
-         return make_boolean(false);
-      prev = cur;
-      }
-   return make_boolean(true);
+   return num_compare<NumReal>(args, app,
+       [](const Value& v, const Value* a, int i) { return _num(v, "<=", a, i); },
+       [](const NumReal& x, const NumReal& y) { return real_le(x, y); });
    }
 
 static Value _prim_num_ge(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   NumReal prev = _num(args[0], ">=", app, 1);
-   for (int i = 1; i < static_cast<int>(args.size()); ++i)
-      {
-      NumReal cur = _num(args[i], ">=", app, i + 1);
-      if (!real_le(cur, prev))
-         return make_boolean(false);
-      prev = cur;
-      }
-   return make_boolean(true);
+   return num_compare<NumReal>(args, app,
+       [](const Value& v, const Value* a, int i) { return _num(v, ">=", a, i); },
+       [](const NumReal& x, const NumReal& y) { return real_le(y, x); });
    }
 
 void register_comparison()
