@@ -299,7 +299,6 @@ struct NativeClosure
    {
    GcHeader header{GcType::NativeClosure};
    std::string name;
-   int kind = PRIM_ORDINARY;
    NativeFn fn = nullptr;
    std::vector<Value> captures;
 
