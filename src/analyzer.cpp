@@ -164,24 +164,10 @@ static std::vector<Value> cons_to_list(const Value& cell)
    return items;
    }
 
-static const std::string GENSYM_PFX = "\x01h.";
-
 static std::string display_name(const std::string& name)
    {
-   if (name.compare(0, GENSYM_PFX.size(), GENSYM_PFX) != 0)
-      return name;
-   std::string rest = name.substr(GENSYM_PFX.size());
-   size_t dot = rest.rfind('.');
-   if (dot != std::string::npos)
-      {
-      std::string suffix = rest.substr(dot + 1);
-      if (!suffix.empty() &&
-          std::all_of(suffix.begin(), suffix.end(),
-                      [](char c)
-                      { return std::isdigit((unsigned char)c); }))
-         return rest.substr(0, dot);
-      }
-   return rest;
+   // Gensym-stripped name for error messages (see AST gensym_display_name).
+   return gensym_display_name(name);
    }
 
 static std::string render(const Value& sexpr)

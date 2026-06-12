@@ -59,7 +59,6 @@ static const std::unordered_set<std::string> SYNTACTIC_KEYWORDS = {
     "...",
 };
 
-static const std::string GENSYM_PREFIX = "\x01h.";
 static std::atomic<int> s_gensym_counter{0};
 
 // ── hygiene_gensym ─────────────────────────────────────────────────────────

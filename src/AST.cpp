@@ -31,6 +31,32 @@ std::string symbol_name(uint32_t sid)
    return g_symbol_names[sid];
    }
 
+const std::string GENSYM_PREFIX = "\x01h.";
+
+std::string gensym_display_name(const std::string& name)
+   {
+   // Strip the hygiene gensym prefix for display / error messages:
+   // \x01h.BASE.DIGITS -> BASE.  A non-gensym name is returned unchanged.
+   if (name.compare(0, GENSYM_PREFIX.size(), GENSYM_PREFIX) != 0)
+      return name;
+   std::string rest = name.substr(GENSYM_PREFIX.size());
+   size_t dot = rest.rfind('.');
+   if (dot != std::string::npos)
+      {
+      std::string tail = rest.substr(dot + 1);
+      bool all_digits = !tail.empty();
+      for (char c : tail)
+         if (c < '0' || c > '9')
+            {
+            all_digits = false;
+            break;
+            }
+      if (all_digits)
+         return rest.substr(0, dot);
+      }
+   return rest;
+   }
+
 // ── Singletons ────────────────────────────────────────────────────────────────
 // Port of AST.py NIL_VALUE, VOID_VALUE, EOF_VALUE.
 

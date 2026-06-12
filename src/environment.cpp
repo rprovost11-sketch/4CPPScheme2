@@ -4,33 +4,12 @@
 #include "PrettyPrinter.h"
 
 // ── Module-private helpers ────────────────────────────────────────────────────
-// Port of Environment.py _GENSYM_PFX and _display_name.
-
-static const std::string GENSYM_PFX = "\x01h.";
+// Port of Environment.py _display_name (delegates to AST gensym_display_name).
 
 static std::string display_name(uint32_t sid)
    {
-   // Strip hygiene gensym prefix for error messages.
-   // \x01h.BASE.DIGITS -> BASE
-   const std::string name = symbol_name(sid);
-   if (name.rfind(GENSYM_PFX, 0) != 0)
-      return name;
-   std::string rest = name.substr(GENSYM_PFX.size());
-   auto dot = rest.rfind('.');
-   if (dot != std::string::npos)
-      {
-      const std::string tail = rest.substr(dot + 1);
-      bool all_digits = !tail.empty();
-      for (char c : tail)
-         if (c < '0' || c > '9')
-            {
-            all_digits = false;
-            break;
-            }
-      if (all_digits)
-         return rest.substr(0, dot);
-      }
-   return rest;
+   // Gensym-stripped name for error messages (see AST gensym_display_name).
+   return gensym_display_name(symbol_name(sid));
    }
 
 // ── PositionedSchemeError ─────────────────────────────────────────────────────

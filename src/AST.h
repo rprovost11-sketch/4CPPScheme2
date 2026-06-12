@@ -708,6 +708,14 @@ struct SchemeChar
 CPPSCHEME2_API uint32_t intern_symbol(const std::string& name);
 CPPSCHEME2_API std::string symbol_name(uint32_t sid);
 
+// Hygiene gensym name format: GENSYM_PREFIX + base + '.' + counter, where the
+// prefix is a non-printable marker byte so display / error paths can strip it.
+// The ENCODER (which owns the counter) is syntax_rules' hygiene_gensym; this
+// prefix and gensym_display_name (its inverse) are the single source shared by
+// the analyzer / environment / pretty-printer display paths.
+extern const std::string GENSYM_PREFIX;
+CPPSCHEME2_API std::string gensym_display_name(const std::string& name);
+
 // ── Singletons ────────────────────────────────────────────────────────────────
 // Port of AST.py NIL_VALUE, VOID_VALUE, EOF_VALUE.
 

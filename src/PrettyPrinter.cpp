@@ -117,31 +117,14 @@ static std::string escape_string(const std::string& s)
    return r;
    }
 
-// ── _GENSYM_PFX / _display_symbol_name ───────────────────────────────────────
-// Port of PrettyPrinter.py _GENSYM_PFX and _display_symbol_name.
-
-static const std::string GENSYM_PFX = "\x01h.";
+// ── _display_symbol_name ──────────────────────────────────────────────────────
+// Port of PrettyPrinter.py _display_symbol_name (delegates to AST
+// gensym_display_name).
 
 static std::string display_symbol_name(const std::string& name)
    {
-   if (name.rfind(GENSYM_PFX, 0) != 0)
-      return name;
-   std::string rest = name.substr(GENSYM_PFX.size());
-   auto dot = rest.rfind('.');
-   if (dot != std::string::npos)
-      {
-      const std::string tail = rest.substr(dot + 1);
-      bool all_digits = !tail.empty();
-      for (char c : tail)
-         if (c < '0' || c > '9')
-            {
-            all_digits = false;
-            break;
-            }
-      if (all_digits)
-         return rest.substr(0, dot);
-      }
-   return rest;
+   // Gensym-stripped name for display (see AST gensym_display_name).
+   return gensym_display_name(name);
    }
 
 // ── _is_safe_symbol_initial / _subsequent / _needs_vertical_bars ─────────────
