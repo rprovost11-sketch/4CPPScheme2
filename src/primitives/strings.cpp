@@ -112,18 +112,6 @@ static const std::string& _check_string(const Value& v, const char* name, const 
    return as_string(v);
    }
 
-// Check an integer character index against a character count.
-static int64_t _check_index(const Value& v, const char* name, int64_t char_count, const Value* app)
-   {
-   if (!is_integer(v))
-      throw SchemeTypeError(std::string(name) + ": index must be an integer", _src(app));
-   int64_t k = as_integer(v);
-   if (k < 0 || k >= char_count)
-      throw SchemeTypeError(
-          std::string(name) + ": index " + std::to_string(k) + " out of range", _src(app));
-   return k;
-   }
-
 static Value _prim_string_length(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
    return make_integer(utf8_char_count(_check_string(args[0], "string-length", app)));
@@ -133,7 +121,7 @@ static Value _prim_string_ref(Context*, Environment*, std::vector<Value>& args, 
    {
    const std::string& s = _check_string(args[0], "string-ref", app);
    int64_t nchars = utf8_char_count(s);
-   int64_t k = _check_index(args[1], "string-ref", nchars, app);
+   int64_t k = check_index(args[1], "string-ref", nchars, app);
    size_t pos = utf8_char_offset(s, k);
    return make_character(utf8_next(s, pos));
    }

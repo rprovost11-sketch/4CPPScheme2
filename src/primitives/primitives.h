@@ -53,6 +53,13 @@ CPPSCHEME2_API std::pair<int64_t, int64_t> parse_start_end(
     const char* name, const Value* app,
     const char* range_msg = "start/end out of range");
 
+// Port of __init__.py _check_index: validate that v is an integer index in
+// [0, length) and return it, else throw "<name>: index must be an integer" or
+// "<name>: index <k> out of range".  Shared by string-ref / vector-ref / set! /
+// bytevector-u8-ref / set!.
+CPPSCHEME2_API int64_t check_index(const Value& v, const char* name,
+                                   int64_t length, const Value* app);
+
 // ── Per-module register functions (port of each module's register()) ──────────
 CPPSCHEME2_API void register_control();
 CPPSCHEME2_API void register_lazy();

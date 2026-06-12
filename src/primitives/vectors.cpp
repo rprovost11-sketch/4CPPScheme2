@@ -23,17 +23,6 @@ static std::vector<Value>& _check_vector(const Value& v, const char* name, const
    return as_vector_items(const_cast<Value&>(v));
    }
 
-static int64_t _check_index(const Value& v, const char* name, size_t length, const Value* app)
-   {
-   if (!is_integer(v))
-      throw SchemeTypeError(std::string(name) + ": index must be an integer", _src(app));
-   int64_t k = as_integer(v);
-   if (k < 0 || static_cast<size_t>(k) >= length)
-      throw SchemeTypeError(
-          std::string(name) + ": index " + std::to_string(k) + " out of range", _src(app));
-   return k;
-   }
-
 static Value _prim_vector_p(Context*, Environment*, std::vector<Value>& args, const Value*)
    {
    return make_boolean(is_vector(args[0]));
@@ -63,7 +52,7 @@ static Value _prim_vector_length(Context*, Environment*, std::vector<Value>& arg
 static Value _prim_vector_ref(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
    auto& items = _check_vector(args[0], "vector-ref", app);
-   int64_t k = _check_index(args[1], "vector-ref", items.size(), app);
+   int64_t k = check_index(args[1], "vector-ref", static_cast<int64_t>(items.size()), app);
    return items[static_cast<size_t>(k)];
    }
 
@@ -72,7 +61,7 @@ static Value _prim_vector_set(Context*, Environment*, std::vector<Value>& args, 
    auto& items = _check_vector(args[0], "vector-set!", app);
    if (is_immutable(args[0]))
       throw SchemeTypeError("vector-set!: argument is an immutable literal", _src(app));
-   int64_t k = _check_index(args[1], "vector-set!", items.size(), app);
+   int64_t k = check_index(args[1], "vector-set!", static_cast<int64_t>(items.size()), app);
    items[static_cast<size_t>(k)] = args[2];
    gc_write_barrier(gc_value_header(args[0]), gc_value_header(args[2]));
    return VOID_VALUE;

@@ -183,6 +183,18 @@ std::pair<int64_t, int64_t> parse_start_end(
    return {start, end};
    }
 
+int64_t check_index(const Value& v, const char* name, int64_t length, const Value* app)
+   {
+   SourceInfo* src = app ? src_of(*app) : nullptr;
+   if (!is_integer(v))
+      throw SchemeTypeError(std::string(name) + ": index must be an integer", src);
+   int64_t k = as_integer(v);
+   if (k < 0 || k >= length)
+      throw SchemeTypeError(
+          std::string(name) + ": index " + std::to_string(k) + " out of range", src);
+   return k;
+   }
+
 void install_primitives(Environment* env)
    {
    if (!s_installed)

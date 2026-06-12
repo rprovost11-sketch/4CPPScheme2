@@ -35,17 +35,6 @@ static uint8_t _check_u8(const Value& v, const char* name, const Value* app)
    return static_cast<uint8_t>(n);
    }
 
-static int64_t _check_index(const Value& v, const char* name, size_t length, const Value* app)
-   {
-   if (!is_integer(v))
-      throw SchemeTypeError(std::string(name) + ": index must be an integer", _src(app));
-   int64_t k = as_integer(v);
-   if (k < 0 || static_cast<size_t>(k) >= length)
-      throw SchemeTypeError(
-          std::string(name) + ": index " + std::to_string(k) + " out of range", _src(app));
-   return k;
-   }
-
 static Value _prim_bytevector_p(Context*, Environment*, std::vector<Value>& args, const Value*)
    {
    return make_boolean(is_bytevector(args[0]));
@@ -79,7 +68,7 @@ static Value _prim_bytevector_length(Context*, Environment*, std::vector<Value>&
 static Value _prim_bytevector_u8_ref(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
    auto& bs = _check_bv(args[0], "bytevector-u8-ref", app);
-   int64_t k = _check_index(args[1], "bytevector-u8-ref", bs.size(), app);
+   int64_t k = check_index(args[1], "bytevector-u8-ref", static_cast<int64_t>(bs.size()), app);
    return make_integer(static_cast<int64_t>(bs[static_cast<size_t>(k)]));
    }
 
@@ -88,7 +77,7 @@ static Value _prim_bytevector_u8_set(Context*, Environment*, std::vector<Value>&
    auto& bs = _check_bv(args[0], "bytevector-u8-set!", app);
    if (is_immutable(args[0]))
       throw SchemeTypeError("bytevector-u8-set!: argument is an immutable literal", _src(app));
-   int64_t k = _check_index(args[1], "bytevector-u8-set!", bs.size(), app);
+   int64_t k = check_index(args[1], "bytevector-u8-set!", static_cast<int64_t>(bs.size()), app);
    bs[static_cast<size_t>(k)] = _check_u8(args[2], "bytevector-u8-set!", app);
    return VOID_VALUE;
    }
