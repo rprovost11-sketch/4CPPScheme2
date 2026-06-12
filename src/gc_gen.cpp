@@ -507,6 +507,20 @@ static int g_gc_leak_only_type = -1;
 // DEBUG: count of objects leaked per type, for diagnostic output.
 static size_t g_gc_leak_counts[32] = {0};
 
+// Heap types freed with a plain `delete`: (GcType enum, concrete struct).  The
+// pooled small boxes (Integer / Real / Char) and Bignum (needs mpz_clear) are
+// freed specially in the switch below, so they are not in this list.
+#define GC_PLAIN_DELETE_TYPES(X)                                                 \
+   X(Cons, ConsCell) X(String, SchemeString) X(Closure, SchemeClosure)          \
+   X(NativeClosure, NativeClosure) X(CaseClosure, CaseClosure) X(Promise, Promise) \
+   X(MultiValues, MultiValues) X(Record, Record) X(RecordType, RecordType)      \
+   X(Parameter, Parameter) X(ErrorObject, ErrorObject)                          \
+   X(Continuation, Continuation) X(SyntaxTransformer, SyntaxTransformer)        \
+   X(Vector, SchemeVector) X(Bytevector, SchemeBytevector) X(Port, Port)        \
+   X(Complex, SchemeComplex) X(ExactComplex, ExactComplex)                      \
+   X(Rational, SchemeRational) X(RecordAccessor, RecordAccessor)                \
+   X(RecordMutator, RecordMutator) X(Environment, Environment) X(EnvBox, EnvBox)
+
 static void free_object(GcHeader* header)
    {
    if (g_gc_leak_instead_of_free &&
@@ -520,63 +534,12 @@ static void free_object(GcHeader* header)
       }
    switch (header->type)
       {
-   case GcType::Cons:
-      delete reinterpret_cast<ConsCell*>(header);
+#define DEL_CASE(Enum, Type)                  \
+   case GcType::Enum:                         \
+      delete reinterpret_cast<Type*>(header); \
       break;
-   case GcType::String:
-      delete reinterpret_cast<SchemeString*>(header);
-      break;
-   case GcType::Closure:
-      delete reinterpret_cast<SchemeClosure*>(header);
-      break;
-   case GcType::NativeClosure:
-      delete reinterpret_cast<NativeClosure*>(header);
-      break;
-   case GcType::CaseClosure:
-      delete reinterpret_cast<CaseClosure*>(header);
-      break;
-   case GcType::Promise:
-      delete reinterpret_cast<Promise*>(header);
-      break;
-   case GcType::MultiValues:
-      delete reinterpret_cast<MultiValues*>(header);
-      break;
-   case GcType::Record:
-      delete reinterpret_cast<Record*>(header);
-      break;
-   case GcType::RecordType:
-      delete reinterpret_cast<RecordType*>(header);
-      break;
-   case GcType::Parameter:
-      delete reinterpret_cast<Parameter*>(header);
-      break;
-   case GcType::ErrorObject:
-      delete reinterpret_cast<ErrorObject*>(header);
-      break;
-   case GcType::Continuation:
-      delete reinterpret_cast<Continuation*>(header);
-      break;
-   case GcType::SyntaxTransformer:
-      delete reinterpret_cast<SyntaxTransformer*>(header);
-      break;
-   case GcType::Vector:
-      delete reinterpret_cast<SchemeVector*>(header);
-      break;
-   case GcType::Bytevector:
-      delete reinterpret_cast<SchemeBytevector*>(header);
-      break;
-   case GcType::Port:
-      delete reinterpret_cast<Port*>(header);
-      break;
-   case GcType::Complex:
-      delete reinterpret_cast<SchemeComplex*>(header);
-      break;
-   case GcType::ExactComplex:
-      delete reinterpret_cast<ExactComplex*>(header);
-      break;
-   case GcType::Rational:
-      delete reinterpret_cast<SchemeRational*>(header);
-      break;
+   GC_PLAIN_DELETE_TYPES(DEL_CASE)
+#undef DEL_CASE
    case GcType::Bignum:
       {
       auto* b = reinterpret_cast<SchemeBignum*>(header);
@@ -593,20 +556,10 @@ static void free_object(GcHeader* header)
    case GcType::Char:
       pool_return_char(reinterpret_cast<SchemeChar*>(header));
       break;
-   case GcType::RecordAccessor:
-      delete reinterpret_cast<RecordAccessor*>(header);
-      break;
-   case GcType::RecordMutator:
-      delete reinterpret_cast<RecordMutator*>(header);
-      break;
-   case GcType::Environment:
-      delete reinterpret_cast<Environment*>(header);
-      break;
-   case GcType::EnvBox:
-      delete reinterpret_cast<EnvBox*>(header);
-      break;
       }
    }
+
+#undef GC_PLAIN_DELETE_TYPES
 
 // ── Nursery evacuation ────────────────────────────────────────────────────────
 // Copy each marked nursery ConsCell to a heap-allocated old-gen object.

@@ -1233,6 +1233,18 @@ std::string format_with_caret(const std::string& msg, SourceInfo* src)
 
 // ── GC support ────────────────────────────────────────────────────────────────
 
+// The GC-managed Value-variant pointer types, listed once.  gc_value_header and
+// gc_forward_value both iterate this single list (EnvBox is handled separately
+// below: its type is incomplete in this TU, so it uses a raw GcHeader cast).
+// Adding a new boxed Value type means adding one entry here.
+#define GC_VALUE_PTR_TYPES(X)                                              \
+   X(ConsCell) X(SchemeString) X(SchemeClosure) X(CaseClosure) X(Promise) \
+   X(MultiValues) X(Record) X(RecordType) X(Parameter) X(ErrorObject)     \
+   X(Continuation) X(SyntaxTransformer) X(SchemeVector) X(SchemeBytevector) \
+   X(Port) X(SchemeComplex) X(ExactComplex) X(SchemeRational) X(SchemeBignum) \
+   X(SchemeInteger) X(SchemeReal) X(SchemeChar) X(RecordAccessor)         \
+   X(RecordMutator) X(NativeClosure)
+
 // Expands to the GcHeader* for a named GC-managed pointer type, or nullptr.
 #define HDR_CASE(Type)                           \
    if (auto* pp = std::get_if<Type*>(&val.repr)) \
@@ -1240,31 +1252,7 @@ std::string format_with_caret(const std::string& msg, SourceInfo* src)
 
 GcHeader* gc_value_header(const Value& val)
    {
-   HDR_CASE(ConsCell)
-   HDR_CASE(SchemeString)
-   HDR_CASE(SchemeClosure)
-   HDR_CASE(CaseClosure)
-   HDR_CASE(Promise)
-   HDR_CASE(MultiValues)
-   HDR_CASE(Record)
-   HDR_CASE(RecordType)
-   HDR_CASE(Parameter)
-   HDR_CASE(ErrorObject)
-   HDR_CASE(Continuation)
-   HDR_CASE(SyntaxTransformer)
-   HDR_CASE(SchemeVector)
-   HDR_CASE(SchemeBytevector)
-   HDR_CASE(Port)
-   HDR_CASE(SchemeComplex)
-   HDR_CASE(ExactComplex)
-   HDR_CASE(SchemeRational)
-   HDR_CASE(SchemeBignum)
-   HDR_CASE(SchemeInteger)
-   HDR_CASE(SchemeReal)
-   HDR_CASE(SchemeChar)
-   HDR_CASE(RecordAccessor)
-   HDR_CASE(RecordMutator)
-   HDR_CASE(NativeClosure)
+   GC_VALUE_PTR_TYPES(HDR_CASE)
    // EnvBox* is GC-managed; GcHeader is at offset 0 by invariant.
    if (auto* pp = std::get_if<EnvBox*>(&val.repr))
       return *pp ? reinterpret_cast<GcHeader*>(*pp) : nullptr;
@@ -1284,31 +1272,7 @@ GcHeader* gc_value_header(const Value& val)
 
 void gc_forward_value(Value& val)
    {
-   FWD_CASE(ConsCell)
-   FWD_CASE(SchemeString)
-   FWD_CASE(SchemeClosure)
-   FWD_CASE(CaseClosure)
-   FWD_CASE(Promise)
-   FWD_CASE(MultiValues)
-   FWD_CASE(Record)
-   FWD_CASE(RecordType)
-   FWD_CASE(Parameter)
-   FWD_CASE(ErrorObject)
-   FWD_CASE(Continuation)
-   FWD_CASE(SyntaxTransformer)
-   FWD_CASE(SchemeVector)
-   FWD_CASE(SchemeBytevector)
-   FWD_CASE(Port)
-   FWD_CASE(SchemeComplex)
-   FWD_CASE(ExactComplex)
-   FWD_CASE(SchemeRational)
-   FWD_CASE(SchemeBignum)
-   FWD_CASE(SchemeInteger)
-   FWD_CASE(SchemeReal)
-   FWD_CASE(SchemeChar)
-   FWD_CASE(RecordAccessor)
-   FWD_CASE(RecordMutator)
-   FWD_CASE(NativeClosure)
+   GC_VALUE_PTR_TYPES(FWD_CASE)
    // EnvBox* forwarding via raw GcHeader cast (type is incomplete here).
    if (auto* pp = std::get_if<EnvBox*>(&val.repr))
       {
@@ -1322,3 +1286,4 @@ void gc_forward_value(Value& val)
    }
 
 #undef FWD_CASE
+#undef GC_VALUE_PTR_TYPES
