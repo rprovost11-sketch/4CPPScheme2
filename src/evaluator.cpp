@@ -3611,79 +3611,22 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   break;
                   }
 
-               // ── FRAME_COND_ARROW ──────────────────────────────────────
-               if (ftag == FRAME_COND_ARROW)
+               // ── FRAME_COND_ARROW / FRAME_CASE_ARROW ───────────────────
+               if (ftag == FRAME_COND_ARROW || ftag == FRAME_CASE_ARROW)
                   {
-                  Value test_value = frame.v1;
+                  // (cond (test => recv)) / (case key (... => recv)): apply the
+                  // receiver to the single value (test / key, in frame.v1)
+                  // through the one unified application path (enter_proc), so
+                  // primitives, continuations, parameters, record accessors /
+                  // mutators, and frame-driven HOFs behave exactly as in operator
+                  // position -- rather than the old inline ladder that mishandled
+                  // the last two.
+                  Value arg_value = frame.v1;
                   Environment* saved_env = frame.env;
-                  if (is_continuation(V))
-                     {
-                     K.push_back(make_wind_step_frame(
-                         ctx, as_continuation_wind(V), V,
-                         continuation_value({test_value})));
+                  std::vector<Value> a = {arg_value};
+                  EnterResult result = enter_proc(V, a, ctx, saved_env, nullptr);
+                  if (apply_enter_result(result, K, V, C, E) == EnterAction::DoApply)
                      continue;
-                     }
-                  auto pv = apply_parameter_if(V, 1, nullptr);
-                  if (pv.has_value())
-                     {
-                     V = *pv;
-                     continue;
-                     }
-                  if (is_primitive(V))
-                     {
-                     std::vector<Value> a = {test_value};
-                     V = as_primitive_fn(V)(ctx, saved_env, a, nullptr);
-                     continue;
-                     }
-                  BetaResult r = apply_value(V, {test_value}, nullptr);
-                  E = r.new_env;
-                  C = car(r.body);
-                  if (is_cons(cdr(r.body)))
-                     {
-                     Frame sf;
-                     sf.tag = FRAME_SEQ;
-                     sf.v1 = cdr(r.body);
-                     sf.env = r.new_env;
-                     K.push_back(std::move(sf));
-                     }
-                  break;
-                  }
-
-               // ── FRAME_CASE_ARROW ──────────────────────────────────────
-               if (ftag == FRAME_CASE_ARROW)
-                  {
-                  Value key_value = frame.v1;
-                  Environment* saved_env = frame.env;
-                  if (is_continuation(V))
-                     {
-                     K.push_back(make_wind_step_frame(
-                         ctx, as_continuation_wind(V), V,
-                         continuation_value({key_value})));
-                     continue;
-                     }
-                  auto pv = apply_parameter_if(V, 1, nullptr);
-                  if (pv.has_value())
-                     {
-                     V = *pv;
-                     continue;
-                     }
-                  if (is_primitive(V))
-                     {
-                     std::vector<Value> a = {key_value};
-                     V = as_primitive_fn(V)(ctx, saved_env, a, nullptr);
-                     continue;
-                     }
-                  BetaResult r = apply_value(V, {key_value}, nullptr);
-                  E = r.new_env;
-                  C = car(r.body);
-                  if (is_cons(cdr(r.body)))
-                     {
-                     Frame sf;
-                     sf.tag = FRAME_SEQ;
-                     sf.v1 = cdr(r.body);
-                     sf.env = r.new_env;
-                     K.push_back(std::move(sf));
-                     }
                   break;
                   }
 
