@@ -7,6 +7,8 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <utility>
+#include <cstdint>
 
 // Port of __init__.py PrimitiveHelp entry: (kind, usage, doc, category).
 struct PrimitiveHelp
@@ -40,6 +42,16 @@ CPPSCHEME2_API void register_primitive(
 // Calls all module register_xxx() functions (once), then binds every
 // registered primitive into env.
 CPPSCHEME2_API void install_primitives(Environment* env);
+
+// Port of __init__.py parse_start_end: parse the optional [start [end]]
+// arguments at args[base_idx] / args[base_idx+1] for a sequence slice,
+// defaulting to [0, length).  Validates each given bound is an integer and that
+// 0 <= start <= end <= length, then returns {start, end}.  range_msg is the
+// out-of-range error text -- it differs per primitive and is test-pinned.
+CPPSCHEME2_API std::pair<int64_t, int64_t> parse_start_end(
+    const std::vector<Value>& args, size_t base_idx, int64_t length,
+    const char* name, const Value* app,
+    const char* range_msg = "start/end out of range");
 
 // ── Per-module register functions (port of each module's register()) ──────────
 CPPSCHEME2_API void register_control();

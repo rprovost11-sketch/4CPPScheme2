@@ -183,19 +183,8 @@ static Value _prim_string_ge(Context*, Environment*, std::vector<Value>& a, cons
 static Value _prim_substring(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
    const std::string& s = _check_string(args[0], "substring", app);
-   if (!is_integer(args[1]))
-      throw SchemeTypeError("substring: start must be an integer", _src(app));
    int64_t nchars = utf8_char_count(s);
-   int64_t start = as_integer(args[1]);
-   int64_t end = nchars;
-   if (args.size() >= 3)
-      {
-      if (!is_integer(args[2]))
-         throw SchemeTypeError("substring: end must be an integer", _src(app));
-      end = as_integer(args[2]);
-      }
-   if (start < 0 || end > nchars || start > end)
-      throw SchemeTypeError("substring: start/end out of range", _src(app));
+   auto [start, end] = parse_start_end(args, 1, nchars, "substring", app);
    size_t bstart = utf8_char_offset(s, start);
    size_t bend = utf8_char_offset(s, end);
    return make_string(s.substr(bstart, bend - bstart));
@@ -213,21 +202,7 @@ static Value _prim_string_to_list(Context*, Environment*, std::vector<Value>& ar
    {
    const std::string& s = _check_string(args[0], "string->list", app);
    int64_t nchars = utf8_char_count(s);
-   int64_t start = 0, end = nchars;
-   if (args.size() >= 2)
-      {
-      if (!is_integer(args[1]))
-         throw SchemeTypeError("string->list: start must be an integer", _src(app));
-      start = as_integer(args[1]);
-      }
-   if (args.size() >= 3)
-      {
-      if (!is_integer(args[2]))
-         throw SchemeTypeError("string->list: end must be an integer", _src(app));
-      end = as_integer(args[2]);
-      }
-   if (start < 0 || end > nchars || start > end)
-      throw SchemeTypeError("string->list: start/end out of range", _src(app));
+   auto [start, end] = parse_start_end(args, 1, nchars, "string->list", app);
    // Collect chars [start, end) then reverse-cons into a list.
    std::vector<char32_t> chars;
    size_t pos = utf8_char_offset(s, start);
@@ -260,21 +235,7 @@ static Value _prim_string_copy(Context*, Environment*, std::vector<Value>& args,
    {
    const std::string& s = _check_string(args[0], "string-copy", app);
    int64_t nchars = utf8_char_count(s);
-   int64_t start = 0, end = nchars;
-   if (args.size() >= 2)
-      {
-      if (!is_integer(args[1]))
-         throw SchemeTypeError("string-copy: start must be an integer", _src(app));
-      start = as_integer(args[1]);
-      }
-   if (args.size() >= 3)
-      {
-      if (!is_integer(args[2]))
-         throw SchemeTypeError("string-copy: end must be an integer", _src(app));
-      end = as_integer(args[2]);
-      }
-   if (start < 0 || end > nchars || start > end)
-      throw SchemeTypeError("string-copy: start/end out of range", _src(app));
+   auto [start, end] = parse_start_end(args, 1, nchars, "string-copy", app);
    size_t bstart = utf8_char_offset(s, start);
    size_t bend = utf8_char_offset(s, end);
    return make_string(s.substr(bstart, bend - bstart));
@@ -503,21 +464,8 @@ static Value _prim_string_fill_bang(Context*, Environment*, std::vector<Value>& 
    char32_t ch = as_character(args[1]);
    char fill_byte = static_cast<char>(ch & 0x7F);
    size_t n = sm.size();
-   int64_t start = 0, end = static_cast<int64_t>(n);
-   if (args.size() >= 3)
-      {
-      if (!is_integer(args[2]))
-         throw SchemeTypeError("string-fill!: start must be an integer", _src(app));
-      start = as_integer(args[2]);
-      }
-   if (args.size() >= 4)
-      {
-      if (!is_integer(args[3]))
-         throw SchemeTypeError("string-fill!: end must be an integer", _src(app));
-      end = as_integer(args[3]);
-      }
-   if (start < 0 || end > static_cast<int64_t>(n) || start > end)
-      throw SchemeTypeError("string-fill!: range out of bounds", _src(app));
+   auto [start, end] = parse_start_end(args, 2, static_cast<int64_t>(n),
+                                       "string-fill!", app, "range out of bounds");
    for (int64_t j = start; j < end; ++j)
       sm[static_cast<size_t>(j)] = fill_byte;
    return VOID_VALUE;
@@ -535,21 +483,8 @@ static Value _prim_string_copy_bang(Context*, Environment*, std::vector<Value>& 
    std::string& to = as_string_mut(args[0]);
    int64_t at = as_integer(args[1]);
    const std::string& frm = as_string(args[2]);
-   int64_t start = 0, end = static_cast<int64_t>(frm.size());
-   if (args.size() >= 4)
-      {
-      if (!is_integer(args[3]))
-         throw SchemeTypeError("string-copy!: start must be an integer", _src(app));
-      start = as_integer(args[3]);
-      }
-   if (args.size() >= 5)
-      {
-      if (!is_integer(args[4]))
-         throw SchemeTypeError("string-copy!: end must be an integer", _src(app));
-      end = as_integer(args[4]);
-      }
-   if (start < 0 || end > static_cast<int64_t>(frm.size()) || start > end)
-      throw SchemeTypeError("string-copy!: source range out of bounds", _src(app));
+   auto [start, end] = parse_start_end(args, 3, static_cast<int64_t>(frm.size()),
+                                       "string-copy!", app, "source range out of bounds");
    int64_t chunk_len = end - start;
    if (at < 0 || at + chunk_len > static_cast<int64_t>(to.size()))
       throw SchemeTypeError("string-copy!: destination range out of bounds", _src(app));

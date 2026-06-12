@@ -81,21 +81,8 @@ static Value _prim_vector_set(Context*, Environment*, std::vector<Value>& args, 
 static Value _prim_vector_to_list(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
    auto& items = _check_vector(args[0], "vector->list", app);
-   int64_t start = 0, end = static_cast<int64_t>(items.size());
-   if (args.size() >= 2)
-      {
-      if (!is_integer(args[1]))
-         throw SchemeTypeError("vector->list: start must be an integer", _src(app));
-      start = as_integer(args[1]);
-      }
-   if (args.size() >= 3)
-      {
-      if (!is_integer(args[2]))
-         throw SchemeTypeError("vector->list: end must be an integer", _src(app));
-      end = as_integer(args[2]);
-      }
-   if (start < 0 || end > static_cast<int64_t>(items.size()) || start > end)
-      throw SchemeTypeError("vector->list: range out of bounds", _src(app));
+   auto [start, end] = parse_start_end(args, 1, static_cast<int64_t>(items.size()),
+                                       "vector->list", app, "range out of bounds");
    Value result = NIL_VALUE;
    for (int64_t i = end - 1; i >= start; --i)
       result = alloc_cons(items[static_cast<size_t>(i)], result);
@@ -122,21 +109,8 @@ static Value _prim_vector_fill(Context*, Environment*, std::vector<Value>& args,
    if (is_immutable(args[0]))
       throw SchemeTypeError("vector-fill!: argument is an immutable literal", _src(app));
    Value fill = args[1];
-   int64_t start = 0, end = static_cast<int64_t>(items.size());
-   if (args.size() >= 3)
-      {
-      if (!is_integer(args[2]))
-         throw SchemeTypeError("vector-fill!: start must be an integer", _src(app));
-      start = as_integer(args[2]);
-      }
-   if (args.size() >= 4)
-      {
-      if (!is_integer(args[3]))
-         throw SchemeTypeError("vector-fill!: end must be an integer", _src(app));
-      end = as_integer(args[3]);
-      }
-   if (start < 0 || end > static_cast<int64_t>(items.size()) || start > end)
-      throw SchemeTypeError("vector-fill!: range out of bounds", _src(app));
+   auto [start, end] = parse_start_end(args, 2, static_cast<int64_t>(items.size()),
+                                       "vector-fill!", app, "range out of bounds");
    for (int64_t i = start; i < end; ++i)
       items[static_cast<size_t>(i)] = fill;
    return VOID_VALUE;
@@ -145,21 +119,8 @@ static Value _prim_vector_fill(Context*, Environment*, std::vector<Value>& args,
 static Value _prim_vector_copy(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
    auto& items = _check_vector(args[0], "vector-copy", app);
-   int64_t start = 0, end = static_cast<int64_t>(items.size());
-   if (args.size() >= 2)
-      {
-      if (!is_integer(args[1]))
-         throw SchemeTypeError("vector-copy: start must be an integer", _src(app));
-      start = as_integer(args[1]);
-      }
-   if (args.size() >= 3)
-      {
-      if (!is_integer(args[2]))
-         throw SchemeTypeError("vector-copy: end must be an integer", _src(app));
-      end = as_integer(args[2]);
-      }
-   if (start < 0 || end > static_cast<int64_t>(items.size()) || start > end)
-      throw SchemeTypeError("vector-copy: range out of bounds", _src(app));
+   auto [start, end] = parse_start_end(args, 1, static_cast<int64_t>(items.size()),
+                                       "vector-copy", app, "range out of bounds");
    return make_vector(std::vector<Value>(items.begin() + start, items.begin() + end));
    }
 
@@ -172,21 +133,10 @@ static Value _prim_vector_copy_bang(Context*, Environment*, std::vector<Value>& 
       throw SchemeTypeError("vector-copy!: at must be an integer", _src(app));
    int64_t at = as_integer(args[1]);
    auto& src = _check_vector(args[2], "vector-copy!", app, 3);
-   int64_t start = 0, end = static_cast<int64_t>(src.size());
-   if (args.size() >= 4)
-      {
-      if (!is_integer(args[3]))
-         throw SchemeTypeError("vector-copy!: start must be an integer", _src(app));
-      start = as_integer(args[3]);
-      }
-   if (args.size() >= 5)
-      {
-      if (!is_integer(args[4]))
-         throw SchemeTypeError("vector-copy!: end must be an integer", _src(app));
-      end = as_integer(args[4]);
-      }
+   auto [start, end] = parse_start_end(args, 3, static_cast<int64_t>(src.size()),
+                                       "vector-copy!", app, "range out of bounds");
    int64_t count = end - start;
-   if (at < 0 || start < 0 || end > static_cast<int64_t>(src.size()) || start > end || at + count > static_cast<int64_t>(dst.size()))
+   if (at < 0 || at + count > static_cast<int64_t>(dst.size()))
       throw SchemeTypeError("vector-copy!: range out of bounds", _src(app));
    // Copy with memmove semantics for aliased dst==src case.
    if (&dst == &src && at > start)
@@ -216,21 +166,8 @@ static Value _prim_vector_append(Context*, Environment*, std::vector<Value>& arg
 static Value _prim_vector_to_string(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
    auto& items = _check_vector(args[0], "vector->string", app);
-   int64_t start = 0, end = static_cast<int64_t>(items.size());
-   if (args.size() >= 2)
-      {
-      if (!is_integer(args[1]))
-         throw SchemeTypeError("vector->string: start must be an integer", _src(app));
-      start = as_integer(args[1]);
-      }
-   if (args.size() >= 3)
-      {
-      if (!is_integer(args[2]))
-         throw SchemeTypeError("vector->string: end must be an integer", _src(app));
-      end = as_integer(args[2]);
-      }
-   if (start < 0 || end > static_cast<int64_t>(items.size()) || start > end)
-      throw SchemeTypeError("vector->string: range out of bounds", _src(app));
+   auto [start, end] = parse_start_end(args, 1, static_cast<int64_t>(items.size()),
+                                       "vector->string", app, "range out of bounds");
    std::string result;
    for (int64_t i = start; i < end; ++i)
       {
@@ -269,21 +206,8 @@ static Value _prim_string_to_vector(Context*, Environment*, std::vector<Value>& 
    if (!is_string(args[0]))
       throw SchemeTypeError("string->vector: argument must be a string", _src(app));
    const std::string& s = as_string(args[0]);
-   int64_t start = 0, end = static_cast<int64_t>(s.size());
-   if (args.size() >= 2)
-      {
-      if (!is_integer(args[1]))
-         throw SchemeTypeError("string->vector: start must be an integer", _src(app));
-      start = as_integer(args[1]);
-      }
-   if (args.size() >= 3)
-      {
-      if (!is_integer(args[2]))
-         throw SchemeTypeError("string->vector: end must be an integer", _src(app));
-      end = as_integer(args[2]);
-      }
-   if (start < 0 || end > static_cast<int64_t>(s.size()) || start > end)
-      throw SchemeTypeError("string->vector: range out of bounds", _src(app));
+   auto [start, end] = parse_start_end(args, 1, static_cast<int64_t>(s.size()),
+                                       "string->vector", app, "range out of bounds");
    std::vector<Value> chars;
    for (int64_t i = start; i < end; ++i)
       chars.push_back(make_character(static_cast<char32_t>(static_cast<uint8_t>(s[static_cast<size_t>(i)]))));

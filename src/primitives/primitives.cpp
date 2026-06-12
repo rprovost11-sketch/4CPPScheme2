@@ -159,6 +159,30 @@ void register_primitive(
    register_primitive_arity(name, lo, hi);
    }
 
+std::pair<int64_t, int64_t> parse_start_end(
+    const std::vector<Value>& args, size_t base_idx, int64_t length,
+    const char* name, const Value* app, const char* range_msg)
+   {
+   SourceInfo* src = app ? src_of(*app) : nullptr;
+   int64_t start = 0;
+   int64_t end = length;
+   if (args.size() > base_idx)
+      {
+      if (!is_integer(args[base_idx]))
+         throw SchemeTypeError(std::string(name) + ": start must be an integer", src);
+      start = as_integer(args[base_idx]);
+      }
+   if (args.size() > base_idx + 1)
+      {
+      if (!is_integer(args[base_idx + 1]))
+         throw SchemeTypeError(std::string(name) + ": end must be an integer", src);
+      end = as_integer(args[base_idx + 1]);
+      }
+   if (start < 0 || end > length || start > end)
+      throw SchemeTypeError(std::string(name) + ": " + range_msg, src);
+   return {start, end};
+   }
+
 void install_primitives(Environment* env)
    {
    if (!s_installed)

@@ -96,21 +96,8 @@ static Value _prim_bytevector_u8_set(Context*, Environment*, std::vector<Value>&
 static Value _prim_bytevector_copy(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
    auto& bs = _check_bv(args[0], "bytevector-copy", app);
-   int64_t start = 0, end = static_cast<int64_t>(bs.size());
-   if (args.size() >= 2)
-      {
-      if (!is_integer(args[1]))
-         throw SchemeTypeError("bytevector-copy: start must be an integer", _src(app));
-      start = as_integer(args[1]);
-      }
-   if (args.size() >= 3)
-      {
-      if (!is_integer(args[2]))
-         throw SchemeTypeError("bytevector-copy: end must be an integer", _src(app));
-      end = as_integer(args[2]);
-      }
-   if (start < 0 || end > static_cast<int64_t>(bs.size()) || start > end)
-      throw SchemeTypeError("bytevector-copy: range out of bounds", _src(app));
+   auto [start, end] = parse_start_end(args, 1, static_cast<int64_t>(bs.size()),
+                                       "bytevector-copy", app, "range out of bounds");
    return make_bytevector(std::vector<uint8_t>(bs.begin() + start, bs.begin() + end));
    }
 
@@ -123,21 +110,10 @@ static Value _prim_bytevector_copy_bang(Context*, Environment*, std::vector<Valu
       throw SchemeTypeError("bytevector-copy!: at must be an integer", _src(app));
    int64_t at = as_integer(args[1]);
    auto& src = _check_bv(args[2], "bytevector-copy!", app, 3);
-   int64_t start = 0, end = static_cast<int64_t>(src.size());
-   if (args.size() >= 4)
-      {
-      if (!is_integer(args[3]))
-         throw SchemeTypeError("bytevector-copy!: start must be an integer", _src(app));
-      start = as_integer(args[3]);
-      }
-   if (args.size() >= 5)
-      {
-      if (!is_integer(args[4]))
-         throw SchemeTypeError("bytevector-copy!: end must be an integer", _src(app));
-      end = as_integer(args[4]);
-      }
+   auto [start, end] = parse_start_end(args, 3, static_cast<int64_t>(src.size()),
+                                       "bytevector-copy!", app, "range out of bounds");
    int64_t count = end - start;
-   if (at < 0 || start < 0 || end > static_cast<int64_t>(src.size()) || start > end || at + count > static_cast<int64_t>(dst.size()))
+   if (at < 0 || at + count > static_cast<int64_t>(dst.size()))
       throw SchemeTypeError("bytevector-copy!: range out of bounds", _src(app));
    // Use memmove for potential overlap (dst and src may be same bytevector)
    std::memmove(dst.data() + at, src.data() + start, static_cast<size_t>(count));
@@ -198,21 +174,8 @@ static bool _is_valid_utf8(const uint8_t* data, size_t len)
 static Value _prim_utf8_to_string(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
    auto& bs = _check_bv(args[0], "utf8->string", app);
-   int64_t start = 0, end = static_cast<int64_t>(bs.size());
-   if (args.size() >= 2)
-      {
-      if (!is_integer(args[1]))
-         throw SchemeTypeError("utf8->string: start must be an integer", _src(app));
-      start = as_integer(args[1]);
-      }
-   if (args.size() >= 3)
-      {
-      if (!is_integer(args[2]))
-         throw SchemeTypeError("utf8->string: end must be an integer", _src(app));
-      end = as_integer(args[2]);
-      }
-   if (start < 0 || end > static_cast<int64_t>(bs.size()) || start > end)
-      throw SchemeTypeError("utf8->string: range out of bounds", _src(app));
+   auto [start, end] = parse_start_end(args, 1, static_cast<int64_t>(bs.size()),
+                                       "utf8->string", app, "range out of bounds");
    if (!_is_valid_utf8(bs.data() + start, static_cast<size_t>(end - start)))
       throw SchemeTypeError("utf8->string: invalid UTF-8", _src(app));
    return make_string(std::string(reinterpret_cast<const char*>(bs.data()) + start,
@@ -224,21 +187,8 @@ static Value _prim_string_to_utf8(Context*, Environment*, std::vector<Value>& ar
    if (!is_string(args[0]))
       throw SchemeTypeError("string->utf8: argument must be a string", _src(app));
    const std::string& s = as_string(args[0]);
-   int64_t start = 0, end = static_cast<int64_t>(s.size());
-   if (args.size() >= 2)
-      {
-      if (!is_integer(args[1]))
-         throw SchemeTypeError("string->utf8: start must be an integer", _src(app));
-      start = as_integer(args[1]);
-      }
-   if (args.size() >= 3)
-      {
-      if (!is_integer(args[2]))
-         throw SchemeTypeError("string->utf8: end must be an integer", _src(app));
-      end = as_integer(args[2]);
-      }
-   if (start < 0 || end > static_cast<int64_t>(s.size()) || start > end)
-      throw SchemeTypeError("string->utf8: range out of bounds", _src(app));
+   auto [start, end] = parse_start_end(args, 1, static_cast<int64_t>(s.size()),
+                                       "string->utf8", app, "range out of bounds");
    const uint8_t* p = reinterpret_cast<const uint8_t*>(s.data()) + start;
    return make_bytevector(std::vector<uint8_t>(p, p + (end - start)));
    }

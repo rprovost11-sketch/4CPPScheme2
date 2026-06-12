@@ -760,21 +760,8 @@ static Value _prim_read_bytevector_bang(Context* ctx, Environment*, std::vector<
    auto& dst = as_bytevector_items(args[0]);
    Value port_val = (args.size() >= 2) ? args[1] : _get_current_input(ctx);
    Port* p = _check_binary_input(port_val, "read-bytevector!", app, 2);
-   int64_t start = 0, end = static_cast<int64_t>(dst.size());
-   if (args.size() >= 3)
-      {
-      if (!is_integer(args[2]))
-         throw SchemeTypeError("read-bytevector!: start must be an integer", _src(app));
-      start = as_integer(args[2]);
-      }
-   if (args.size() >= 4)
-      {
-      if (!is_integer(args[3]))
-         throw SchemeTypeError("read-bytevector!: end must be an integer", _src(app));
-      end = as_integer(args[3]);
-      }
-   if (start < 0 || end > static_cast<int64_t>(dst.size()) || start > end)
-      throw SchemeTypeError("read-bytevector!: range out of bounds", _src(app));
+   auto [start, end] = parse_start_end(args, 2, static_cast<int64_t>(dst.size()),
+                                       "read-bytevector!", app, "range out of bounds");
    int64_t want = end - start;
    if (p->pos >= p->buf_binary.size() && want > 0)
       return make_eof();
@@ -804,21 +791,8 @@ static Value _prim_write_string(Context* ctx, Environment*, std::vector<Value>& 
    const std::string& text = as_string(args[0]);
    Value port_val = _resolve_output_port(ctx, args, 1);
    Port* p = _check_textual_output(port_val, "write-string", app, 2);
-   int64_t start = 0, end = static_cast<int64_t>(text.size());
-   if (args.size() >= 3)
-      {
-      if (!is_integer(args[2]))
-         throw SchemeTypeError("write-string: start must be an integer", _src(app));
-      start = as_integer(args[2]);
-      }
-   if (args.size() >= 4)
-      {
-      if (!is_integer(args[3]))
-         throw SchemeTypeError("write-string: end must be an integer", _src(app));
-      end = as_integer(args[3]);
-      }
-   if (start < 0 || end > static_cast<int64_t>(text.size()) || start > end)
-      throw SchemeTypeError("write-string: range out of bounds", _src(app));
+   auto [start, end] = parse_start_end(args, 2, static_cast<int64_t>(text.size()),
+                                       "write-string", app, "range out of bounds");
    _emit_to_port(ctx, p, text.substr(static_cast<size_t>(start), static_cast<size_t>(end - start)));
    return VOID_VALUE;
    }
@@ -844,21 +818,8 @@ static Value _prim_write_bytevector(Context* ctx, Environment*, std::vector<Valu
    const auto& src = as_bytevector_items_const(args[0]);
    Value port_val = (args.size() >= 2) ? args[1] : _get_current_output(ctx);
    Port* p = _check_binary_output(port_val, "write-bytevector", app, 2);
-   int64_t start = 0, end = static_cast<int64_t>(src.size());
-   if (args.size() >= 3)
-      {
-      if (!is_integer(args[2]))
-         throw SchemeTypeError("write-bytevector: start must be an integer", _src(app));
-      start = as_integer(args[2]);
-      }
-   if (args.size() >= 4)
-      {
-      if (!is_integer(args[3]))
-         throw SchemeTypeError("write-bytevector: end must be an integer", _src(app));
-      end = as_integer(args[3]);
-      }
-   if (start < 0 || end > static_cast<int64_t>(src.size()) || start > end)
-      throw SchemeTypeError("write-bytevector: range out of bounds", _src(app));
+   auto [start, end] = parse_start_end(args, 2, static_cast<int64_t>(src.size()),
+                                       "write-bytevector", app, "range out of bounds");
    _emit_bytes_to_port(p, src.data() + start, static_cast<size_t>(end - start));
    return VOID_VALUE;
    }
