@@ -10,6 +10,7 @@
 #include "../Environment.h"
 #include "../Evaluator.h"
 #include "../gc.h"
+#include "../unicode_tables.h"
 #include <algorithm>
 #include <cctype>
 
@@ -276,36 +277,49 @@ static Value _prim_symbol_to_string(Context*, Environment*, std::vector<Value>& 
    return make_string(as_symbol(args[0]));
    }
 
+// Map a UTF-8 string codepoint-by-codepoint through a full Unicode case
+// mapping (1:N), re-encoding to UTF-8.  Per-codepoint -- no context rules (see
+// unicode_tables.h note on Greek final sigma).
+static std::string _string_case(const std::string& s,
+                                int (*mapfn)(char32_t, char32_t*))
+   {
+   std::string out;
+   out.reserve(s.size());
+   size_t pos = 0;
+   while (pos < s.size())
+      {
+      char32_t cp = utf8_next(s, pos);
+      char32_t mapped[3];
+      int n = mapfn(cp, mapped);
+      for (int i = 0; i < n; ++i)
+         utf8_encode(out, mapped[i]);
+      }
+   return out;
+   }
+
 static Value _prim_string_upcase(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   std::string s = _check_string(args[0], "string-upcase", app);
-   for (char& c : s)
-      c = static_cast<char>(std::toupper(static_cast<uint8_t>(c)));
-   return make_string(s);
+   return make_string(_string_case(_check_string(args[0], "string-upcase", app),
+                                   unicode::upcase));
    }
 
 static Value _prim_string_downcase(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   std::string s = _check_string(args[0], "string-downcase", app);
-   for (char& c : s)
-      c = static_cast<char>(std::tolower(static_cast<uint8_t>(c)));
-   return make_string(s);
+   return make_string(_string_case(_check_string(args[0], "string-downcase", app),
+                                   unicode::downcase));
    }
 
 static Value _prim_string_foldcase(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   std::string s = _check_string(args[0], "string-foldcase", app);
-   for (char& c : s)
-      c = static_cast<char>(std::tolower(static_cast<uint8_t>(c)));
-   return make_string(s);
+   return make_string(_string_case(_check_string(args[0], "string-foldcase", app),
+                                   unicode::foldcase));
    }
 
+// Case-folding for string-ci* (R7RS uses full case folding, matching
+// pyscheme's str.casefold()).
 static std::string _to_lower(const std::string& s)
    {
-   std::string r = s;
-   for (char& c : r)
-      c = static_cast<char>(std::tolower(static_cast<uint8_t>(c)));
-   return r;
+   return _string_case(s, unicode::foldcase);
    }
 
 static Value _string_compare_ci(const char* name, std::vector<Value>& args, const Value* app,

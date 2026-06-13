@@ -11,6 +11,8 @@ add_library(cppscheme2_core SHARED
     src/mini-gmp/mini-gmp.c
     # Phase 1 undercarriage
     src/AST.cpp
+    # Generated Unicode case/classification tables (gen_unicode_tables.py)
+    src/unicode_tables.cpp
     src/gc_gen.cpp
     # Phase 2
     src/Environment.cpp

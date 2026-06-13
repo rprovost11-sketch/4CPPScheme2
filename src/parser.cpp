@@ -988,6 +988,18 @@ static Token build_word_token(const std::string& word, const SourceInfo& src, bo
                t.int_val = std::stoll(word);
                return t;
                }
+            catch (const std::out_of_range&)
+               {
+               // A valid decimal integer too large for int64: build a mini-gmp
+               // bignum instead of falling through to "malformed number" (this
+               // is what pyscheme's arbitrary-precision Python ints do for free).
+               const char* p = word.c_str();
+               if (*p == '+')
+                  ++p;  // mpz_set_str does not accept a leading '+'
+               Token t(TokenKind::BIGNUM, src);
+               t.val = make_bignum_str(p, 10, new SourceInfo(src));
+               return t;
+               }
             catch (...)
                {
                }
@@ -1914,6 +1926,12 @@ class SchemeParser
             SourceInfo ss = tok.src;
             _advance();
             value = make_integer(v, new SourceInfo(ss));
+            }
+         else if (kind == TokenKind::BIGNUM)
+            {
+            Value v = tok.val;
+            _advance();
+            value = v;
             }
          else if (kind == TokenKind::REAL)
             {

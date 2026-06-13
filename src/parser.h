@@ -23,6 +23,7 @@ enum class TokenKind
    UNQUOTE_SPLICING,
    DOT,
    INT,
+   BIGNUM,
    REAL,
    RATIONAL,
    COMPLEX,

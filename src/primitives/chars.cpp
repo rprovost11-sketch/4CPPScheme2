@@ -6,6 +6,7 @@
 #include "../Environment.h"
 #include <cwctype>
 #include <cwchar>
+#include "../unicode_tables.h"
 
 static const char* CATEGORY = "chars";
 
@@ -71,49 +72,55 @@ static Value _prim_char_ge(Context*, Environment*, std::vector<Value>& a, const 
 static Value _prim_char_alphabetic(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
    char32_t c = _check_char(args[0], "char-alphabetic?", app);
-   return make_boolean(std::iswalpha(static_cast<wint_t>(c)) != 0);
+   return make_boolean(unicode::is_alpha(c));
    }
 
 static Value _prim_char_numeric(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
    char32_t c = _check_char(args[0], "char-numeric?", app);
-   return make_boolean(std::iswdigit(static_cast<wint_t>(c)) != 0);
+   return make_boolean(unicode::is_digit(c));
    }
 
 static Value _prim_char_whitespace(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
    char32_t c = _check_char(args[0], "char-whitespace?", app);
-   return make_boolean(std::iswspace(static_cast<wint_t>(c)) != 0);
+   return make_boolean(unicode::is_space(c));
    }
 
 static Value _prim_char_upper_case(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
    char32_t c = _check_char(args[0], "char-upper-case?", app);
-   return make_boolean(std::iswupper(static_cast<wint_t>(c)) != 0);
+   return make_boolean(unicode::is_upper(c));
    }
 
 static Value _prim_char_lower_case(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
    char32_t c = _check_char(args[0], "char-lower-case?", app);
-   return make_boolean(std::iswlower(static_cast<wint_t>(c)) != 0);
+   return make_boolean(unicode::is_lower(c));
    }
 
 static Value _prim_char_upcase(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
    char32_t c = _check_char(args[0], "char-upcase", app);
-   return make_character(static_cast<char32_t>(std::towupper(static_cast<wint_t>(c))));
+   char32_t out[3];
+   int n = unicode::upcase(c, out);
+   return make_character(n == 1 ? out[0] : c);  // R7RS: unchanged if not 1:1
    }
 
 static Value _prim_char_downcase(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
    char32_t c = _check_char(args[0], "char-downcase", app);
-   return make_character(static_cast<char32_t>(std::towlower(static_cast<wint_t>(c))));
+   char32_t out[3];
+   int n = unicode::downcase(c, out);
+   return make_character(n == 1 ? out[0] : c);
    }
 
 static Value _prim_char_foldcase(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
    char32_t c = _check_char(args[0], "char-foldcase", app);
-   return make_character(static_cast<char32_t>(std::towlower(static_cast<wint_t>(c))));
+   char32_t out[3];
+   int n = unicode::foldcase(c, out);
+   return make_character(n == 1 ? out[0] : c);
    }
 
 // Case-insensitive comparison: fold both to lowercase first.
@@ -122,7 +129,9 @@ static Value _char_compare_ci(const char* name, std::vector<Value>& args, const 
    {
    auto fold = [](char32_t c)
    {
-      return static_cast<char32_t>(std::towlower(static_cast<wint_t>(c)));
+      char32_t out[3];
+      unicode::foldcase(c, out);
+      return out[0];
    };
    char32_t prev = fold(_check_char(args[0], name, app, 1));
    for (int i = 1; i < static_cast<int>(args.size()); ++i)
