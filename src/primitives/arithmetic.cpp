@@ -1737,15 +1737,29 @@ static Value _prim_truncate_div(Context*, Environment*, std::vector<Value>& args
 
 static Value _prim_exact_integer_sqrt(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   int64_t n = _check_int(args[0], "exact-integer-sqrt", app, 1);
-   if (n < 0)
+   // Handle fixnum AND bignum uniformly via mini-gmp (pyscheme uses Python's
+   // arbitrary-precision isqrt); results are normalized back to fixnums when
+   // they fit so they compare equal to literals.
+   const Value& v = args[0];
+   if (!is_integer(v) && !is_bignum(v))
+      throw SchemeTypeError("exact-integer-sqrt: argument 1 is not an integer", _src(app));
+   __mpz_struct z;
+   _val_to_mpz(&z, v);
+   if (mpz_sgn(&z) < 0)
+      {
+      mpz_clear(&z);
       throw SchemeTypeError("exact-integer-sqrt: argument must be non-negative", _src(app));
-   int64_t r = (int64_t)std::sqrt((double)n);
-   while (r > 0 && r * r > n)
-      --r;
-   while ((r + 1) * (r + 1) <= n)
-      ++r;
-   return make_multi_values({make_integer(r), make_integer(n - r * r)});
+      }
+   __mpz_struct root, rem;
+   mpz_init(&root);
+   mpz_init(&rem);
+   mpz_sqrtrem(&root, &rem, &z);
+   Value vroot = _mpz_to_value(&root);
+   Value vrem = _mpz_to_value(&rem);
+   mpz_clear(&z);
+   mpz_clear(&root);
+   mpz_clear(&rem);
+   return make_multi_values({vroot, vrem});
    }
 
 static Value _prim_features(Context*, Environment*, std::vector<Value>&, const Value*)
