@@ -1300,6 +1300,17 @@ static Value _prim_square(Context*, Environment*, std::vector<Value>& args, cons
       std::complex<double> c = _val_to_complex(v);
       return _wrap_cplx(c * c);
       }
+   if (is_integer(v) || is_bignum(v))
+      {
+      // Exact integer square: multiply via mpz so a large product becomes an
+      // exact bignum instead of collapsing to a double through NumAny.
+      __mpz_struct z;
+      _val_to_mpz(&z, v);
+      mpz_mul(&z, &z, &z);
+      Value r = _mpz_to_value(&z);
+      mpz_clear(&z);
+      return r;
+      }
    NumAny n = _any_num(v, "square", app, 1);
    return _wrap_numany(_numany_mul(n, n));
    }

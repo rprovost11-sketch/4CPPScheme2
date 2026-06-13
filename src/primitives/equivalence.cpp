@@ -87,6 +87,8 @@ static bool _eq_leaf(const Value& a, const Value& b, _Seen& seen,
       return as_symbol_id(a) == as_symbol_id(b);
    if (is_integer(a) && is_integer(b))
       return as_integer(a) == as_integer(b);
+   if (is_bignum(a) && is_bignum(b))
+      return mpz_cmp(as_bignum(a), as_bignum(b)) == 0;
    if (is_real(a) && is_real(b))
       return as_real(a) == as_real(b);
    if (is_rational(a) && is_rational(b))

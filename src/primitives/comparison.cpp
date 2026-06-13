@@ -7,6 +7,7 @@
 #include "../rational.h"
 #include <complex>
 #include <variant>
+#include <cmath>
 
 static const char* CATEGORY = "comparison";
 
@@ -167,6 +168,24 @@ static bool any_eq(const NumAny& a, const NumAny& b)
       if (auto* br = std::get_if<Rat>(&b))
          return *ar == *br;
       }
+   // Exact integer vs inexact real: compare exactly, mirroring Python's int==float
+   // (which never rounds the integer to fit a double).  Without this, distinct
+   // values that share a double rounding collide, e.g.
+   // (= 9007199254740992.0 9007199254740993) would wrongly return #t.
+   auto int_eq_double = [](int64_t i, double d) -> bool
+   {
+      if (!std::isfinite(d) || std::floor(d) != d)
+         return false;                                  // non-finite or non-integral
+      if (d < -9223372036854775808.0 || d >= 9223372036854775808.0)
+         return false;                                  // outside int64 range -> unequal
+      return static_cast<int64_t>(d) == i;
+   };
+   if (auto* ai = std::get_if<int64_t>(&a))
+      if (auto* bd = std::get_if<double>(&b))
+         return int_eq_double(*ai, *bd);
+   if (auto* ad = std::get_if<double>(&a))
+      if (auto* bi = std::get_if<int64_t>(&b))
+         return int_eq_double(*bi, *ad);
    return to_cx(a) == to_cx(b);
    }
 
