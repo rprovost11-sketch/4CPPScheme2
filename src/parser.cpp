@@ -145,6 +145,22 @@ static char32_t decode_char_literal(const std::string& rest, const SourceInfo& s
    {
    if (rest.size() == 1)
       return (char32_t)(unsigned char)rest[0];
+   // Multibyte UTF-8 single character (e.g. #\Λ): decode the code point.  Named
+   // characters and #\x... hex start with ASCII (< 0x80), so a >= 0x80 lead byte
+   // unambiguously means a literal multibyte character.
+   if ((unsigned char)rest[0] >= 0x80)
+      {
+      unsigned char c0 = (unsigned char)rest[0];
+      int len;
+      char32_t cp;
+      if (c0 >= 0xF0)      { len = 4; cp = c0 & 0x07; }
+      else if (c0 >= 0xE0) { len = 3; cp = c0 & 0x0F; }
+      else if (c0 >= 0xC0) { len = 2; cp = c0 & 0x1F; }
+      else                 { len = 1; cp = c0; }
+      for (int i = 1; i < len && i < (int)rest.size(); ++i)
+         cp = (cp << 6) | ((unsigned char)rest[i] & 0x3F);
+      return cp;
+      }
    if (rest.size() >= 2 && rest[0] == 'x')
       {
       std::string hex_str = rest.substr(1);
@@ -1432,8 +1448,17 @@ std::vector<Token> scheme_tokenize(const std::string& source, const std::string&
                }
             else
                {
-               char_rest += source[pos++];
-               ++col;
+               // Single-character literal -- read the FULL UTF-8 sequence so a
+               // multibyte char (e.g. #\Λ, two bytes) isn't truncated to its
+               // lead byte (which left the trailing bytes as a stray token).
+               unsigned char lead = (unsigned char)source[pos];
+               int clen = (lead >= 0xF0) ? 4 : (lead >= 0xE0) ? 3
+                          : (lead >= 0xC0) ? 2 : 1;
+               for (int k = 0; k < clen && pos < n; ++k)
+                  {
+                  char_rest += source[pos++];
+                  ++col;
+                  }
                }
             char32_t cv = decode_char_literal(char_rest, sv);
             Token tok(TokenKind::CHAR, sv);
