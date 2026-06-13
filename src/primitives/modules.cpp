@@ -4,6 +4,7 @@
 #include "primitives.h"
 #include "../AST.h"
 #include "../Environment.h"
+#include "../evaluator.h"
 
 static const char* CATEGORY = "modules";
 static const char* SPECIAL = "special";
@@ -45,6 +46,17 @@ static Value _form_import(Context*, Environment*, std::vector<Value>&, const Val
 static Value _form_export(Context*, Environment*, std::vector<Value>&, const Value* a)
    {
    return _stub("export", a);
+   }
+
+// set-library-path! -- a REAL primitive (not a stub).  Persistently replaces the
+// current-library-path parameter's value.  Port of pyscheme modules.py
+// _prim_set_library_path.
+static Value _prim_set_library_path(Context*, Environment*, std::vector<Value>& args,
+                                    const Value* a)
+   {
+   Value normalized = normalize_library_path_value(args[0], a);
+   library_path_param_assign(normalized);
+   return VOID_VALUE;
    }
 
 void register_modules()
@@ -103,4 +115,17 @@ void register_modules()
                       "Valid only inside (define-library ...) as a declaration.  Each\n"
                       "<spec> is a symbol or (rename <internal> <external>).  R7RS 5.6.",
                       CATEGORY, SPECIAL);
+
+   register_primitive("set-library-path!", 1, 1, _prim_set_library_path,
+                      "(set-library-path! list-of-strings)",
+                      "Persistently replace the library search path used to locate\n"
+                      "libraries on disk for (import ...).  The argument is a list of\n"
+                      "directory-name strings, searched in order: a library named\n"
+                      "(a b) is sought at <dir>/a/b.sld in each directory.  This is the\n"
+                      "persistent counterpart to rebinding the current-library-path\n"
+                      "parameter with (parameterize ((current-library-path ...)) ...),\n"
+                      "which only takes effect for a dynamic extent.  The startup value\n"
+                      "is '.' followed by any -L/-I command-line directories and the\n"
+                      "SCHEME_LIBRARY_PATH environment variable.  cppscheme2 extension.",
+                      CATEGORY);
    }

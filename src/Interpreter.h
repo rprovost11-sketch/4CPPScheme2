@@ -10,11 +10,15 @@
 #include <iosfwd>
 #include <optional>
 #include <string>
+#include <vector>
 
 class CPPSCHEME2_API Interpreter : public InterpreterBase
    {
  public:
-   Interpreter();
+   // library_paths: extra -L/-I search-path directories from the command line,
+   // prepended to SCHEME_LIBRARY_PATH when the current-library-path parameter is
+   // built in reboot().
+   Interpreter(std::vector<std::string> library_paths = {});
    ~Interpreter();
 
    void reboot(std::ostream* outStrm = nullptr, bool load_rc = true) override;
@@ -49,6 +53,7 @@ class CPPSCHEME2_API Interpreter : public InterpreterBase
    StaticEnv _static_env;
    Context _ctx;
    Tracer _tracer;
+   std::vector<std::string> _cli_library_paths;
 
    void _wire_ctx_leval();
    };

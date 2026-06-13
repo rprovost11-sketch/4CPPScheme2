@@ -954,12 +954,33 @@ static std::pair<Value, Value> finalize_parameterize_winds(
            make_native_closure("%parameterize-restore", nc_parameterize_set, std::move(rest_cap))};
    }
 
-// ── _library_load_path ────────────────────────────────────────────────────────
-// Port of Evaluator.py _library_load_path.
+// ── Library search path (parameter-backed) ──────────────────────────────────
+// Port of Evaluator.py: the .sld search path lives in a current-library-path
+// parameter so a program can read it, rebind it with parameterize, or replace
+// it persistently with set-library-path!.  _library_load_path reads the
+// parameter's current value; until an interpreter binds it (Evaluator self-test,
+// etc.) it falls back to '.' + SCHEME_LIBRARY_PATH.
+//
+// C port: pyScheme keeps the parameter in a module-level [None] holder; here the
+// Value is a file-static registered as a GC root (gc_root_push) so the moving GC
+// keeps the slot updated.  (pyScheme also marks the config strings immutable;
+// omitted here as there is no public string-immutable setter and it is cosmetic.)
+static Value g_library_path_param;
+static bool g_library_path_param_set = false;
 
-static std::vector<std::string> _library_load_path()
+static void set_library_path_param(Value p)
    {
-   std::vector<std::string> parts = {"."};
+   if (!g_library_path_param_set)
+      gc_root_push(&g_library_path_param);
+   g_library_path_param = p;
+   g_library_path_param_set = true;
+   }
+
+// The SCHEME_LIBRARY_PATH portion of the default path: env var split on os
+// pathsep (';' on Windows, ':' on Unix), empties dropped.
+static std::vector<std::string> _env_library_path_parts()
+   {
+   std::vector<std::string> parts;
    const char* path_var = getenv("SCHEME_LIBRARY_PATH");
    if (path_var == nullptr)
       return parts;
@@ -982,6 +1003,116 @@ static std::vector<std::string> _library_load_path()
       start = pos + 1;
       }
    return parts;
+   }
+
+// Default search path when no current-library-path parameter is in effect:
+// current directory first, then SCHEME_LIBRARY_PATH entries.
+static std::vector<std::string> _default_library_path()
+   {
+   std::vector<std::string> parts = {"."};
+   for (const std::string& p : _env_library_path_parts())
+      parts.push_back(p);
+   return parts;
+   }
+
+// Initial library search path: current dir, then the CLI -L/-I paths (in
+// command-line order), then SCHEME_LIBRARY_PATH.
+static std::vector<std::string> build_library_path_list(
+    const std::vector<std::string>& cli_paths)
+   {
+   std::vector<std::string> parts = {"."};
+   for (const std::string& p : cli_paths)
+      if (!p.empty())
+         parts.push_back(p);
+   for (const std::string& p : _env_library_path_parts())
+      parts.push_back(p);
+   return parts;
+   }
+
+// Build a Scheme proper list of strings from a native vector of directories.
+static Value _make_scheme_string_list(const std::vector<std::string>& paths)
+   {
+   Value result = NIL_VALUE;
+   for (size_t i = paths.size(); i-- > 0;)
+      result = alloc_cons(make_string(paths[i]), result);
+   return result;
+   }
+
+// Validate that val is a proper list of strings and return a fresh Scheme list
+// of the same strings.  Used as the current-library-path parameter's converter
+// (so parameterize is validated) and by set-library-path!.  Throws on a
+// non-list or a non-string element.
+Value normalize_library_path_value(const Value& val, const Value* app_node)
+   {
+   std::vector<std::string> paths;
+   Value cur = val;
+   while (is_cons(cur))
+      {
+      Value elt = car(cur);
+      if (!is_string(elt))
+         throw SchemeTypeError("library path must be a list of strings",
+                               app_node ? src_of(*app_node) : nullptr);
+      paths.push_back(as_string(elt));
+      cur = cdr(cur);
+      }
+   if (!is_nil(cur))
+      throw SchemeTypeError("library path must be a proper list",
+                            app_node ? src_of(*app_node) : nullptr);
+   return _make_scheme_string_list(paths);
+   }
+
+static Value _library_path_converter_fn(Context*, Environment*,
+                                        std::vector<Value>& args,
+                                        const Value* app_node)
+   {
+   return normalize_library_path_value(args[0], app_node);
+   }
+
+// Create the current-library-path parameter from '.' + CLI paths + env, install
+// it as the loader's source of truth, and return it for binding into the env.
+Value make_library_path_param(const std::vector<std::string>& cli_paths)
+   {
+   Value init_val = _make_scheme_string_list(build_library_path_list(cli_paths));
+   Value converter = make_primitive("%library-path-converter",
+                                    _library_path_converter_fn);
+   Value param = make_parameter(init_val, converter);
+   set_library_path_param(param);
+   return param;
+   }
+
+// True once an interpreter has installed the current-library-path parameter.
+bool library_path_param_is_set()
+   {
+   return g_library_path_param_set;
+   }
+
+// Persistently replace the parameter's value (the engine behind
+// set-library-path!).  Mirrors pyScheme reaching _library_path_param_ref[0].
+void library_path_param_assign(Value normalized)
+   {
+   if (g_library_path_param_set)
+      set_parameter_value(g_library_path_param, normalized);
+   }
+
+// ── _library_load_path ──────────────────────────────────────────────────────
+// Port of Evaluator.py _library_load_path.  Returns the .sld search path as a
+// vector of directory strings: the current-library-path parameter's current
+// value when set (so parameterize / set-library-path! take effect), else the
+// default ('.' + SCHEME_LIBRARY_PATH).
+static std::vector<std::string> _library_load_path()
+   {
+   if (!g_library_path_param_set)
+      return _default_library_path();
+   std::vector<std::string> paths;
+   Value cur = as_parameter_value(g_library_path_param);
+   while (is_cons(cur))
+      {
+      Value elt = car(cur);
+      if (is_string(elt))
+         paths.push_back(as_string(elt));
+      cur = cdr(cur);
+      }
+   return paths;
    }
 
 // ── _process_one_lib_decl ─────────────────────────────────────────────────────

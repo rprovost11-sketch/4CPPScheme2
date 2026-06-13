@@ -16,7 +16,8 @@
 #include <iostream>
 #include <string>
 
-Interpreter::Interpreter()
+Interpreter::Interpreter(std::vector<std::string> library_paths)
+   : _cli_library_paths(std::move(library_paths))
    {
    _ctx.tracer = &_tracer;
    _tracer._ctx = &_ctx;
@@ -58,6 +59,11 @@ void Interpreter::reboot(std::ostream* outStrm, bool load_rc)
    register_standard_libraries(_env);
    set_runtime_env(_env);
    set_global_env(_env);
+   // current-library-path parameter: the .sld search path, seeded from '.' +
+   // CLI -L/-I paths + SCHEME_LIBRARY_PATH.  Bound in the global env so programs
+   // can read it or rebind it via parameterize; set-library-path! replaces it.
+   _env->bind_id(intern_symbol("current-library-path"),
+                 make_library_path_param(_cli_library_paths));
    _static_env = StaticEnv(primitive_arities());
    if (outStrm != nullptr)
       _ctx.outStrm = outStrm;

@@ -388,6 +388,49 @@ static void collect_binding_intros(const Value& tmpl,
    collect_binding_intros(cdr(tmpl), pvars, out);
    }
 
+// ── Self-recursive-call operand intro collector ─────────────────────────────
+// Port of syntax_rules.py collect_self_call_operand_intros.  Collects non-pvar
+// symbols passed as a DIRECT operand to a recursive self-invocation of the
+// macro.  Such an operand can land in a binding position in another rule of the
+// same macro -- miniKanren's `run` clause 1 passes an introduced `q` to a
+// recursive `run` call that clause 2 binds with `let` -- so it needs a
+// per-application gensym or it captures, or is captured by, a same-named
+// use-site identifier.  Deliberately narrow: an introduced free *reference* not
+// threaded through a self-call (e.g. `y` in `(+ n y)`) is left as-is so it still
+// resolves at the use site.  Heuristic, not full hygiene (misses a binder
+// threaded through *mutual* macro recursion).
+static void collect_self_call_operand_intros(const Value& tmpl,
+                                              uint32_t macro_name_sid,
+                                              const std::unordered_set<uint32_t>& pvars,
+                                              std::unordered_set<uint32_t>& out)
+   {
+   if (!is_cons(tmpl))
+      return;
+   Value h = car(tmpl);
+   static const uint32_t QUOTE_SID = intern_symbol("quote");
+   if (is_symbol(h) && as_symbol_id(h) == QUOTE_SID)
+      return;
+   if (is_symbol(h) && as_symbol_id(h) == macro_name_sid)
+      {
+      // direct operands of a recursive self-call
+      Value cur = cdr(tmpl);
+      while (is_cons(cur))
+         {
+         Value op = car(cur);
+         if (is_symbol(op))
+            {
+            uint32_t s = as_symbol_id(op);
+            if (!pvars.count(s))
+               out.insert(s);
+            }
+         cur = cdr(cur);
+         }
+      }
+   // recurse everywhere to find nested self-calls
+   collect_self_call_operand_intros(car(tmpl), macro_name_sid, pvars, out);
+   collect_self_call_operand_intros(cdr(tmpl), macro_name_sid, pvars, out);
+   }
+
 // ── Pattern matching ────────────────────────────────────────────────────────
 // Port of syntax_rules.py _list_length_approx, _datum_equal, _match_pattern,
 // _match_list_pattern, _match_vector_pattern.
@@ -818,13 +861,13 @@ Value apply_syntax_transformer(const Value& t_val, const Value& form)
    {
    const auto& literals = as_syntax_transformer_literals(t_val);
    uint32_t ellipsis_id = as_syntax_transformer_ellipsis(t_val);
-   const auto& binding_intros = as_syntax_transformer_binding_intro_names(t_val);
+   const auto& hygienic_intros = as_syntax_transformer_hygienic_intro_names(t_val);
    SourceInfo* use_src = src_of(form);
 
    // Copy base free_id_map; add per-application gensyms for binding-site intros.
    std::unordered_map<uint32_t, uint32_t> free_id_map =
        as_syntax_transformer_free_id_map(t_val);
-   for (uint32_t iname_id : binding_intros)
+   for (uint32_t iname_id : hygienic_intros)
       {
       if (!free_id_map.count(iname_id))
          free_id_map[iname_id] = intern_symbol(hygiene_gensym(symbol_name(iname_id)));
@@ -962,6 +1005,16 @@ Value parse_syntax_rules(Value tail, Environment* def_env, const std::string& na
    for (auto& [tmpl, pvars] : templates)
       collect_binding_intros(tmpl, pvars, binding_intros);
 
+   // Collect introduced names threaded as operands through a recursive
+   // self-call: these may become binders in another rule of the macro, so they
+   // need a per-application gensym (see collect_self_call_operand_intros).
+   std::unordered_set<uint32_t> self_call_intros;
+      {
+      uint32_t name_sid = intern_symbol(name);
+      for (auto& [tmpl, pvars] : templates)
+         collect_self_call_operand_intros(tmpl, name_sid, pvars, self_call_intros);
+      }
+
    // Resolve free ids against definition environment.
    std::unordered_map<uint32_t, uint32_t> free_id_map;
    std::unordered_set<uint32_t> intro_names;
@@ -986,11 +1039,15 @@ Value parse_syntax_rules(Value tail, Environment* def_env, const std::string& na
          intro_names.insert(fid);
       }
 
-   // binding_intro_names = intro_names that appear in binding positions.
-   std::unordered_set<uint32_t> binding_intro_names;
+   // Introduced names needing a per-application gensym (pyScheme's
+   // hygienic_intro_names): those in a binding position OR threaded as an
+   // operand through a recursive self-call (which may become binders in another
+   // rule).  Introduced free references that are neither -- e.g. `y` in
+   // `(+ n y)` -- are left as-is so they resolve at the use site.
+   std::unordered_set<uint32_t> hygienic_intro_names;
    for (uint32_t n : intro_names)
-      if (binding_intros.count(n))
-         binding_intro_names.insert(n);
+      if (binding_intros.count(n) || self_call_intros.count(n))
+         hygienic_intro_names.insert(n);
 
    // Bind each free_id alias in the global env so it persists.
    if (!free_id_map.empty() && def_env)
@@ -1006,5 +1063,5 @@ Value parse_syntax_rules(Value tail, Environment* def_env, const std::string& na
                                   std::move(rules),
                                   std::move(free_id_map),
                                   std::move(intro_names),
-                                  std::move(binding_intro_names));
+                                  std::move(hygienic_intro_names));
    }

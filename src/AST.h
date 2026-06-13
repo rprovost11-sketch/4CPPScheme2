@@ -525,7 +525,7 @@ struct SyntaxTransformer
    std::vector<Rule> rules;
    std::unordered_map<uint32_t, uint32_t> free_id_map;
    std::unordered_set<uint32_t> intro_names;
-   std::unordered_set<uint32_t> binding_intro_names;
+   std::unordered_set<uint32_t> hygienic_intro_names;
 
    SyntaxTransformer() : ellipsis_id(0) {}
    SyntaxTransformer(const SyntaxTransformer&) = delete;
@@ -778,7 +778,7 @@ CPPSCHEME2_API Value make_syntax_transformer(
     std::vector<SyntaxTransformer::Rule> rules,
     std::unordered_map<uint32_t, uint32_t> free_id_map,
     std::unordered_set<uint32_t> intro_names,
-    std::unordered_set<uint32_t> binding_intro_names = {});
+    std::unordered_set<uint32_t> hygienic_intro_names = {});
 CPPSCHEME2_API Value make_environment(Environment* env);
 CPPSCHEME2_API Value make_record_accessor(RecordType* rt, int index,
                                           const std::string& name);
@@ -913,7 +913,7 @@ CPPSCHEME2_API uint32_t as_syntax_transformer_ellipsis(const Value& val);
 CPPSCHEME2_API const std::vector<SyntaxTransformer::Rule>& as_syntax_transformer_rules(const Value& val);
 CPPSCHEME2_API const std::unordered_map<uint32_t, uint32_t>& as_syntax_transformer_free_id_map(const Value& val);
 CPPSCHEME2_API const std::unordered_set<uint32_t>& as_syntax_transformer_intro_names(const Value& val);
-CPPSCHEME2_API const std::unordered_set<uint32_t>& as_syntax_transformer_binding_intro_names(const Value& val);
+CPPSCHEME2_API const std::unordered_set<uint32_t>& as_syntax_transformer_hygienic_intro_names(const Value& val);
 
 CPPSCHEME2_API Environment* as_environment(const Value& val);
 

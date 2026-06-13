@@ -149,6 +149,14 @@ CPPSCHEME2_API Value cek_eval(const Value& expr, Environment* env, Context* ctx 
 CPPSCHEME2_API void set_global_env(Environment* env);
 CPPSCHEME2_API Environment* get_global_env();
 
+// current-library-path parameter support (the .sld search path).  Port of the
+// Evaluator.py library-path helpers.  make_library_path_param is called by
+// Interpreter::reboot; the others back the set-library-path! primitive.
+CPPSCHEME2_API Value make_library_path_param(const std::vector<std::string>& cli_paths);
+CPPSCHEME2_API Value normalize_library_path_value(const Value& val, const Value* app_node);
+CPPSCHEME2_API bool library_path_param_is_set();
+CPPSCHEME2_API void library_path_param_assign(Value normalized);
+
 // Synchronous procedure call: applies fn(args) via cek_eval.
 // Port of primitives/meta.py _apply_scheme_proc.
 // app_node may be nullptr.

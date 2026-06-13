@@ -4,6 +4,8 @@
 #include "Listener.h"
 #include <filesystem>
 #include <iostream>
+#include <string>
+#include <vector>
 
 #ifdef _WIN32
 #include <csignal>
@@ -22,26 +24,115 @@ static void _sigbreak_handler(int)
    }
 #endif
 
+// Split argv (excluding argv[0]) into library_paths + an optional positional
+// target.  -L/--library-path takes one os-pathsep-separated list; -I takes one
+// directory and may repeat; both contribute to library_paths in command-line
+// order.  At most one positional target.  Port of __main__._parse_args.
+static bool parse_args(int argc, char* argv[],
+                       std::vector<std::string>& library_paths,
+                       std::string& target, bool& have_target)
+   {
+#ifdef _WIN32
+   const char sep = ';';
+#else
+   const char sep = ':';
+#endif
+   auto add_list = [&](const std::string& val)
+   {
+      size_t start = 0;
+      while (true)
+         {
+         size_t pos = val.find(sep, start);
+         std::string part = val.substr(start,
+                                       pos == std::string::npos ? pos : pos - start);
+         if (!part.empty())
+            library_paths.push_back(part);
+         if (pos == std::string::npos)
+            break;
+         start = pos + 1;
+         }
+   };
+   for (int i = 1; i < argc; ++i)
+      {
+      std::string a = argv[i];
+      if (a == "-L" || a == "--library-path")
+         {
+         if (i + 1 >= argc)
+            {
+            std::cerr << "cppscheme2: option " << a << " requires an argument\n";
+            return false;
+            }
+         add_list(argv[++i]);
+         }
+      else if (a.rfind("-L=", 0) == 0)
+         add_list(a.substr(3));
+      else if (a.rfind("--library-path=", 0) == 0)
+         add_list(a.substr(15));
+      else if (a == "-I")
+         {
+         if (i + 1 >= argc)
+            {
+            std::cerr << "cppscheme2: option -I requires an argument\n";
+            return false;
+            }
+         std::string d = argv[++i];
+         if (!d.empty())
+            library_paths.push_back(d);
+         }
+      else if (a.rfind("-I=", 0) == 0)
+         {
+         std::string d = a.substr(3);
+         if (!d.empty())
+            library_paths.push_back(d);
+         }
+      else if (a == "-" || a.empty() || a[0] != '-')
+         {
+         if (have_target)
+            {
+            std::cerr << "cppscheme2: unexpected extra argument: " << a << '\n';
+            return false;
+            }
+         target = a;
+         have_target = true;
+         }
+      else
+         {
+         std::cerr << "cppscheme2: unknown option: " << a << '\n';
+         return false;
+         }
+      }
+   return true;
+   }
+
 int main(int argc, char* argv[])
    {
 #ifdef _WIN32
    signal(SIGBREAK, _sigbreak_handler);
 #endif
 
-   if (argc > 2)
+   std::vector<std::string> library_paths;
+   std::string target;
+   bool have_target = false;
+   if (!parse_args(argc, argv, library_paths, target, have_target))
       {
-      std::cerr << "Usage: cppscheme2 [<directory> | <scheme-source-file>]\n";
+      std::cerr << "Usage: cppscheme2 [-L <dir" << char(
+#ifdef _WIN32
+                       ';'
+#else
+                       ':'
+#endif
+                       ) << "...>] [-I <dir>]... "
+                   "[<directory> | <scheme-source-file>]\n";
       return 2;
       }
 
    // File mode: evaluate file, then hard-exit to bypass DLL static destructors.
    // DLL_PROCESS_DETACH static destructors (g_nursery et al.) are not safe to
    // run while GC objects are still live; TerminateProcess skips them entirely.
-   if (argc == 2 && std::filesystem::is_regular_file(argv[1]))
+   if (have_target && std::filesystem::is_regular_file(target))
       {
-      std::string target = argv[1];
          {
-         Interpreter interp;
+         Interpreter interp(library_paths);
          try
             {
             interp.evalFile(target);
@@ -65,7 +156,7 @@ int main(int argc, char* argv[])
 #endif
       }
 
-   Interpreter interp;
+   Interpreter interp(library_paths);
 
    // Derive scheme-tests/ dir by walking up from the exe until we find a directory
    // that contains scheme-tests/ as a subdirectory.  This works for any build
@@ -104,9 +195,8 @@ int main(int argc, char* argv[])
          }
       }
 
-   if (argc == 2)
+   if (have_target)
       {
-      std::string target = argv[1];
       if (std::filesystem::is_directory(target))
          {
          // Directory argument overrides testdir for one-off runs.
@@ -125,7 +215,7 @@ int main(int argc, char* argv[])
        &interp,
        testdir,
        "cppscheme2",
-       "0.6.2",
+       "0.6.3",
        "Ron Provost/Longo",
        "https://github.com/rprovost11/cppscheme2",
        compliancedir,

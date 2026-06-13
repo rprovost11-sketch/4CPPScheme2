@@ -415,7 +415,7 @@ Value make_syntax_transformer(
     std::vector<SyntaxTransformer::Rule> rules,
     std::unordered_map<uint32_t, uint32_t> free_id_map,
     std::unordered_set<uint32_t> intro_names,
-    std::unordered_set<uint32_t> binding_intro_names)
+    std::unordered_set<uint32_t> hygienic_intro_names)
    {
    SyntaxTransformer* st = gc_alloc_syntax_transformer();
    st->name = name;
@@ -424,7 +424,7 @@ Value make_syntax_transformer(
    st->rules = std::move(rules);
    st->free_id_map = std::move(free_id_map);
    st->intro_names = std::move(intro_names);
-   st->binding_intro_names = std::move(binding_intro_names);
+   st->hygienic_intro_names = std::move(hygienic_intro_names);
    return Value{Value::Repr(st)};
    }
 
@@ -1000,9 +1000,9 @@ const std::unordered_set<uint32_t>& as_syntax_transformer_intro_names(const Valu
    return std::get<SyntaxTransformer*>(val.repr)->intro_names;
    }
 
-const std::unordered_set<uint32_t>& as_syntax_transformer_binding_intro_names(const Value& val)
+const std::unordered_set<uint32_t>& as_syntax_transformer_hygienic_intro_names(const Value& val)
    {
-   return std::get<SyntaxTransformer*>(val.repr)->binding_intro_names;
+   return std::get<SyntaxTransformer*>(val.repr)->hygienic_intro_names;
    }
 
 Environment* as_environment(const Value& val)
