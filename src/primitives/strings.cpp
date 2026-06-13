@@ -443,13 +443,20 @@ static Value _prim_string_set_bang(Context*, Environment*, std::vector<Value>& a
       throw SchemeTypeError("string-set!: third argument must be a character", _src(app));
    std::string& sm = as_string_mut(args[0]);
    int64_t k = as_integer(args[1]);
-   if (k < 0 || static_cast<size_t>(k) >= sm.size())
+   int64_t nchars = utf8_char_count(sm);
+   if (k < 0 || k >= nchars)
       throw SchemeTypeError(
           "string-set!: index " + std::to_string(k) +
-              " out of range for string of length " + std::to_string(sm.size()),
+              " out of range for string of length " + std::to_string(nchars),
           _src(app));
    char32_t ch = as_character(args[2]);
-   sm[static_cast<size_t>(k)] = static_cast<char>(ch & 0x7F); // ASCII assumption
+   // Splice the new code point's UTF-8 bytes over the k-th character's bytes
+   // (lengths may differ -- the string is UTF-8, indexed by code point).
+   size_t bstart = utf8_char_offset(sm, k);
+   size_t bend = utf8_char_offset(sm, k + 1);
+   std::string enc;
+   utf8_encode(enc, ch);
+   sm.replace(bstart, bend - bstart, enc);
    return VOID_VALUE;
    }
 
@@ -464,12 +471,19 @@ static Value _prim_string_fill_bang(Context*, Environment*, std::vector<Value>& 
       throw SchemeTypeError("string-fill!: second argument must be a character", _src(app));
    std::string& sm = as_string_mut(args[0]);
    char32_t ch = as_character(args[1]);
-   char fill_byte = static_cast<char>(ch & 0x7F);
-   size_t n = sm.size();
-   auto [start, end] = parse_start_end(args, 2, static_cast<int64_t>(n),
+   int64_t nchars = utf8_char_count(sm);
+   auto [start, end] = parse_start_end(args, 2, nchars,
                                        "string-fill!", app, "range out of bounds");
+   // Replace the [start,end) code-point range with that many copies of the
+   // fill character's UTF-8 bytes (code-point indexed, lengths may differ).
+   size_t bstart = utf8_char_offset(sm, start);
+   size_t bend = utf8_char_offset(sm, end);
+   std::string enc;
+   utf8_encode(enc, ch);
+   std::string repl;
    for (int64_t j = start; j < end; ++j)
-      sm[static_cast<size_t>(j)] = fill_byte;
+      repl += enc;
+   sm.replace(bstart, bend - bstart, repl);
    return VOID_VALUE;
    }
 
