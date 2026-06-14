@@ -148,6 +148,23 @@ static bool needs_vertical_bars(const std::string& name)
    {
    if (name.empty())
       return true;
+   // A lone dot, or a name that would re-read as a NUMBER rather than this
+   // symbol, must be bar-quoted so write emits a re-readable token.  Mirrors
+   // chibi-scheme's heuristic: a leading sign followed by a digit, '.', 'i'
+   // (covers both +i and +inf.0), or a case-insensitive "nan" prefix lexes as a
+   // number.  (A leading digit is already caught by the safe-initial check.)
+   if (name == ".")
+      return true;
+   if (name.size() > 1 && (name[0] == '+' || name[0] == '-'))
+      {
+      char c1 = name[1];
+      auto low = [](char c) -> char
+      { return (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c; };
+      if ((c1 >= '0' && c1 <= '9') || c1 == '.' || c1 == 'i' ||
+          (name.size() > 3 && low(name[1]) == 'n' && low(name[2]) == 'a' &&
+           low(name[3]) == 'n'))
+         return true;
+      }
    char first = name[0];
    if (!is_safe_symbol_initial(first) &&
        first != '+' && first != '-' && first != '@' && first != '.')
