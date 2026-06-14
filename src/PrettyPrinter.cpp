@@ -343,6 +343,11 @@ std::string scheme_pretty_print(const Value& val)
       double im = as_complex_imag(val);
       std::string re_s = format_float(re);
       std::string im_s = format_float(im);
+      // inf/nan imaginary parts already carry an explicit sign in im_s (e.g.
+      // "+inf.0"); emitting an extra connector '+' would double it
+      // ("+inf.0++inf.0i").  A leading sign in im_s means it is self-signed.
+      if (!im_s.empty() && (im_s[0] == '+' || im_s[0] == '-'))
+         return re_s + im_s + 'i';
       if (std::isnan(im) || im >= 0.0)
          return re_s + '+' + im_s + 'i';
       return re_s + im_s + 'i';

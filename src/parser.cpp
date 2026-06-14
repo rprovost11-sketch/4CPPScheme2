@@ -896,20 +896,26 @@ static Token try_parse_prefixed_number(const std::string& text, const SourceInfo
 
 static Token build_word_token(const std::string& word, const SourceInfo& src, bool fold_case)
    {
-   // Special real literals (port of IDENT branch in _build_token)
-   if (word == "+inf.0")
+   // Special real literals (port of IDENT branch in _build_token).  The inf/nan
+   // tokens are case-insensitive per R7RS (independent of the fold-case
+   // directive): +InF.0, +NAN.0, -iNF.0 all denote the value, not a symbol.
+   // (A symbol with such a name must be written |...|-quoted.)
+   std::string low = word;
+   for (char& lc : low)
+      lc = (char)std::tolower((unsigned char)lc);
+   if (low == "+inf.0")
       {
       Token t(TokenKind::REAL, src);
       t.dbl_val = INFINITY;
       return t;
       }
-   if (word == "-inf.0")
+   if (low == "-inf.0")
       {
       Token t(TokenKind::REAL, src);
       t.dbl_val = -INFINITY;
       return t;
       }
-   if (word == "+nan.0" || word == "-nan.0")
+   if (low == "+nan.0" || low == "-nan.0")
       {
       Token t(TokenKind::REAL, src);
       t.dbl_val = NAN;
