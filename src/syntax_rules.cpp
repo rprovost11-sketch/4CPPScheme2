@@ -71,8 +71,17 @@ static uint64_t s_current_mark = 0;
 
 // ── hygiene_gensym ─────────────────────────────────────────────────────────
 
-std::string hygiene_gensym(const std::string& base)
+std::string hygiene_gensym(const std::string& base, bool force)
    {
+   // force: always freshen, even from an already-gensym'd base -- used for a
+   // per-application binder threaded in from an enclosing binding, which must be
+   // freshened so the generated binder doesn't capture a same-named use-site
+   // reference (A1f).  Use the display name as the clean base.
+   if (force)
+      {
+      int n = ++s_gensym_counter;
+      return GENSYM_PREFIX + gensym_display_name(base) + '.' + std::to_string(n);
+      }
    if (base.rfind(GENSYM_PREFIX, 0) == 0)
       return base;
    // Strip any hygiene marks so the mark byte never embeds in a gensym name
@@ -906,7 +915,14 @@ Value apply_syntax_transformer(const Value& t_val, const Value& form)
    for (uint32_t iname_id : hygienic_intros)
       {
       if (!free_id_map.count(iname_id))
-         free_id_map[iname_id] = intern_symbol(hygiene_gensym(symbol_name(iname_id)));
+         {
+         // force=true when iname is already a gensym (a binder threaded in from
+         // an enclosing binding): it must be freshened per application so the
+         // generated binder doesn't capture a same-named use-site reference (A1f).
+         const std::string& nm = symbol_name(iname_id);
+         bool force = nm.rfind(GENSYM_PREFIX, 0) == 0;
+         free_id_map[iname_id] = intern_symbol(hygiene_gensym(nm, force));
+         }
       }
 
    Value form_tail = is_cons(form) ? cdr(form) : NIL_VALUE;
@@ -1102,6 +1118,18 @@ Value parse_syntax_rules(Value tail, Environment* def_env, const std::string& na
       {
       for (uint32_t fid : free_ids)
          intro_names.insert(fid);
+      }
+
+   // A1f: a binding-position identifier is ALWAYS a fresh per-application binder,
+   // even if its name is bound in the def-env.  A template binder introduces a
+   // NEW binding, not a reference, so it must never be aliased to the def-site --
+   // else a generated macro whose binder name collides with an enclosing binding
+   // reuses it and captures a same-named use-site reference.  Pull binders out of
+   // free_id_map and route them through the fresh-gensym path.
+   for (uint32_t b : binding_intros)
+      {
+      free_id_map.erase(b);
+      intro_names.insert(b);
       }
 
    // Introduced names needing a per-application gensym (pyScheme's

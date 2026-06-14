@@ -8,8 +8,11 @@
 #include <cstdint>
 
 // Port of syntax_rules.py hygiene_gensym.
-// Returns base unchanged if already a gensym (starts with \x01h. prefix).
-CPPSCHEME2_API std::string hygiene_gensym(const std::string& base);
+// Returns base unchanged if already a gensym (starts with \x01h. prefix), unless
+// force=true, which always produces a fresh gensym from the base's display name
+// (used for per-application binders that may arrive already gensym'd -- A1f).
+CPPSCHEME2_API std::string hygiene_gensym(const std::string& base,
+                                          bool force = false);
 
 // Port of syntax_rules.py formals_bound_names / let_binding_names.  The single
 // binder-extractors for lambda formals and let/letrec binding lists, shared by
