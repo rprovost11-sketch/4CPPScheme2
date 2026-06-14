@@ -135,6 +135,11 @@ struct CPPSCHEME2_API Environment
    void freeze();
    Environment* getGlobalEnv() const;
 
+   // Bind gs (a macro free-identifier gensym) in the global env to an AliasCell
+   // indirecting to target in def_env (see struct AliasCell).
+   void register_alias(uint32_t gs, uint32_t target, Environment* def_env,
+                       Value copy_value);
+
    Value lookup(const std::string& key) const;
    Value lookup_id(uint32_t sid) const;
    std::optional<Value> lookup_optional(const std::string& key) const;

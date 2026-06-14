@@ -198,6 +198,13 @@ static void for_each_child(GcHeader* header, V& v)
          v.value(x);
       break;
       }
+   case GcType::AliasCell:
+      {
+      auto* ac = reinterpret_cast<AliasCell*>(header);
+      v.value(ac->copy);
+      v.env(ac->def_env);
+      break;
+      }
    case GcType::CaseClosure:
       {
       auto* cc = reinterpret_cast<CaseClosure*>(header);
@@ -519,7 +526,8 @@ static size_t g_gc_leak_counts[32] = {0};
    X(Vector, SchemeVector) X(Bytevector, SchemeBytevector) X(Port, Port)        \
    X(Complex, SchemeComplex) X(ExactComplex, ExactComplex)                      \
    X(Rational, SchemeRational) X(RecordAccessor, RecordAccessor)                \
-   X(RecordMutator, RecordMutator) X(Environment, Environment) X(EnvBox, EnvBox)
+   X(RecordMutator, RecordMutator) X(Environment, Environment) X(EnvBox, EnvBox) \
+   X(AliasCell, AliasCell)
 
 static void free_object(GcHeader* header)
    {
@@ -924,6 +932,13 @@ NativeClosure* gc_alloc_native_closure()
    auto* nc = new NativeClosure{};
    register_young(&nc->header);
    return nc;
+   }
+
+AliasCell* gc_alloc_alias_cell()
+   {
+   auto* ac = new AliasCell{};
+   register_young(&ac->header);
+   return ac;
    }
 
 Promise* gc_alloc_promise(Value payload, bool is_done, bool iterative)

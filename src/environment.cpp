@@ -161,6 +161,15 @@ void Environment::freeze()
    _is_immutable = true;
    }
 
+void Environment::register_alias(uint32_t gs, uint32_t target,
+                                 Environment* def_env, Value copy_value)
+   {
+   Value cell = make_alias_cell(target, def_env, std::move(copy_value));
+   Environment* g = _global_env;
+   g->_bindings[gs] = cell;
+   gc_write_barrier(&g->header, gc_value_header(cell));
+   }
+
 Environment* Environment::getGlobalEnv() const
    {
    return _global_env;
@@ -178,7 +187,15 @@ Value Environment::lookup_id(uint32_t sid) const
       {
       auto it = scope->_bindings.find(sid);
       if (it != scope->_bindings.end())
+         {
+         if (is_alias_cell(it->second))
+            {
+            AliasCell* ac = as_alias_cell(it->second);
+            auto r = ac->def_env->lookup_optional_id(ac->target);
+            return r ? *r : ac->copy;
+            }
          return it->second;
+         }
       scope = scope->_parent;
       }
    throw SchemeUnboundError("unbound variable: " + display_name(sid));
@@ -196,7 +213,15 @@ std::optional<Value> Environment::lookup_optional_id(uint32_t sid) const
       {
       auto it = scope->_bindings.find(sid);
       if (it != scope->_bindings.end())
+         {
+         if (is_alias_cell(it->second))
+            {
+            AliasCell* ac = as_alias_cell(it->second);
+            auto r = ac->def_env->lookup_optional_id(ac->target);
+            return r ? *r : ac->copy;
+            }
          return it->second;
+         }
       scope = scope->_parent;
       }
    return std::nullopt;
@@ -217,6 +242,18 @@ Value Environment::set_id(uint32_t sid, Value value)
          {
          if (scope->_is_immutable)
             throw SchemeTypeError("set! on '" + display_name(sid) + "' in a frozen environment");
+         if (is_alias_cell(it->second))
+            {
+            AliasCell* ac = as_alias_cell(it->second);
+            if (ac->def_env->lookup_optional_id(ac->target))
+               ac->def_env->set_id(ac->target, value);
+            else
+               {
+               ac->copy = value;
+               gc_write_barrier(&ac->header, gc_value_header(value));
+               }
+            return value;
+            }
          it->second = value;
          gc_write_barrier(&scope->header, gc_value_header(value));
          return value;

@@ -1060,12 +1060,23 @@ Value parse_syntax_rules(Value tail, Environment* def_env, const std::string& na
       if (binding_intros.count(n) || self_call_intros.count(n))
          hygienic_intro_names.insert(n);
 
-   // Bind each free_id alias in the global env so it persists.
+   // Wire each free_id alias into the global env as an INDIRECTION to the
+   // def-site binding (an AliasCell): it resolves to the live binding -- so set!
+   // through the macro writes through and later mutations are seen (A5 hygiene
+   // bug a value copy had) -- falling back to the def-time value snapshot when
+   // def_env no longer resolves the target at eval time (library-internal
+   // helpers).  A fid that is itself a hygiene gensym (hygiene_gensym returned
+   // it unchanged) was already wired up by the macro that introduced it; re-
+   // aliasing it to itself would build a cyclic AliasCell, so leave it.
    if (!free_id_map.empty() && def_env)
       {
       Environment* global_env = def_env->getGlobalEnv();
       for (auto& [fid, gs_id] : free_id_map)
-         global_env->bind_id(gs_id, def_env->lookup_id(fid));
+         {
+         if (symbol_name(fid).rfind(GENSYM_PREFIX, 0) == 0)
+            continue;
+         global_env->register_alias(gs_id, fid, def_env, def_env->lookup_id(fid));
+         }
       }
 
    return make_syntax_transformer(name,

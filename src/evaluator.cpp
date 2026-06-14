@@ -1359,8 +1359,11 @@ static void finalize_define_library(
          for (const auto& kv : t->free_id_map)
             {
             uint32_t gs_sid = kv.second;
+            // lookup_id resolves the AliasCell to the def-time value (mirrors
+            // pyScheme's lib_env.lookup(gs)), so the export carries a plain
+            // value -- the alias degrades to its snapshot exactly as before.
             if (lib_env->_bindings.count(gs_sid) && exports_env->_bindings.count(gs_sid) == 0)
-               exports_env->bind(symbol_name(gs_sid), lib_env->_bindings.at(gs_sid));
+               exports_env->bind(symbol_name(gs_sid), lib_env->lookup_id(gs_sid));
             }
          }
       }

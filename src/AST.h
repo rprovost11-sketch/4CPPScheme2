@@ -90,6 +90,7 @@ enum class GcType : uint8_t
    Real,    // boxed inexact real (double)
    Char,    // boxed character (char32_t)
    NativeClosure, // GC-managed native thunk: stateless fn + traced Value captures
+   AliasCell, // macro free-identifier indirection: target sid + def env + copy
    };
 
 // ── GC intrusive header ───────────────────────────────────────────────────────
@@ -160,6 +161,7 @@ struct Environment;
 struct EnvBox;
 struct Builtin;
 struct NativeClosure;
+struct AliasCell;
 struct Value;
 
 // ── Sentinels for immediate (non-heap) Value arms ─────────────────────────────
@@ -227,7 +229,8 @@ struct Value
        SchemeRational*,    // RATIONAL       (tag=4)
        SchemeBignum*,      // BIGNUM         (tag=27)
        Builtin*,           // PRIMITIVE      (tag=11)
-       NativeClosure*      // native thunk with GC-traced captures (internal)
+       NativeClosure*,     // native thunk with GC-traced captures (internal)
+       AliasCell*          // macro free-identifier indirection (internal)
        >;
    Repr repr;
 
@@ -305,6 +308,30 @@ struct NativeClosure
    NativeClosure() = default;
    NativeClosure(const NativeClosure&) = delete;
    NativeClosure& operator=(const NativeClosure&) = delete;
+   };
+
+// ── Macro free-identifier alias cell ───────────────────────────────────────────
+// Port of Environment.py _AliasCell.  A syntax-rules template's free reference to
+// a binding that existed at macro definition time is emitted as a fresh gensym
+// (so a same-named use-site binding cannot capture it -- hygiene); that gensym is
+// bound, in the global env's _bindings, to one of these instead of to a copy of
+// the referent's value.  Resolving prefers the LIVE def-site binding (`target` in
+// `def_env`), so set! through the macro writes through and later mutations are
+// seen; if def_env no longer resolves target at eval time (a transient body-scan
+// scope, as for library-internal helpers), it falls back to `copy`, the def-time
+// snapshot.  Stored as a Value in _bindings so it rides through the library
+// export/import machinery unchanged (lookup resolves it to a plain value).
+// Never escapes to user code: the lookup/set paths resolve it in place.
+struct AliasCell
+   {
+   GcHeader header{GcType::AliasCell};
+   uint32_t target = 0;        // the referent's symbol id
+   Environment* def_env = nullptr; // macro definition environment
+   Value copy;                 // def-time value snapshot (fallback)
+
+   AliasCell() = default;
+   AliasCell(const AliasCell&) = delete;
+   AliasCell& operator=(const AliasCell&) = delete;
    };
 
 // ── Dynamic-wind frame ────────────────────────────────────────────────────────
@@ -752,6 +779,11 @@ CPPSCHEME2_API Value make_primitive(const std::string& name, BuiltinFn fn);
 // Build a GC-managed native closure (stateless fn + traced Value captures).
 CPPSCHEME2_API Value make_native_closure(const std::string& name, NativeFn fn,
                                          std::vector<Value> captures);
+// Build a macro free-identifier alias cell (see struct AliasCell).
+CPPSCHEME2_API Value make_alias_cell(uint32_t target, Environment* def_env,
+                                     Value copy);
+CPPSCHEME2_API bool is_alias_cell(const Value& val);
+CPPSCHEME2_API AliasCell* as_alias_cell(const Value& val);
 CPPSCHEME2_API Value make_case_closure(std::vector<CaseClosure::Clause> clauses,
                                        Environment* env, std::string docstring);
 CPPSCHEME2_API Value make_promise_lazy(Value thunk, bool iterative = false);

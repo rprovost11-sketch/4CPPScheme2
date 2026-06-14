@@ -321,6 +321,26 @@ Value make_native_closure(const std::string& name, NativeFn fn,
    return Value{Value::Repr(nc)};
    }
 
+Value make_alias_cell(uint32_t target, Environment* def_env, Value copy)
+   {
+   AliasCell* ac = gc_alloc_alias_cell();
+   ac->target = target;
+   ac->def_env = def_env;
+   ac->copy = std::move(copy);
+   gc_write_barrier(&ac->header, gc_value_header(ac->copy));
+   return Value{Value::Repr(ac)};
+   }
+
+bool is_alias_cell(const Value& val)
+   {
+   return std::holds_alternative<AliasCell*>(val.repr);
+   }
+
+AliasCell* as_alias_cell(const Value& val)
+   {
+   return std::get<AliasCell*>(val.repr);
+   }
+
 Value make_case_closure(std::vector<CaseClosure::Clause> clauses,
                         Environment* env, std::string docstring)
    {
@@ -1269,7 +1289,7 @@ std::string format_with_caret(const std::string& msg, SourceInfo* src)
    X(Continuation) X(SyntaxTransformer) X(SchemeVector) X(SchemeBytevector) \
    X(Port) X(SchemeComplex) X(ExactComplex) X(SchemeRational) X(SchemeBignum) \
    X(SchemeInteger) X(SchemeReal) X(SchemeChar) X(RecordAccessor)         \
-   X(RecordMutator) X(NativeClosure)
+   X(RecordMutator) X(NativeClosure) X(AliasCell)
 
 // Expands to the GcHeader* for a named GC-managed pointer type, or nullptr.
 #define HDR_CASE(Type)                           \
