@@ -35,6 +35,8 @@ static Value expand_define_syntax(const Value& sexpr);
 static Value expand_let_syntax(const Value& sexpr, bool is_letrec);
 static Value rename_refs_in_form(const Value& form, const RenameTable& table);
 static Value expand_body(const Value& body_cons);
+static Value strip_marks_deep(const Value& form,
+                              std::unordered_set<const void*>& seen);
 static int list_length(const Value& cell);
 static bool is_head(const Value& form, uint32_t name_id);
 static Value map_list_cars(const Value& cons_list,
@@ -228,7 +230,10 @@ Value lookup_macro(const Value& sym)
    {
    if (g_runtime_env == nullptr)
       return NIL_VALUE;
-   auto opt = g_runtime_env->lookup_optional_id(as_symbol_id(sym));
+   // Strip hygiene marks for the lookup so a mark-painted macro / forward
+   // reference still resolves by its base name (referential transparency).
+   uint32_t sid = intern_symbol(strip_marks(symbol_name(as_symbol_id(sym))));
+   auto opt = g_runtime_env->lookup_optional_id(sid);
    if (opt && is_syntax_transformer(*opt))
       return *opt;
    return NIL_VALUE;
@@ -362,7 +367,19 @@ static Value rename_refs_in_form(const Value& form, const RenameTable& table)
       return form;
    if (is_symbol(form))
       {
-      auto it = table.find(as_symbol_id(form));
+      uint32_t sid = as_symbol_id(form);
+      auto it = table.find(sid);
+      if (it == table.end())
+         {
+         // A macro-introduced reference carries a hygiene mark (name^mark); it
+         // still names the same binding as its base, so match on the stripped
+         // name.  (Def-site-bound free refs use free_id_map gensym aliases and
+         // are never painted, so they don't match here -- no accidental capture.)
+         const std::string& nm = symbol_name(sid);
+         std::string base = strip_marks(nm);
+         if (base != nm)
+            it = table.find(intern_symbol(base));
+         }
       if (it != table.end())
          return make_symbol_id(it->second, src_of(form));
       return form;
@@ -2297,6 +2314,94 @@ static Value expand_inner(Value sexpr)
 
 // ── Public expand ─────────────────────────────────────────────────────────────
 
+// Strip every identifier's hygiene marks (base name) from a fully-expanded
+// form, used once by the outermost expand() before analysis.  Cycle-safe (a
+// quoted datum can be circular via datum labels) and iterative on the cdr-spine
+// (long quoted lists can be very deep); skips (quote ...) bodies entirely since
+// quoted data is mark-free (instantiation does not paint inside quote) and may
+// be deep/circular.  Mirror of Expander.py _strip_marks_deep.
+// True if strip changed a child (so the parent must rebuild).  Returning the
+// ORIGINAL object when nothing changed is essential: rebuilding would, e.g.,
+// turn a literal (immutable) vector into a fresh mutable one.
+static bool strip_changed(const Value& orig, const Value& stripped)
+   {
+   if (is_symbol(orig))
+      return as_symbol_id(orig) != as_symbol_id(stripped);
+   const void* a = gc_value_header(orig);
+   const void* b = gc_value_header(stripped);
+   if (a || b)
+      return a != b;
+   return false; // atoms never change
+   }
+
+static Value strip_marks_deep(const Value& form,
+                              std::unordered_set<const void*>& seen)
+   {
+   if (is_symbol(form))
+      {
+      const std::string& s = symbol_name(as_symbol_id(form));
+      std::string base = strip_marks(s);
+      if (base == s)
+         return form;
+      return make_symbol_id(intern_symbol(base), src_of(form));
+      }
+   if (is_vector(form))
+      {
+      const void* key = gc_value_header(form);
+      if (key && !seen.insert(key).second)
+         return form;
+      const auto& items = as_vector_items_const(form);
+      std::vector<Value> out;
+      out.reserve(items.size());
+      bool changed = false;
+      for (const auto& it : items)
+         {
+         Value ni = strip_marks_deep(it, seen);
+         if (strip_changed(it, ni))
+            changed = true;
+         out.push_back(ni);
+         }
+      return changed ? make_vector(std::move(out)) : form;
+      }
+   if (!is_cons(form))
+      return form;
+   static const uint32_t QUOTE_SID = intern_symbol("quote");
+   if (is_symbol(car(form)) && as_symbol_id(car(form)) == QUOTE_SID)
+      return form;
+   const void* key0 = gc_value_header(form);
+   if (key0 && seen.count(key0))
+      return form;
+   std::vector<Value> cars;
+   std::vector<SourceInfo*> srcs;
+   Value cur = form;
+   while (is_cons(cur))
+      {
+      const void* k = gc_value_header(cur);
+      if (k && !seen.insert(k).second)
+         break;
+      cars.push_back(car(cur));
+      srcs.push_back(src_of(cur));
+      cur = cdr(cur);
+      }
+   Value new_tail = strip_marks_deep(cur, seen);
+   bool changed = strip_changed(cur, new_tail);
+   std::vector<Value> new_cars;
+   new_cars.reserve(cars.size());
+   for (const auto& c : cars)
+      {
+      Value nc = strip_marks_deep(c, seen);
+      if (strip_changed(c, nc))
+         changed = true;
+      new_cars.push_back(nc);
+      }
+   if (!changed)
+      return form;
+   Value out = new_tail;
+   for (int i = static_cast<int>(new_cars.size()) - 1; i >= 0; i--)
+      out = alloc_cons(new_cars[i], out, srcs[i]);
+   return out;
+   }
+
 Value expand(const Value& sexpr)
    {
    g_expand_depth++;
@@ -2311,5 +2416,13 @@ Value expand(const Value& sexpr)
       throw SchemeSyntaxError(
           "macro expansion depth exceeded - possible mutually-recursive macro loop",
           src_of(sexpr));
-   return expand_inner(sexpr);
+   Value result = expand_inner(sexpr);
+   // Marks live only during expansion; the outermost call strips them before
+   // the form reaches analysis (so resolution / eval never see a marked name).
+   if (g_expand_depth == 1)
+      {
+      std::unordered_set<const void*> seen;
+      result = strip_marks_deep(result, seen);
+      }
+   return result;
    }

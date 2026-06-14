@@ -743,6 +743,13 @@ CPPSCHEME2_API std::string symbol_name(uint32_t sid);
 extern const std::string GENSYM_PREFIX;
 CPPSCHEME2_API std::string gensym_display_name(const std::string& name);
 
+// Hygiene marks (A1/A3): a per-expansion stamp suffixed onto template-introduced
+// identifiers (name + MARK_PREFIX + mark-id).  paint_mark appends one; strip_marks
+// removes all (the base / resolution name).  See AST.cpp for the model.
+extern const std::string MARK_PREFIX;
+CPPSCHEME2_API std::string paint_mark(const std::string& name, uint64_t mark_id);
+CPPSCHEME2_API std::string strip_marks(const std::string& name);
+
 // ── Singletons ────────────────────────────────────────────────────────────────
 // Port of AST.py NIL_VALUE, VOID_VALUE, EOF_VALUE.
 

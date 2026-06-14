@@ -60,14 +60,26 @@ static const std::unordered_set<std::string> SYNTACTIC_KEYWORDS = {
 
 static int s_gensym_counter = 0;
 
+// Per-expansion hygiene MARK (A1/A3).  apply_syntax_transformer mints a fresh
+// mark and sets s_current_mark around its instantiation; instantiate paints
+// template-introduced identifiers with it (paint_mark).  Instantiation is not
+// re-entrant within one application (nested macros expand later, via the
+// expander, each with its own mark), so a file-static suffices; it is
+// save/restored.  0 => no painting.
+static uint64_t s_mark_counter = 0;
+static uint64_t s_current_mark = 0;
+
 // ── hygiene_gensym ─────────────────────────────────────────────────────────
 
 std::string hygiene_gensym(const std::string& base)
    {
    if (base.rfind(GENSYM_PREFIX, 0) == 0)
       return base;
+   // Strip any hygiene marks so the mark byte never embeds in a gensym name
+   // (which strip_marks would later mis-cut); callers key on the full marked
+   // name in their rename table, the gensym just needs to be unique + mark-free.
    int n = ++s_gensym_counter;
-   return GENSYM_PREFIX + base + '.' + std::to_string(n);
+   return GENSYM_PREFIX + strip_marks(base) + '.' + std::to_string(n);
    }
 
 // ── SyntaxMatch ────────────────────────────────────────────────────────────
@@ -836,7 +848,16 @@ static Value instantiate(const Value& tmpl, const SyntaxMatch& match,
       auto it2 = free_id_map.find(sid);
       if (it2 != free_id_map.end())
          return make_symbol_id(it2->second, src_of(tmpl));
-      return tmpl;
+      // A template-introduced identifier: paint it with this expansion's mark
+      // so two same-named identifiers from different expansion sites stay
+      // distinct for literal matching / bound-identifier=? (A3).  Syntactic
+      // keywords stay bare (must remain recognizable); the mark resolves away
+      // (strip) for variable references and is removed before analysis.
+      if (s_current_mark == 0 || SYNTACTIC_KEYWORDS.count(symbol_name(sid)))
+         return tmpl;
+      return make_symbol_id(
+          intern_symbol(paint_mark(symbol_name(sid), s_current_mark)),
+          src_of(tmpl));
       }
    if (is_cons(tmpl))
       {
@@ -845,6 +866,19 @@ static Value instantiate(const Value& tmpl, const SyntaxMatch& match,
           is_cons(cdr(tmpl)) && is_nil(cdr(cdr(tmpl))))
          return instantiate(car(cdr(tmpl)), match, get_no_ellipsis_id(),
                             use_src, free_id_map);
+      // Inside (quote ...) introduced identifiers are literal data, not code:
+      // suppress painting so the quoted datum stays mark-free (and the strip
+      // pass can skip quoted data wholesale).
+      static const uint32_t QUOTE_SID = intern_symbol("quote");
+      if (is_symbol(car(tmpl)) && as_symbol_id(car(tmpl)) == QUOTE_SID)
+         {
+         uint64_t saved_q = s_current_mark;
+         s_current_mark = 0;
+         Value r = instantiate_list(tmpl, match, ellipsis_id, use_src,
+                                    free_id_map);
+         s_current_mark = saved_q;
+         return r;
+         }
       static const uint32_t SYNTAX_ERROR_SID = intern_symbol("syntax-error");
       if (is_symbol(car(tmpl)) && as_symbol_id(car(tmpl)) == SYNTAX_ERROR_SID)
          raise_syntax_error(cdr(tmpl), match, ellipsis_id, use_src, free_id_map);
@@ -877,6 +911,10 @@ Value apply_syntax_transformer(const Value& t_val, const Value& form)
 
    Value form_tail = is_cons(form) ? cdr(form) : NIL_VALUE;
 
+   // Mint a fresh per-application mark; instantiate paints introduced
+   // identifiers with it.  Save/restore defensively.
+   uint64_t this_mark = ++s_mark_counter;
+
    const auto& rules = as_syntax_transformer_rules(t_val);
    for (const auto& rule : rules)
       {
@@ -885,7 +923,23 @@ Value apply_syntax_transformer(const Value& t_val, const Value& form)
          SyntaxMatch match;
          if (match_list_pattern(cdr(rule.pattern), form_tail,
                                 literals, ellipsis_id, match))
-            return instantiate(rule.tmpl, match, ellipsis_id, use_src, free_id_map);
+            {
+            uint64_t saved_mark = s_current_mark;
+            s_current_mark = this_mark;
+            Value result;
+            try
+               {
+               result = instantiate(rule.tmpl, match, ellipsis_id, use_src,
+                                    free_id_map);
+               }
+            catch (...)
+               {
+               s_current_mark = saved_mark;
+               throw;
+               }
+            s_current_mark = saved_mark;
+            return result;
+            }
          }
       }
    throw SchemeSyntaxError(

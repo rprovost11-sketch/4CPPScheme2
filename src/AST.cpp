@@ -33,10 +33,33 @@ std::string symbol_name(uint32_t sid)
 
 const std::string GENSYM_PREFIX = "\x01h.";
 
-std::string gensym_display_name(const std::string& name)
+// ── Hygiene marks (A1/A3) ───────────────────────────────────────────────────
+// A per-macro-expansion stamp painted onto template-introduced identifiers,
+// encoded as a suffix \x02<mark-id> (accumulating across nested expansions).
+// Unlike a gensym RENAME, a mark does NOT change how an identifier resolves --
+// it only distinguishes two identifiers that share a base name but came from
+// different expansion sites (syntax-rules literal matching / bound-identifier=?).
+// Marks live only during expansion; the outermost expand() strips them before
+// analysis.  Resolution / display strip marks; literal matching keeps the full
+// marked name.  See syntax_rules.py / AST.py for the pyScheme reference.
+const std::string MARK_PREFIX = "\x02";
+
+std::string paint_mark(const std::string& name, uint64_t mark_id)
    {
-   // Strip the hygiene gensym prefix for display / error messages:
-   // \x01h.BASE.DIGITS -> BASE.  A non-gensym name is returned unchanged.
+   return name + MARK_PREFIX + std::to_string(mark_id);
+   }
+
+std::string strip_marks(const std::string& name)
+   {
+   size_t i = name.find(MARK_PREFIX[0]);
+   return i == std::string::npos ? name : name.substr(0, i);
+   }
+
+std::string gensym_display_name(const std::string& name_in)
+   {
+   // Strip hygiene marks and the gensym prefix for display / error messages:
+   // \x01h.BASE.DIGITS (optionally mark-suffixed) -> BASE.
+   std::string name = strip_marks(name_in);
    if (name.compare(0, GENSYM_PREFIX.size(), GENSYM_PREFIX) != 0)
       return name;
    std::string rest = name.substr(GENSYM_PREFIX.size());
