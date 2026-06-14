@@ -491,13 +491,15 @@ static bool match_pattern(const Value& pat, const Value& form,
    if (is_symbol(pat))
       {
       uint32_t sid = as_symbol_id(pat);
-      if (sid == US)
-         return true;
+      // Literals are checked before the `_` wildcard so that `_` declared in
+      // the literals list matches literally (R7RS 4.3.2 literal-priority rule).
       for (uint32_t lit : literals)
          {
          if (sid == lit)
             return is_symbol(form) && as_symbol_id(form) == sid;
          }
+      if (sid == US)
+         return true;
       out.scalars[sid] = form;
       return true;
       }
@@ -908,7 +910,6 @@ Value parse_syntax_rules(Value tail, Environment* def_env, const std::string& na
       }
 
    static const uint32_t DEFAULT_ELLIPSIS_ID = intern_symbol("...");
-   static const uint32_t US = intern_symbol("_");
 
    uint32_t ellipsis_id = DEFAULT_ELLIPSIS_ID;
    Value lit_list;
@@ -951,15 +952,25 @@ Value parse_syntax_rules(Value tail, Environment* def_env, const std::string& na
                 s ? new SourceInfo(*s) : nullptr);
             }
          uint32_t lit_sid = as_symbol_id(elem);
-         if (lit_sid == US || lit_sid == ellipsis_id)
-            {
-            SourceInfo* s = src_of(elem);
-            throw SchemeSyntaxError(
-                "syntax-rules: '" + symbol_name(lit_sid) + "' cannot appear in literals list",
-                s ? new SourceInfo(*s) : nullptr);
-            }
          literals.push_back(lit_sid);
          cur = cdr(cur);
+         }
+      }
+
+   // R7RS 4.3.2 literal-priority: an identifier in <literals> is always a
+   // literal, overriding any role as `_` (wildcard) or as the ellipsis.  If the
+   // ellipsis symbol is itself declared a literal, ellipsis matching is disabled
+   // (the elli-lit case); swap in a sentinel symbol id that no real symbol can
+   // equal so every ellipsis test sees "no active ellipsis" while the literal
+   // itself still matches/instantiates verbatim via the literals list.
+      {
+      for (uint32_t lit : literals)
+         {
+         if (lit == ellipsis_id)
+            {
+            ellipsis_id = get_no_ellipsis_id();
+            break;
+            }
          }
       }
 
