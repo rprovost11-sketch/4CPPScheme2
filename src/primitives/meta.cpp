@@ -11,6 +11,7 @@
 #include "../Parser.h"
 #include "../library.h"
 #include "../PrettyPrinter.h"
+#include "../unicode_tables.h"
 #include <chrono>
 #include <ctime>
 #include <cstdlib>
@@ -461,6 +462,11 @@ static Value _prim_get_environment_variables(Context*, Environment*, std::vector
 
 // ── time ──────────────────────────────────────────────────────────────────────
 
+static Value _prim_unicode_version(Context*, Environment*, std::vector<Value>&, const Value*)
+   {
+   return make_string(std::string(unicode::version()));
+   }
+
 static Value _prim_runtime(Context*, Environment*, std::vector<Value>&, const Value*)
    {
    return make_real(static_cast<double>(std::clock()) / static_cast<double>(CLOCKS_PER_SEC));
@@ -584,6 +590,11 @@ void register_meta()
 
    register_primitive("get-environment-variables", 0, 0, _prim_get_environment_variables,
                       "", "(get-environment-variables) returns an alist of (name . value) strings.  R7RS 6.14.",
+                      CATEGORY);
+
+   register_primitive("unicode-version", 0, 0, _prim_unicode_version,
+                      "", "(unicode-version) returns the version string of the Unicode character "
+                      "database backing char/string operations (e.g. \"16.0.0\").  Not in R7RS.",
                       CATEGORY);
 
    register_primitive("syntax-expand", 1, 1, _prim_syntax_expand,
