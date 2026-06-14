@@ -2230,11 +2230,16 @@ static Value expand_let_syntax(const Value& sexpr, bool is_letrec)
       }
 
    g_runtime_env = child_env;
-   // Wrap multi-form body in begin
+   // Wrap the body in (let () body...) -- NOT (begin body...).  A begin in a
+   // definition context splices its internal defines into the *enclosing* body;
+   // R7RS 4.2.6 makes the let-syntax/letrec-syntax body its own region
+   // ("definitions spliced as in let/letrec bodies"), so an internal define must
+   // stay local.  (let () ...) reuses the body-scanner's letrec* lowering to give
+   // exactly that new scope.  Confirmed against chibi:
+   //   (let () (define x 1) (let-syntax () (define x 2) #f) x) => 1
    Value wrapped;
-   if (is_cons(cdr(body)))
       {
-      std::vector<Value> body_items = {make_symbol("begin", nullptr)};
+      std::vector<Value> body_items = {make_symbol("let", nullptr), NIL_VALUE};
       Value bcur = body;
       while (is_cons(bcur))
          {
@@ -2242,10 +2247,6 @@ static Value expand_let_syntax(const Value& sexpr, bool is_letrec)
          bcur = cdr(bcur);
          }
       wrapped = list_from_items(body_items, nullptr);
-      }
-   else
-      {
-      wrapped = car(body);
       }
    if (!let_rename_table.empty())
       wrapped = rename_refs_in_form(wrapped, let_rename_table);
