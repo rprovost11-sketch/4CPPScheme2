@@ -527,7 +527,15 @@ static std::string _format_real(double f)
          }
       best = d;
       }
-   if (best.find('.') == std::string::npos && best.find('e') == std::string::npos)
+   // Exponent form: ensure the mantissa carries a decimal point ("5.0e-324"
+   // not "5e-324"), matching format_float so number->string and write agree.
+   auto epos = best.find('e');
+   if (epos != std::string::npos)
+      {
+      if (best.find('.') == std::string::npos)
+         best = best.substr(0, epos) + ".0" + best.substr(epos);
+      }
+   else if (best.find('.') == std::string::npos)
       best += ".0";
    return best;
    }

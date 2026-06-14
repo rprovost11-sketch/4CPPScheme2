@@ -71,8 +71,16 @@ static std::string format_float(double f)
       best = d;
       }
 
-   // Ensure result has '.' or 'e' (Scheme requires float notation).
-   if (best.find('.') == std::string::npos && best.find('e') == std::string::npos)
+   // Exponent form: ensure the mantissa carries a decimal point ("5.0e-324"
+   // not "5e-324"), mirroring pyScheme _format_float; both read back equal.
+   auto epos = best.find('e');
+   if (epos != std::string::npos)
+      {
+      if (best.find('.') == std::string::npos)
+         best = best.substr(0, epos) + ".0" + best.substr(epos);
+      }
+   // Ensure result has '.' (Scheme requires float notation) when not exponential.
+   else if (best.find('.') == std::string::npos)
       best += ".0";
    return best;
    }
