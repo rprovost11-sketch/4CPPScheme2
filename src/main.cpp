@@ -188,9 +188,12 @@ int main(int argc, char* argv[])
          }
       if (!scheme_tests.empty())
          {
-         testdir = (scheme_tests / "feature-tests").string();
-         compliancedir = (scheme_tests / "R7RS-Compliance-Tests").string();
-         regressiondir = (scheme_tests / "regression-tests").string();
+         // The .log REPL-transcript suites live under scheme-tests/log-tests/
+         // (grouped there to distinguish them from the application-tests suites).
+         auto log_tests = scheme_tests / "log-tests";
+         testdir = (log_tests / "feature-tests").string();
+         compliancedir = (log_tests / "R7RS-Compliance-Tests").string();
+         regressiondir = (log_tests / "regression-tests").string();
          runsdir = (scheme_tests / "runs").string();
          }
       }
