@@ -1784,6 +1784,15 @@ class SchemeParser
          if (top != nullptr && top->kind == PFrame::List && top->tail_filled)
             {
             const Token& tok = _peek();
+            if (tok.kind == TokenKind::DATUM_COMMENT)
+               {
+               // A datum comment after the dotted tail (e.g. (a . b #;c))
+               // discards the following datum; the closer is still expected
+               // afterwards.  R7RS section 2.2.
+               _advance();
+               stack.push_back(ParseFrame(PFrame::Discard));
+               continue;
+               }
             if (tok.kind == top->closer)
                {
                _advance();
