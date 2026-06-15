@@ -8,8 +8,100 @@
 #include <complex>
 #include <variant>
 #include <cmath>
+#include <cstdio>
+#include <cinttypes>
+#include <vector>
 
 static const char* CATEGORY = "comparison";
+
+// ── Exact comparison (bignum-aware) ───────────────────────────────────────────
+// NumReal/NumAny collapse a bignum to double on extraction, which makes two
+// bignums that round to the same double compare equal (e.g. 10^50 and 10^50+1).
+// When every argument is an exact real (fixnum, bignum, or rational) and at
+// least one is a bignum, the chain is compared exactly via mpz instead, mirroring
+// pyscheme (whose ints are arbitrary precision).
+
+static void _cmp_set_i64(__mpz_struct* z, int64_t n)
+   {
+   // mpz_set_si takes a 32-bit long on MSVC, so route int64 through a string.
+   char buf[24];
+   if (n < 0)
+      std::snprintf(buf, sizeof(buf), "-%" PRIu64, static_cast<uint64_t>(-n));
+   else
+      std::snprintf(buf, sizeof(buf), "%" PRIu64, static_cast<uint64_t>(n));
+   mpz_set_str(z, buf, 10);
+   }
+
+static bool _is_exact_real(const Value& v)
+   {
+   return is_integer(v) || is_bignum(v) || is_rational(v);
+   }
+
+// True when every arg is an exact real and at least one is a bignum (the only
+// case where the default double-collapsing path can give a wrong answer).
+static bool _exact_chain_applies(const std::vector<Value>& args)
+   {
+   bool has_bignum = false;
+   for (const Value& v : args)
+      {
+      if (is_bignum(v))
+         has_bignum = true;
+      else if (!_is_exact_real(v))
+         return false;
+      }
+   return has_bignum;
+   }
+
+// Set (num, den) from an exact real; den is always > 0.  Caller owns the mpz.
+static void _exact_to_ratio(const Value& v, __mpz_struct* num, __mpz_struct* den)
+   {
+   mpz_init(num);
+   mpz_init(den);
+   if (is_bignum(v))
+      {
+      mpz_set(num, as_bignum(v));
+      _cmp_set_i64(den, 1);
+      }
+   else if (is_integer(v))
+      {
+      _cmp_set_i64(num, as_integer(v));
+      _cmp_set_i64(den, 1);
+      }
+   else // rational: int64 numerator/denominator, denominator normalized positive
+      {
+      _cmp_set_i64(num, as_rational_num(v));
+      _cmp_set_i64(den, as_rational_den(v));
+      }
+   }
+
+// Exact sign of (a - b): -1, 0, or 1.  Both args must be exact reals.
+static int _exact_cmp(const Value& a, const Value& b)
+   {
+   __mpz_struct an, ad, bn, bd, l, r;
+   _exact_to_ratio(a, &an, &ad);
+   _exact_to_ratio(b, &bn, &bd);
+   mpz_init(&l);
+   mpz_init(&r);
+   mpz_mul(&l, &an, &bd); // a.num * b.den   (denominators > 0, sign preserved)
+   mpz_mul(&r, &bn, &ad); // b.num * a.den
+   int c = mpz_cmp(&l, &r);
+   mpz_clear(&an);
+   mpz_clear(&ad);
+   mpz_clear(&bn);
+   mpz_clear(&bd);
+   mpz_clear(&l);
+   mpz_clear(&r);
+   return c;
+   }
+
+template <class Pred>
+static Value _exact_chain(const std::vector<Value>& args, Pred ok)
+   {
+   for (size_t i = 1; i < args.size(); ++i)
+      if (!ok(_exact_cmp(args[i - 1], args[i])))
+         return make_boolean(false);
+   return make_boolean(true);
+   }
 
 // ── NumReal: real-valued number extracted from a Value (for ordering) ─────────
 // Port of comparison.py _num.
@@ -212,6 +304,8 @@ static Value num_compare(std::vector<Value>& args, const Value* app,
 
 static Value _prim_num_eq(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
+   if (_exact_chain_applies(args))
+      return _exact_chain(args, [](int c) { return c == 0; });
    return num_compare<NumAny>(args, app,
        [](const Value& v, const Value* a, int i) { return _num_eq_val(v, a, i); },
        [](const NumAny& x, const NumAny& y) { return any_eq(x, y); });
@@ -219,6 +313,8 @@ static Value _prim_num_eq(Context*, Environment*, std::vector<Value>& args, cons
 
 static Value _prim_num_lt(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
+   if (_exact_chain_applies(args))
+      return _exact_chain(args, [](int c) { return c < 0; });
    return num_compare<NumReal>(args, app,
        [](const Value& v, const Value* a, int i) { return _num(v, "<", a, i); },
        [](const NumReal& x, const NumReal& y) { return real_lt(x, y); });
@@ -226,6 +322,8 @@ static Value _prim_num_lt(Context*, Environment*, std::vector<Value>& args, cons
 
 static Value _prim_num_gt(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
+   if (_exact_chain_applies(args))
+      return _exact_chain(args, [](int c) { return c > 0; });
    return num_compare<NumReal>(args, app,
        [](const Value& v, const Value* a, int i) { return _num(v, ">", a, i); },
        [](const NumReal& x, const NumReal& y) { return real_lt(y, x); });
@@ -233,6 +331,8 @@ static Value _prim_num_gt(Context*, Environment*, std::vector<Value>& args, cons
 
 static Value _prim_num_le(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
+   if (_exact_chain_applies(args))
+      return _exact_chain(args, [](int c) { return c <= 0; });
    return num_compare<NumReal>(args, app,
        [](const Value& v, const Value* a, int i) { return _num(v, "<=", a, i); },
        [](const NumReal& x, const NumReal& y) { return real_le(x, y); });
@@ -240,6 +340,8 @@ static Value _prim_num_le(Context*, Environment*, std::vector<Value>& args, cons
 
 static Value _prim_num_ge(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
+   if (_exact_chain_applies(args))
+      return _exact_chain(args, [](int c) { return c >= 0; });
    return num_compare<NumReal>(args, app,
        [](const Value& v, const Value* a, int i) { return _num(v, ">=", a, i); },
        [](const NumReal& x, const NumReal& y) { return real_le(y, x); });
