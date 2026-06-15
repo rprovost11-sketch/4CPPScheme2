@@ -466,6 +466,10 @@ Value apply_scheme_proc(const Value& fn, std::vector<Value> args,
          throw SchemeTypeError(
              as_record_mutator_name(fn) + ": first argument is not a " + rt->name, src);
       as_record_fields(args[0])[as_record_mutator_index(fn)] = args[1];
+      // Generational write barrier: storing a (possibly young) value into a
+      // (possibly old) record creates an old->young edge the minor GC must know
+      // about, or it would free the child as unreachable.  See %record-set!.
+      gc_write_barrier(gc_value_header(args[0]), gc_value_header(args[1]));
       return VOID_VALUE;
       }
    throw SchemeTypeError("expected a procedure", src);
@@ -726,6 +730,8 @@ static EnterResult enter_proc(const Value& fn_value, std::vector<Value>& args,
          throw SchemeTypeError(
              as_record_mutator_name(fn_value) + ": first argument is not a " + rt->name, src);
       as_record_fields(args[0])[as_record_mutator_index(fn_value)] = args[1];
+      // Generational write barrier (old-record <- young-value); see %record-set!.
+      gc_write_barrier(gc_value_header(args[0]), gc_value_header(args[1]));
       EnterResult r;
       r.kind = EnterResult::IsValue;
       r.v = VOID_VALUE;
@@ -3516,6 +3522,8 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                             src);
                         }
                      as_record_fields(new_collected[0])[as_record_mutator_index(fn_value)] = new_collected[1];
+                     // Generational write barrier (old-record <- young-value); see %record-set!.
+                     gc_write_barrier(gc_value_header(new_collected[0]), gc_value_header(new_collected[1]));
                      V = VOID_VALUE;
                      continue;
                      }
