@@ -422,6 +422,43 @@ static Value comp_to_scheme(const ComplexComp& v)
    return make_real(std::get<double>(v));
    }
 
+// ── normalize_decimal_exponent ────────────────────────────────────────────────
+// Port of Parser.py _normalize_decimal_exponent.  Rewrites an R5RS exponent
+// marker (s/f/d/l, any case) to 'e' so the string can be handed to
+// strtod/decimal parsing.  R7RS keeps only 'e', but the s/f/d/l short/single/
+// double/long markers are a universal extension (R5RS, chibi, Chez, ...).  Only
+// the marker that introduces an exponent is touched: it must follow a digit or
+// '.' and be followed by an optional sign then a digit.
+static std::string normalize_decimal_exponent(const std::string& s)
+   {
+   std::string out;
+   out.reserve(s.size());
+   size_t n = s.size();
+   size_t i = 0;
+   while (i < n)
+      {
+      char c = s[i];
+      bool is_marker = (c == 's' || c == 'S' || c == 'f' || c == 'F' ||
+                        c == 'd' || c == 'D' || c == 'l' || c == 'L');
+      if (is_marker && i > 0 &&
+          (std::isdigit((unsigned char)s[i - 1]) || s[i - 1] == '.'))
+         {
+         size_t j = i + 1;
+         if (j < n && (s[j] == '+' || s[j] == '-'))
+            ++j;
+         if (j < n && std::isdigit((unsigned char)s[j]))
+            {
+            out.push_back('e');
+            ++i;
+            continue;
+            }
+         }
+      out.push_back(c);
+      ++i;
+      }
+   return out;
+   }
+
 // ── _parse_number_for_complex ─────────────────────────────────────────────────
 // Port of Parser.py _parse_number_for_complex.
 // Returns int64_t, Rat, or double; nullopt if not a valid number.
@@ -481,9 +518,10 @@ static std::optional<ComplexComp> parse_num_for_complex(const std::string& s)
       {
       try
          {
+         std::string norm = normalize_decimal_exponent(s);
          size_t idx;
-         double f = std::stod(s, &idx);
-         if (idx == s.size())
+         double f = std::stod(norm, &idx);
+         if (idx == norm.size())
             return ComplexComp(f);
          }
       catch (...)
@@ -512,7 +550,9 @@ static std::optional<Token> try_parse_complex_literal(const std::string& text,
       char c = body[j];
       if (c == '+' || c == '-')
          {
-         if (j > 0 && std::tolower((unsigned char)body[j - 1]) == 'e')
+         char prev = (j > 0) ? (char)std::tolower((unsigned char)body[j - 1]) : '\0';
+         if (j > 0 && (prev == 'e' || prev == 's' || prev == 'f' ||
+                       prev == 'd' || prev == 'l'))
             {
             --j;
             continue;
@@ -608,8 +648,9 @@ static std::optional<Token> try_parse_polar_literal(const std::string& text,
 
 // Port of _Rat(rest) for exact decimal strings: parses "0.1" -> 1/10, "1.5" -> 3/2.
 // Handles optional sign, decimal point, and e/E exponent.  Avoids double.
-static Rat decimal_str_to_rat(const std::string& s)
+static Rat decimal_str_to_rat(const std::string& s_in)
    {
+   std::string s = normalize_decimal_exponent(s_in);
    int64_t sign = 1;
    size_t i = 0;
    if (!s.empty() && s[0] == '-')
@@ -851,11 +892,12 @@ static Token try_parse_prefixed_number(const std::string& text, const SourceInfo
          // out_of_range throw.  This lets the #e non-finite check below fire
          // (e.g. #e1e999 -> "#e applied to non-finite real") instead of
          // falling through to "invalid prefixed number".
-         const char* cstr = rest.c_str();
+         std::string rnorm = normalize_decimal_exponent(rest);
+         const char* cstr = rnorm.c_str();
          char* endp = nullptr;
          double f = std::strtod(cstr, &endp);
          size_t idx = (size_t)(endp - cstr);
-         if (idx == rest.size())
+         if (idx == rnorm.size())
             {
             if (exact == 1)
                {
@@ -884,6 +926,16 @@ static Token try_parse_prefixed_number(const std::string& text, const SourceInfo
          }
       catch (...)
          {
+         }
+      // Decimal-prefixed complex: #d10+11i, #d1.0+1.0i.  Only when no
+      // exactness prefix is present (matches chibi; #e/#i complex are not
+      // supported, and #x/#o/#b complex are rejected -- 'i'/'e' clash with
+      // the digit alphabets).
+      if (exact == -1 && (rest.back() == 'i' || rest.back() == 'I'))
+         {
+         auto opt = try_parse_complex_literal(rest, src);
+         if (opt)
+            return *opt;
          }
       }
 
@@ -967,17 +1019,19 @@ static Token build_word_token(const std::string& word, const SourceInfo& src, bo
          }
       }
 
-      // Try real (pattern: has '.' or 'e'/'E')
+      // Try real (pattern: has '.' or an exponent marker e/s/f/d/l).  The
+      // s/f/d/l markers are normalized to 'e' so strtod accepts them.
       {
-      bool has_dot = word.find('.') != std::string::npos;
-      bool has_exp = word.find('e') != std::string::npos || word.find('E') != std::string::npos;
+      std::string norm = normalize_decimal_exponent(word);
+      bool has_dot = norm.find('.') != std::string::npos;
+      bool has_exp = norm.find('e') != std::string::npos || norm.find('E') != std::string::npos;
       if (has_dot || has_exp)
          {
          try
             {
             size_t idx;
-            double f = std::stod(word, &idx);
-            if (idx == word.size())
+            double f = std::stod(norm, &idx);
+            if (idx == norm.size())
                {
                Token t(TokenKind::REAL, src);
                t.dbl_val = f;
@@ -1029,8 +1083,8 @@ static Token build_word_token(const std::string& word, const SourceInfo& src, bo
          }
       }
 
-   // Complex literal (ends in 'i', len >= 2)
-   if (word.size() >= 2 && word.back() == 'i')
+   // Complex literal (ends in 'i'/'I', len >= 2)
+   if (word.size() >= 2 && (word.back() == 'i' || word.back() == 'I'))
       {
       auto opt = try_parse_complex_literal(word, src);
       if (opt)
