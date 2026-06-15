@@ -912,9 +912,22 @@ TestResult Listener::sessionLog_test(const std::string& filename, int verbosity)
    std::string saved_fallback = get_include_fallback_dir();
    set_include_fallback_dir(fs::absolute(fs::path(filename)).parent_path().string());
 
-   std::cout << '\n';
-   std::cout << BOLD << "Test file:" << RESET << " " << filename << '\n';
-   std::cout << BOLD << std::string(11 + filename.size(), '-') << RESET << '\n';
+   // Emit the per-file header at most once.  Called lazily on the first
+   // failing entry so an all-pass file writes nothing (verbose mode prints it
+   // up front instead).  Failure-only output keeps the .run reports small.
+   bool header_printed = false;
+   auto emit_header = [&]()
+   {
+      if (!header_printed)
+         {
+         std::cout << '\n';
+         std::cout << BOLD << "Test file:" << RESET << " " << filename << '\n';
+         std::cout << BOLD << std::string(11 + filename.size(), '-') << RESET << '\n';
+         header_printed = true;
+         }
+   };
+   if (verbosity >= 3)
+      emit_header();
 
    int k = 0;
    while (k < (int)entries.size())
@@ -1012,6 +1025,7 @@ TestResult Listener::sessionLog_test(const std::string& filename, int verbosity)
       else
          {
          ++n_fail;
+         emit_header();
          std::cout << RED << "  " << lbuf << ". FAIL  " << label << RESET << '\n';
          if (timed_out)
             std::cout << "         *** evaluation timed out (treated as failure) ***\n";
@@ -1042,11 +1056,19 @@ TestResult Listener::sessionLog_test(const std::string& filename, int verbosity)
    set_include_fallback_dir(saved_fallback);
 
    int total = n_pass + n_fail;
-   std::cout << '\n';
-   if (n_fail == 0)
-      std::cout << GREEN << total << " TESTS PASSED" << RESET << '\n';
-   else
+   // Failure-only reporting: print the per-file footer only when something
+   // failed (the header was already emitted lazily above).  The all-pass
+   // 'TESTS PASSED' line is verbose-mode only.
+   if (n_fail > 0)
+      {
+      std::cout << '\n';
       std::cout << RED << n_fail << " of " << total << " FAILED" << RESET << '\n';
+      }
+   else if (verbosity >= 3)
+      {
+      std::cout << '\n';
+      std::cout << GREEN << total << " TESTS PASSED" << RESET << '\n';
+      }
    return TestResult(n_pass, n_fail);
    }
 
@@ -1207,7 +1229,9 @@ TestResult Listener::_runTestFiles(const std::vector<std::string>& filenames, co
          if (runFile)
             std::cout.rdbuf(runFile->rdbuf());
          _output_to_file = (runFile != nullptr);
-         TestResult r = sessionLog_test(filename, 3);
+         // verbosity 1: write only failing entries to the .run report
+         // (passing cases produce no output -> small reports).
+         TestResult r = sessionLog_test(filename, 1);
          _output_to_file = false;
          std::cout.rdbuf(original_buf);
 
