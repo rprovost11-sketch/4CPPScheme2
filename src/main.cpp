@@ -30,7 +30,8 @@ static void _sigbreak_handler(int)
 // order.  At most one positional target.  Port of __main__._parse_args.
 static bool parse_args(int argc, char* argv[],
                        std::vector<std::string>& library_paths,
-                       std::string& target, bool& have_target)
+                       std::string& target, bool& have_target,
+                       std::vector<std::string>& eval_exprs, bool& have_eval)
    {
 #ifdef _WIN32
    const char sep = ';';
@@ -85,6 +86,26 @@ static bool parse_args(int argc, char* argv[],
          if (!d.empty())
             library_paths.push_back(d);
          }
+      else if (a == "-e" || a == "--evaluate")
+         {
+         if (i + 1 >= argc)
+            {
+            std::cerr << "cppscheme2: option " << a << " requires an argument\n";
+            return false;
+            }
+         eval_exprs.push_back(argv[++i]);
+         have_eval = true;
+         }
+      else if (a.rfind("-e=", 0) == 0)
+         {
+         eval_exprs.push_back(a.substr(3));
+         have_eval = true;
+         }
+      else if (a.rfind("--evaluate=", 0) == 0)
+         {
+         eval_exprs.push_back(a.substr(11));
+         have_eval = true;
+         }
       else if (a == "-" || a.empty() || a[0] != '-')
          {
          if (have_target)
@@ -101,6 +122,11 @@ static bool parse_args(int argc, char* argv[],
          return false;
          }
       }
+   if (have_eval && have_target)
+      {
+      std::cerr << "cppscheme2: -e/--evaluate cannot be combined with a file or directory\n";
+      return false;
+      }
    return true;
    }
 
@@ -113,7 +139,9 @@ int main(int argc, char* argv[])
    std::vector<std::string> library_paths;
    std::string target;
    bool have_target = false;
-   if (!parse_args(argc, argv, library_paths, target, have_target))
+   std::vector<std::string> eval_exprs;
+   bool have_eval = false;
+   if (!parse_args(argc, argv, library_paths, target, have_target, eval_exprs, have_eval))
       {
       std::cerr << "Usage: cppscheme2 [-L <dir" << char(
 #ifdef _WIN32
@@ -121,7 +149,7 @@ int main(int argc, char* argv[])
 #else
                        ':'
 #endif
-                       ) << "...>] [-I <dir>]... "
+                       ) << "...>] [-I <dir>]... [-e <expr>]... "
                    "[<directory> | <scheme-source-file>]\n";
       return 2;
       }
@@ -196,6 +224,27 @@ int main(int argc, char* argv[])
          regressiondir = (log_tests / "regression-tests").string();
          runsdir = (scheme_tests / "runs").string();
          }
+      }
+
+   // -e/--evaluate: evaluate each expression as a REPL transcript, then exit.
+   // The banner is suppressed so the first line is the '>>> ' echo.  Hard-exit
+   // (like file mode) to skip DLL static destructors while GC objects are live.
+   if (have_eval)
+      {
+      int status = 0;
+         {
+         Listener listener(
+             &interp, testdir, "cppscheme2", "0.6.7", "Ron Provost/Longo",
+             "https://github.com/rprovost11/cppscheme2", compliancedir,
+             regressiondir, runsdir, /*show_banner=*/false);
+         status = listener.eval_and_exit(eval_exprs);
+         }
+      std::cout.flush();
+#ifdef _WIN32
+      TerminateProcess(GetCurrentProcess(), (unsigned)status);
+#else
+      std::_Exit(status);
+#endif
       }
 
    if (have_target)

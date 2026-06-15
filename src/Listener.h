@@ -103,11 +103,17 @@ class CPPSCHEME2_API Listener
             const std::string& project = "https://example/cppscheme2",
             const std::string& compliancedir = "",
             const std::string& regressiondir = "",
-            const std::string& runsdir = "");
+            const std::string& runsdir = "",
+            bool show_banner = true);
    ~Listener();
 
    // Run the interactive REPL until EOF or ]quit/]exit.
    void readEvalPrintLoop();
+
+   // Evaluate each -e/--evaluate expression as a full REPL transcript (echo the
+   // input with '>>> '/'... ' prompts, run it, show '==> value' or '%%% error'),
+   // then return a process exit status (1 if any expression raised, else 0).
+   int eval_and_exit(const std::vector<std::string>& expressions);
 
    // Replay a log file without testing (used by ]readlog and ]resume).
    void sessionLog_restore(const std::string& filename, int verbosity = 0);

@@ -458,7 +458,8 @@ Listener::Listener(InterpreterBase* interp,
                    const std::string& project,
                    const std::string& compliancedir,
                    const std::string& regressiondir,
-                   const std::string& runsdir)
+                   const std::string& runsdir,
+                   bool show_banner)
     : _interp(interp), _testdir(fs::absolute(fs::path(testdir)).string()), _compliancedir(compliancedir.empty() ? "" : fs::absolute(fs::path(compliancedir)).string()), _regressiondir(regressiondir.empty() ? "" : fs::absolute(fs::path(regressiondir)).string()), _runsdir(runsdir.empty() ? "" : fs::absolute(fs::path(runsdir)).string()), _logStream(nullptr), _language(language), _version(version), _author(author), _project(project)
    {
    _init_readline();
@@ -542,7 +543,11 @@ Listener::Listener(InterpreterBase* interp,
    _help["suites"] = "Usage: ]suites <suite> [<suite> ...]\nRun one or more test suites in sequence (each fully rebooted between files)\nand print one combined pass/fail verdict.  This is the batch runner Cherry's\n\"Run test suites\" dialog drives; it is equally usable headless.\nSuite tokens (run in the canonical order feature -> compliance -> regression\nregardless of order; duplicates collapse):\n  feature             the feature suite\n  regression          the regression suite\n  compliance-quick    compliance with the default 100k TCO soak\n  compliance          alias for compliance-quick\n  compliance-slow     calibrate this machine's heap-OOM (broken-TCO) threshold,\n                      then soak compliance above it (a GC stress run)\n  all-quick           feature + compliance-quick + regression\n  all-slow            feature + compliance-slow + regression\n  all                 alias for all-quick\nFor a specific TCO iteration count use ]compliance -I:<count> directly;\n]suites exposes only the quick/slow variants.";
    _help["gc-stress"] = "Usage: ]gc-stress [on|off|status]\nToggle GC-stress mode.  When ON, the garbage collector's thresholds and\neffective nursery are slashed so minor collections fire constantly -- this\nexercises the moving GC and surfaces any missing-root bug on whatever you\nthen run (e.g. ]compliance or ]feature).  GC is invisible to Scheme semantics,\nso results are unchanged; runs just get much slower and far more thorough.\nThe setting persists (across reboots) until you toggle it off.\nWith no argument, prints the current state.";
 
-   _banner();
+   // The startup banner is interactive-REPL chrome.  -e/--evaluate builds the
+   // Listener only to reuse its REPL transcript formatting, so it suppresses the
+   // banner (the first line should be the '>>> ' echo).
+   if (show_banner)
+      _banner();
    }
 
 Listener::~Listener()
@@ -813,6 +818,64 @@ void Listener::readEvalPrintLoop()
 
       std::cout << '\n';
       }
+   }
+
+int Listener::eval_and_exit(const std::vector<std::string>& expressions)
+   {
+   int status = 0;
+   for (const std::string& expr : expressions)
+      {
+      // Echo the input with the REPL's prompts ('>>> ' first line, '... ' rest).
+      size_t start = 0;
+      bool first = true;
+      while (true)
+         {
+         size_t nl = expr.find('\n', start);
+         std::string line = expr.substr(
+             start, nl == std::string::npos ? nl : nl - start);
+         std::cout << (first ? ">>> " : "... ") << line << '\n';
+         first = false;
+         if (nl == std::string::npos)
+            break;
+         start = nl + 1;
+         }
+      try
+         {
+         std::string stripped = _strip(expr);
+         if (!stripped.empty() && stripped[0] == ']')
+            {
+            _runListenerCommand(stripped);
+            }
+         else
+            {
+            std::string result = _interp->eval(expr);
+            _writeResult(result);
+            }
+         }
+      catch (_QuitSignal&)
+         {
+         break;
+         }
+      catch (ReplExitSignal&)
+         {
+         bool color = _use_color();
+         std::string DIM = color ? ansi::DIM : "";
+         std::string RESET = color ? ansi::RESET : "";
+         std::cout << DIM << "; (exit) ignored at REPL top level" << RESET << '\n';
+         }
+      catch (ReadlineInterruptError&)
+         {
+         _writeErrorMsg("Interrupted.");
+         status = 1;
+         }
+      catch (std::exception& e)
+         {
+         _writeErrorMsg(format_error(e));
+         status = 1;
+         }
+      std::cout << '\n';
+      }
+   return status;
    }
 
 // ── Session-log parser and runner ─────────────────────────────────────────────
