@@ -571,6 +571,10 @@ struct Port
    std::FILE* file_h = nullptr;
    std::string name;
    bool is_open = true;
+   // True for the <stdin> port whose buffer has not been filled yet: the first
+   // read slurps all of stdin into buf_text (the up-front model open-input-file
+   // uses), then clears the flag.
+   bool from_stdin = false;
 
    Port(bool input, bool text, std::string n)
        : is_input(input), is_text(text), name(std::move(n)) {}

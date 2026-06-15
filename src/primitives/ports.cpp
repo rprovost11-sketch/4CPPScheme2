@@ -75,7 +75,29 @@ static Value _make_stdio_port(bool is_input, bool is_text, std::FILE* fh, const 
 
 static Value _stdin_port()
    {
-   return _make_stdio_port(true, true, stdin, "<stdin>");
+   Value v = _make_stdio_port(true, true, stdin, "<stdin>");
+   as_port(v)->from_stdin = true;
+   return v;
+   }
+
+// The first read from the <stdin> port slurps all of stdin into the port buffer
+// -- the same read-it-all-up-front model open-input-file uses.  Done lazily (on
+// first read, not at port creation) so merely fetching (current-input-port)
+// does not block, and one-shot via the from_stdin flag.  This lets a program
+// read its data from redirected stdin (e.g. `prog < input`), which the
+// benchmark harness relies on.
+static void _ensure_stdin_loaded(Port* p)
+   {
+   if (!p->from_stdin)
+      return;
+   std::string data;
+   char chunk[65536];
+   size_t n;
+   while ((n = std::fread(chunk, 1, sizeof(chunk), stdin)) > 0)
+      data.append(chunk, n);
+   p->buf_text = std::move(data);
+   p->pos = 0;
+   p->from_stdin = false;
    }
 static Value _stdout_port()
    {
@@ -186,6 +208,8 @@ static Port* _check_input_port(const Value& v, const char* name, const Value* ap
       throw SchemeTypeError(
           std::string(name) + ": argument " + std::to_string(idx) + " must be an input port",
           _src(app));
+   // First actual read from the <stdin> port fills its buffer from stdin.
+   _ensure_stdin_loaded(p);
    return p;
    }
 
