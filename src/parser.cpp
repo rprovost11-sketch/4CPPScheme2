@@ -534,15 +534,70 @@ static std::optional<ComplexComp> parse_num_for_complex(const std::string& s)
 // ── _try_parse_complex_literal ────────────────────────────────────────────────
 // Port of Parser.py _try_parse_complex_literal.
 
-static std::optional<Token> try_parse_complex_literal(const std::string& text,
-                                                      const SourceInfo& src)
+static Rat decimal_str_to_rat(const std::string& s_in);
+
+// Port of Parser.py _parse_complex_comp_radix: one integer/rational component
+// in a non-decimal radix (R7RS 7.1.1: <decimal R> is radix-10-only, so
+// components in radix 2/8/16 are <uinteger R> or a ratio).
+static std::optional<ComplexComp> parse_complex_comp_radix(const std::string& s, int radix)
    {
-   // text ends in 'i', len >= 2
+   if (s.empty())
+      return std::nullopt;
+   try
+      {
+      size_t idx;
+      long long v = std::stoll(s, &idx, radix);
+      if (idx == s.size())
+         return ComplexComp((int64_t)v);
+      }
+   catch (...)
+      {
+      }
+   size_t slash = s.find('/');
+   if (slash != std::string::npos)
+      {
+      try
+         {
+         size_t idx1, idx2;
+         std::string num_s = s.substr(0, slash);
+         std::string den_s = s.substr(slash + 1);
+         int64_t num = std::stoll(num_s, &idx1, radix);
+         int64_t den = std::stoll(den_s, &idx2, radix);
+         if (idx1 == num_s.size() && idx2 == den_s.size() && den != 0)
+            return ComplexComp(Rat(num, den));
+         }
+      catch (...)
+         {
+         }
+      }
+   return std::nullopt;
+   }
+
+// Port of Parser.py _exact_component_from_str: convert a component to exact for
+// an #e prefix (exact values pass through; an inexact radix-10 decimal becomes
+// its exact decimal value from the source string).
+static ComplexComp exact_component_from_str(const std::string& s, const ComplexComp& val)
+   {
+   if (is_exact_comp(val))
+      return val;
+   size_t slash = s.find('/');
+   if (slash != std::string::npos)
+      return ComplexComp(Rat(std::stoll(s.substr(0, slash)), std::stoll(s.substr(slash + 1))));
+   return ComplexComp(decimal_str_to_rat(s));
+   }
+
+static std::optional<Token> try_parse_complex_literal(const std::string& text,
+                                                      const SourceInfo& src,
+                                                      int radix = 10, int exact = -1)
+   {
+   // text ends in 'i'/'I', len >= 2
    std::string body = text.substr(0, text.size() - 1);
    if (body.empty())
       return std::nullopt; // bare 'i' is identifier
 
-   // Find rightmost +/- that is not an exponent sign
+   // Find the rightmost +/- separating real and imaginary parts.  In radix 10
+   // a sign that is part of an exponent (preceded by e/s/f/d/l) is skipped; in
+   // other radixes those letters are ordinary digits (e.g. hex #x1e+2i = 30+2i).
    int split = -1;
    int j = (int)body.size() - 1;
    while (j >= 0)
@@ -551,8 +606,8 @@ static std::optional<Token> try_parse_complex_literal(const std::string& text,
       if (c == '+' || c == '-')
          {
          char prev = (j > 0) ? (char)std::tolower((unsigned char)body[j - 1]) : '\0';
-         if (j > 0 && (prev == 'e' || prev == 's' || prev == 'f' ||
-                       prev == 'd' || prev == 'l'))
+         if (radix == 10 && j > 0 && (prev == 'e' || prev == 's' || prev == 'f' ||
+                                      prev == 'd' || prev == 'l'))
             {
             --j;
             continue;
@@ -568,6 +623,13 @@ static std::optional<Token> try_parse_complex_literal(const std::string& text,
    std::string real_str = body.substr(0, split);
    std::string sign_imag = body.substr(split);
 
+   auto parse_comp = [&](const std::string& s) -> std::optional<ComplexComp>
+   {
+      if (radix == 10)
+         return parse_num_for_complex(s);
+      return parse_complex_comp_radix(s, radix);
+   };
+
    ComplexComp re_val, im_val;
    if (real_str.empty())
       {
@@ -575,7 +637,7 @@ static std::optional<Token> try_parse_complex_literal(const std::string& text,
       }
    else
       {
-      auto opt = parse_num_for_complex(real_str);
+      auto opt = parse_comp(real_str);
       if (!opt)
          return std::nullopt;
       re_val = *opt;
@@ -591,10 +653,21 @@ static std::optional<Token> try_parse_complex_literal(const std::string& text,
       }
    else
       {
-      auto opt = parse_num_for_complex(sign_imag);
+      auto opt = parse_comp(sign_imag);
       if (!opt)
          return std::nullopt;
       im_val = *opt;
+      }
+
+   if (exact == 1)
+      {
+      re_val = exact_component_from_str(real_str.empty() ? "0" : real_str, re_val);
+      im_val = exact_component_from_str(sign_imag, im_val);
+      }
+   else if (exact == 0)
+      {
+      re_val = comp_to_double(re_val);
+      im_val = comp_to_double(im_val);
       }
 
    if (is_exact_comp(re_val) && is_exact_comp(im_val))
@@ -927,16 +1000,17 @@ static Token try_parse_prefixed_number(const std::string& text, const SourceInfo
       catch (...)
          {
          }
-      // Decimal-prefixed complex: #d10+11i, #d1.0+1.0i.  Only when no
-      // exactness prefix is present (matches chibi; #e/#i complex are not
-      // supported, and #x/#o/#b complex are rejected -- 'i'/'e' clash with
-      // the digit alphabets).
-      if (exact == -1 && (rest.back() == 'i' || rest.back() == 'I'))
-         {
-         auto opt = try_parse_complex_literal(rest, src);
-         if (opt)
-            return *opt;
-         }
+      }
+
+   // Prefixed complex: #x10+11i, #o10+11i, #b10+11i, #d10+11i, #e1.0+1.0i,
+   // #i1.0+1.0i, ...  R7RS 7.1.1 defines <complex R> for every radix (only
+   // <decimal R> points/exponents are radix-10-only), and exactness applies to
+   // the whole number.  The imaginary 'i' is never a digit in any radix.
+   if (rest.back() == 'i' || rest.back() == 'I')
+      {
+      auto opt = try_parse_complex_literal(rest, src, radix, exact);
+      if (opt)
+         return *opt;
       }
 
    throw SchemeSyntaxError("invalid prefixed number: '" + text + "'", new SourceInfo(src));
