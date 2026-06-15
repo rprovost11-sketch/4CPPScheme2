@@ -416,12 +416,6 @@ static int64_t _check_int(const Value& v, const char* name, const Value* app, in
        _src(app));
    }
 
-// Port of _trunc_div: C++ integer / already truncates toward zero (C++11 guarantee).
-static int64_t _trunc_div(int64_t n, int64_t d)
-   {
-   return n / d;
-   }
-
 // ── Division helpers ─────────────────────────────────────────────────────────
 
 // Port of _exact_div for non-complex NumAny operands.
@@ -1021,57 +1015,172 @@ static Value _prim_abs(Context* ctx, Environment* env, std::vector<Value>& args,
         } }, n);
    }
 
-// Shared bodies for the integer-division family (quotient/remainder/modulo and
-// the R7RS floor-/truncate- forms).  fn carries the per-op arithmetic --
-// including the floor / sign adjustments that C++'s truncating / and % need
-// (Python's // and % already floor).  divzero is the per-op message ('division
-// by zero' for the original trio, 'divide by zero' for the R7RS group -- both
-// pinned by feature test020).  Mirrors arithmetic.py _int_div1 / _int_div2.
-static Value _int_div1(const char* name, std::vector<Value>& args, const Value* app,
-                       const char* divzero, int64_t (*fn)(int64_t, int64_t))
+// The integer-division family (quotient/remainder/modulo and the R7RS floor-/
+// truncate- forms) supports fixnums AND bignums.  Each op is described by a
+// rounding mode (truncate toward zero, or floor toward -inf) and which result
+// it wants (quotient, remainder, or both); the int64 fast path and the mpz
+// bignum path share that description.  Operands may also be inexact integer-
+// valued reals, which make the result inexact.  divzero is the per-op message
+// ('division by zero' for quotient/remainder/modulo, 'divide by zero' for the
+// R7RS group -- both pinned by feature test020).  Mirrors arithmetic.py, where
+// Python ints are arbitrary precision so bignums fall out for free.
+enum class DivMode { Trunc, Floor };
+
+// One validated int-division operand.  exact=false for an integer-valued real;
+// big=true when the operand is a bignum (or an out-of-int64-range real) and
+// must go through the mpz path; i64 is meaningful only when big=false.
+struct DivArg
    {
-   auto n = _check_int_x(args[0], name, app, 1);
-   auto d = _check_int_x(args[1], name, app, 2);
-   if (d.re == 0)
+   bool exact;
+   bool big;
+   int64_t i64;
+   };
+
+static DivArg _div_arg(const Value& v, const char* name, const Value* app, int idx)
+   {
+   if (is_integer(v))
+      return {true, false, as_integer(v)};
+   if (is_bignum(v))
+      return {true, true, 0};
+   if (is_real(v))
+      {
+      double fv = as_real(v);
+      if (std::isfinite(fv) && fv == std::trunc(fv))
+         {
+         // Integer-valued real: int64 fast path when in range, else mpz.
+         if (fv >= -9223372036854775808.0 && fv < 9223372036854775808.0)
+            return {false, false, static_cast<int64_t>(fv)};
+         return {false, true, 0};
+         }
+      }
+   throw SchemeTypeError(
+       std::string(name) + ": argument " + std::to_string(idx) + " is not an integer",
+       _src(app));
+   }
+
+static bool _div_use_big(const DivArg& a, const DivArg& b)
+   {
+   if (a.big || b.big)
+      return true;
+   // INT64_MIN / -1 overflows the int64 fast path.
+   return a.i64 == INT64_MIN && b.i64 == -1;
+   }
+
+// Truncate or floor (quotient, remainder) for int64 operands; d != 0.
+static std::pair<int64_t, int64_t> _qr_i64(int64_t n, int64_t d, DivMode mode)
+   {
+   int64_t q = n / d;     // C++11 truncates toward zero
+   int64_t r = n - d * q; // truncate remainder (sign of n)
+   if (mode == DivMode::Floor && r != 0 && ((r < 0) != (d < 0)))
+      {
+      q -= 1;
+      r += d;
+      }
+   return {q, r};
+   }
+
+// Init z and set it from an int-division operand (fixnum, bignum, or real).
+static void _div_to_mpz(__mpz_struct* z, const Value& v)
+   {
+   mpz_init(z);
+   if (is_bignum(v))
+      mpz_set(z, as_bignum(v));
+   else if (is_integer(v))
+      _mpz_set_i64(z, as_integer(v));
+   else
+      mpz_set_d(z, as_real(v));
+   }
+
+static Value _int_div1(const char* name, std::vector<Value>& args, const Value* app,
+                       const char* divzero, DivMode mode, bool want_remainder)
+   {
+   DivArg a = _div_arg(args[0], name, app, 1);
+   DivArg b = _div_arg(args[1], name, app, 2);
+   bool exact = a.exact && b.exact;
+   if (!_div_use_big(a, b))
+      {
+      if (b.i64 == 0)
+         throw SchemeTypeError(std::string(name) + ": " + divzero, _src(app));
+      std::pair<int64_t, int64_t> qr = _qr_i64(a.i64, b.i64, mode);
+      int64_t res = want_remainder ? qr.second : qr.first;
+      return exact ? make_integer(res) : make_real((double)res);
+      }
+   __mpz_struct n, d, q, r;
+   _div_to_mpz(&n, args[0]);
+   _div_to_mpz(&d, args[1]);
+   if (mpz_sgn(&d) == 0)
+      {
+      mpz_clear(&n);
+      mpz_clear(&d);
       throw SchemeTypeError(std::string(name) + ": " + divzero, _src(app));
-   int64_t r = fn(n.re, d.re);
-   return (!n.exact || !d.exact) ? make_real((double)r) : make_integer(r);
+      }
+   mpz_init(&q);
+   mpz_init(&r);
+   if (mode == DivMode::Floor)
+      mpz_fdiv_qr(&q, &r, &n, &d);
+   else
+      mpz_tdiv_qr(&q, &r, &n, &d);
+   __mpz_struct* res = want_remainder ? &r : &q;
+   Value out = exact ? _mpz_to_value(res) : make_real(mpz_get_d(res));
+   mpz_clear(&n);
+   mpz_clear(&d);
+   mpz_clear(&q);
+   mpz_clear(&r);
+   return out;
    }
 
 static Value _int_div2(const char* name, std::vector<Value>& args, const Value* app,
-                       const char* divzero,
-                       std::pair<int64_t, int64_t> (*fn)(int64_t, int64_t))
+                       const char* divzero, DivMode mode)
    {
-   auto n = _check_int_x(args[0], name, app, 1);
-   auto d = _check_int_x(args[1], name, app, 2);
-   if (d.re == 0)
+   DivArg a = _div_arg(args[0], name, app, 1);
+   DivArg b = _div_arg(args[1], name, app, 2);
+   bool exact = a.exact && b.exact;
+   if (!_div_use_big(a, b))
+      {
+      if (b.i64 == 0)
+         throw SchemeTypeError(std::string(name) + ": " + divzero, _src(app));
+      std::pair<int64_t, int64_t> qr = _qr_i64(a.i64, b.i64, mode);
+      return make_multi_values(
+          {exact ? make_integer(qr.first) : make_real((double)qr.first),
+           exact ? make_integer(qr.second) : make_real((double)qr.second)});
+      }
+   __mpz_struct n, d, q, r;
+   _div_to_mpz(&n, args[0]);
+   _div_to_mpz(&d, args[1]);
+   if (mpz_sgn(&d) == 0)
+      {
+      mpz_clear(&n);
+      mpz_clear(&d);
       throw SchemeTypeError(std::string(name) + ": " + divzero, _src(app));
-   std::pair<int64_t, int64_t> qr = fn(n.re, d.re);
-   bool inexact = !n.exact || !d.exact;
-   return make_multi_values({inexact ? make_real((double)qr.first) : make_integer(qr.first),
-                             inexact ? make_real((double)qr.second) : make_integer(qr.second)});
+      }
+   mpz_init(&q);
+   mpz_init(&r);
+   if (mode == DivMode::Floor)
+      mpz_fdiv_qr(&q, &r, &n, &d);
+   else
+      mpz_tdiv_qr(&q, &r, &n, &d);
+   Value qv = exact ? _mpz_to_value(&q) : make_real(mpz_get_d(&q));
+   Value rv = exact ? _mpz_to_value(&r) : make_real(mpz_get_d(&r));
+   mpz_clear(&n);
+   mpz_clear(&d);
+   mpz_clear(&q);
+   mpz_clear(&r);
+   return make_multi_values({qv, rv});
    }
 
 static Value _prim_quotient(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   return _int_div1("quotient", args, app, "division by zero",
-                    +[](int64_t nn, int64_t dd) -> int64_t { return _trunc_div(nn, dd); });
+   return _int_div1("quotient", args, app, "division by zero", DivMode::Trunc, false);
    }
 
 static Value _prim_remainder(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   return _int_div1("remainder", args, app, "division by zero",
-                    +[](int64_t nn, int64_t dd) -> int64_t { return nn - dd * _trunc_div(nn, dd); });
+   return _int_div1("remainder", args, app, "division by zero", DivMode::Trunc, true);
    }
 
 static Value _prim_modulo(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   return _int_div1("modulo", args, app, "division by zero",
-                    +[](int64_t nn, int64_t dd) -> int64_t {
-                       int64_t r = nn % dd;
-                       if (r != 0 && ((r < 0) != (dd < 0))) r += dd;
-                       return r;
-                    });
+   return _int_div1("modulo", args, app, "division by zero", DivMode::Floor, true);
    }
 
 static Value _prim_min(Context*, Environment*, std::vector<Value>& args, const Value* app)
@@ -1705,53 +1814,32 @@ static Value _prim_string_to_number(Context*, Environment*, std::vector<Value>& 
 
 static Value _prim_floor_quotient(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   return _int_div1("floor-quotient", args, app, "divide by zero",
-                    +[](int64_t nn, int64_t dd) -> int64_t {
-                       int64_t r = nn / dd;
-                       if ((nn ^ dd) < 0 && r * dd != nn) --r;
-                       return r;
-                    });
+   return _int_div1("floor-quotient", args, app, "divide by zero", DivMode::Floor, false);
    }
 
 static Value _prim_floor_remainder(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   return _int_div1("floor-remainder", args, app, "divide by zero",
-                    +[](int64_t nn, int64_t dd) -> int64_t {
-                       int64_t r = nn % dd;
-                       if (r != 0 && ((r < 0) != (dd < 0))) r += dd;
-                       return r;
-                    });
+   return _int_div1("floor-remainder", args, app, "divide by zero", DivMode::Floor, true);
    }
 
 static Value _prim_floor_div(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   return _int_div2("floor/", args, app, "divide by zero",
-                    +[](int64_t nn, int64_t dd) -> std::pair<int64_t, int64_t> {
-                       int64_t q = nn / dd;
-                       if ((nn ^ dd) < 0 && q * dd != nn) --q;
-                       return {q, nn - q * dd};
-                    });
+   return _int_div2("floor/", args, app, "divide by zero", DivMode::Floor);
    }
 
 static Value _prim_truncate_quotient(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   return _int_div1("truncate-quotient", args, app, "divide by zero",
-                    +[](int64_t nn, int64_t dd) -> int64_t { return _trunc_div(nn, dd); });
+   return _int_div1("truncate-quotient", args, app, "divide by zero", DivMode::Trunc, false);
    }
 
 static Value _prim_truncate_remainder(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   return _int_div1("truncate-remainder", args, app, "divide by zero",
-                    +[](int64_t nn, int64_t dd) -> int64_t { return nn - _trunc_div(nn, dd) * dd; });
+   return _int_div1("truncate-remainder", args, app, "divide by zero", DivMode::Trunc, true);
    }
 
 static Value _prim_truncate_div(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   return _int_div2("truncate/", args, app, "divide by zero",
-                    +[](int64_t nn, int64_t dd) -> std::pair<int64_t, int64_t> {
-                       int64_t q = _trunc_div(nn, dd);
-                       return {q, nn - q * dd};
-                    });
+   return _int_div2("truncate/", args, app, "divide by zero", DivMode::Trunc);
    }
 
 static Value _prim_exact_integer_sqrt(Context*, Environment*, std::vector<Value>& args, const Value* app)
