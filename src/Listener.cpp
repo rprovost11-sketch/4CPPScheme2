@@ -1166,9 +1166,19 @@ TestResult Listener::_runTestFiles(const std::vector<std::string>& filenames, co
    std::string RED = color ? ansi::RED : "";
    std::string RESET = color ? ansi::RESET : "";
 
-   // Prepare a run report file for every run.
+   // Prepare a run report file.  When ]suites has opened a shared report, append
+   // this suite's section to it (and leave it open for the caller to close);
+   // otherwise open our own.  The filename carries only the timestamp -- no
+   // suite type -- so all suites can share one file.
+   bool owns_run_file = (_shared_run_file == nullptr);
    std::ofstream* runFile = nullptr;
    std::string runFilename;
+   if (!owns_run_file)
+      {
+      runFile = _shared_run_file;
+      runFilename = _shared_run_filename;
+      }
+   else
       {
       std::string runsDir = !_runsdir.empty()
                                 ? _runsdir
@@ -1177,7 +1187,7 @@ TestResult Listener::_runTestFiles(const std::vector<std::string>& filenames, co
          {
          fs::create_directories(runsDir);
          runFilename = (fs::path(runsDir) /
-                        (_timestamp_file() + "-" + suite + "-CPPScheme2.run"))
+                        (_timestamp_file() + "-CPPScheme2.run"))
                            .string();
          auto* rf = new std::ofstream(runFilename, std::ios::out);
          if (!rf->is_open())
@@ -1195,6 +1205,11 @@ TestResult Listener::_runTestFiles(const std::vector<std::string>& filenames, co
          runFilename = "";
          }
       }
+
+   // Label this suite's section in the report (the suite type is no longer in
+   // the filename, and several sections may share one file).
+   if (runFile)
+      *runFile << "========== suite: " << suite << " ==========\n";
 
    int grand_pass = 0, grand_fail = 0;
    struct PerFile
@@ -1257,7 +1272,7 @@ TestResult Listener::_runTestFiles(const std::vector<std::string>& filenames, co
       {
       _output_to_file = false;
       std::cout.rdbuf(original_buf);
-      if (runFile)
+      if (runFile && owns_run_file)
          {
          runFile->close();
          delete runFile;
@@ -1321,10 +1336,15 @@ TestResult Listener::_runTestFiles(const std::vector<std::string>& filenames, co
          report.push_back(std::string("Elapsed time: ") + elapsed_str);
          for (const auto& ln : report)
             *runFile << ln << '\n';
-         runFile->close();
-         delete runFile;
-         std::cout << '\n'
-                   << "Test output: " << runFilename << '\n';
+         // When ]suites owns the file, leave it open (and silent) for the next
+         // suite's section; only close/announce our own file.
+         if (owns_run_file)
+            {
+            runFile->close();
+            delete runFile;
+            std::cout << '\n'
+                      << "Test output: " << runFilename << '\n';
+            }
          }
       }
    else
@@ -1334,8 +1354,11 @@ TestResult Listener::_runTestFiles(const std::vector<std::string>& filenames, co
       if (runFile)
          {
          *runFile << "\nElapsed time: " << elapsed_str << "\n";
-         runFile->close();
-         delete runFile;
+         if (owns_run_file)
+            {
+            runFile->close();
+            delete runFile;
+            }
          }
       }
 
@@ -1760,6 +1783,40 @@ void Listener::_cmd_suites(std::vector<std::string>& args)
    std::cout << '\n'
              << BOLD << "; running suites: " << planStr << RESET << "\n\n";
 
+   // Open ONE shared run report for the whole batch; each suite's section is
+   // appended to it (filename carries only the timestamp, no suite type).
+   std::string shared_filename;
+      {
+      std::string runsDir = !_runsdir.empty()
+                                ? _runsdir
+                                : (fs::path(!_testdir.empty() ? _testdir : ".") / "runs").string();
+      try
+         {
+         fs::create_directories(runsDir);
+         shared_filename =
+             (fs::path(runsDir) / (_timestamp_file() + "-CPPScheme2.run")).string();
+         auto* rf = new std::ofstream(shared_filename, std::ios::out);
+         if (!rf->is_open())
+            {
+            delete rf;
+            _shared_run_file = nullptr;
+            _shared_run_filename = "";
+            shared_filename = "";
+            }
+         else
+            {
+            _shared_run_file = rf;
+            _shared_run_filename = shared_filename;
+            }
+         }
+      catch (...)
+         {
+         _shared_run_file = nullptr;
+         _shared_run_filename = "";
+         shared_filename = "";
+         }
+      }
+
    struct SuiteResult
       {
       std::string label;
@@ -1768,6 +1825,8 @@ void Listener::_cmd_suites(std::vector<std::string>& args)
       };
    std::vector<SuiteResult> results;
 
+   try
+      {
    for (const std::string& name : plan)
       {
       if (name == "feature")
@@ -1802,6 +1861,24 @@ void Listener::_cmd_suites(std::vector<std::string>& args)
          }
       std::cout << '\n';
       }
+      }
+   catch (...)
+      {
+      std::ofstream* sf = _shared_run_file;
+      _shared_run_file = nullptr;
+      _shared_run_filename = "";
+      if (sf)
+         {
+         sf->close();
+         delete sf;
+         }
+      throw;
+      }
+
+   // Detach the shared report so the per-suite runs are done writing to it.
+   std::ofstream* shared = _shared_run_file;
+   _shared_run_file = nullptr;
+   _shared_run_filename = "";
 
    int total_pass = 0, total_fail = 0;
    for (const SuiteResult& sr : results)
@@ -1827,6 +1904,30 @@ void Listener::_cmd_suites(std::vector<std::string>& args)
       std::cout << BOLD << GREEN << "  ALL SUITES PASSED" << RESET << '\n';
    else
       std::cout << BOLD << RED << "  SUITE FAILURES: " << total_fail << RESET << '\n';
+
+   // Append the combined verdict to the shared report, then close it.
+   if (shared)
+      {
+      *shared << "\n===== SUITES COMPLETE =====\n";
+      for (const SuiteResult& sr : results)
+         {
+         std::string detail = (sr.f == 0)
+                                  ? std::to_string(sr.p) + " passed"
+                                  : std::to_string(sr.f) + " of " +
+                                        std::to_string(sr.p + sr.f) + " failed";
+         *shared << "  " << _ljust(sr.label, 28) << ' ' << detail << '\n';
+         }
+      *shared << "  " << _ljust("Total test cases", 28) << ' '
+              << (total_pass + total_fail) << '\n';
+      if (total_fail == 0)
+         *shared << "  ALL SUITES PASSED\n";
+      else
+         *shared << "  SUITE FAILURES: " << total_fail << '\n';
+      shared->close();
+      delete shared;
+      std::cout << '\n'
+                << "Test output: " << shared_filename << '\n';
+      }
    }
 
 void Listener::_cmd_gc_stress(std::vector<std::string>& args)

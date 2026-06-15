@@ -154,6 +154,11 @@ class CPPSCHEME2_API Listener
    // Suppresses ANSI color so run files are clean text (cout's rdbuf swap is
    // invisible to isatty(); pyscheme gets this free via sys.stdout.isatty()).
    bool _output_to_file = false;
+   // When ]suites runs several suites, it opens ONE shared .run report and
+   // parks the handle here; each _runTestFiles appends its section instead of
+   // opening (and closing) its own file.  nullptr for individual commands.
+   std::ofstream* _shared_run_file = nullptr;
+   std::string _shared_run_filename;
    // When true, ANSI color escape codes are emitted even when stdout is not a
    // TTY -- e.g. when the REPL is driven through a pipe by a GUI front-end
    // (cherry) that renders the codes itself.  Toggled with ]toggle-tty-color;
