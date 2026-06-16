@@ -146,6 +146,18 @@ static Value rat_to_value(const Rat& r)
    return make_rational_mpz(r.num(), r.den());
    }
 
+// floor/ceiling/truncate/round of a Rat -> exact integer Value (bignum-safe;
+// the int64 rat_floor/etc. would clamp a bignum rational's integer result).
+static Value _rat_round_to_value(void (*op)(const Rat&, __mpz_struct*), const Rat& x)
+   {
+   __mpz_struct q;
+   mpz_init(&q);
+   op(x, &q);
+   Value r = _mpz_to_value(&q);
+   mpz_clear(&q);
+   return r;
+   }
+
 // ── NumAny operations ────────────────────────────────────────────────────────
 // The Rat × int64_t and Rat × double operators (and reverses) are defined in
 // rational.h, so x op y for auto x,y resolves to the correct return type via
@@ -1485,7 +1497,7 @@ static Value _prim_floor(Context*, Environment*, std::vector<Value>& args, const
                      {
         using T = std::decay_t<decltype(x)>;
         if constexpr (std::is_same_v<T, int64_t>) return make_integer(x);
-        else if constexpr (std::is_same_v<T, Rat>)  return make_integer(rat_floor(x));
+        else if constexpr (std::is_same_v<T, Rat>)  return _rat_round_to_value(rat_floor_mpz, x);
         else {
             if (!std::isfinite(x)) return make_real(x);
             return make_real(std::floor(x));
@@ -1501,7 +1513,7 @@ static Value _prim_ceiling(Context*, Environment*, std::vector<Value>& args, con
                      {
         using T = std::decay_t<decltype(x)>;
         if constexpr (std::is_same_v<T, int64_t>) return make_integer(x);
-        else if constexpr (std::is_same_v<T, Rat>)  return make_integer(rat_ceil(x));
+        else if constexpr (std::is_same_v<T, Rat>)  return _rat_round_to_value(rat_ceil_mpz, x);
         else {
             if (!std::isfinite(x)) return make_real(x);
             double r = std::ceil(x);
@@ -1518,7 +1530,7 @@ static Value _prim_truncate(Context*, Environment*, std::vector<Value>& args, co
                      {
         using T = std::decay_t<decltype(x)>;
         if constexpr (std::is_same_v<T, int64_t>) return make_integer(x);
-        else if constexpr (std::is_same_v<T, Rat>)  return make_integer(rat_trunc(x));
+        else if constexpr (std::is_same_v<T, Rat>)  return _rat_round_to_value(rat_trunc_mpz, x);
         else {
             if (!std::isfinite(x)) return make_real(x);
             double r = std::trunc(x);
@@ -1535,7 +1547,7 @@ static Value _prim_round(Context*, Environment*, std::vector<Value>& args, const
                      {
         using T = std::decay_t<decltype(x)>;
         if constexpr (std::is_same_v<T, int64_t>) return make_integer(x);
-        else if constexpr (std::is_same_v<T, Rat>)  return make_integer(rat_round(x));
+        else if constexpr (std::is_same_v<T, Rat>)  return _rat_round_to_value(rat_round_mpz, x);
         else {
             if (!std::isfinite(x)) return make_real(x);
             return make_real(_banker_round(x));

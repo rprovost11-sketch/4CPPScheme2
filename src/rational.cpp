@@ -444,3 +444,23 @@ int64_t rat_round(const Rat& r)
    mpz_clear(&twice);
    return result;
    }
+
+// ── Arbitrary-precision floor/ceil/trunc/round (result into out) ──────────────
+
+void rat_floor_mpz(const Rat& r, __mpz_struct* out) { mpz_fdiv_q(out, r.num(), r.den()); }
+void rat_ceil_mpz(const Rat& r, __mpz_struct* out) { mpz_cdiv_q(out, r.num(), r.den()); }
+void rat_trunc_mpz(const Rat& r, __mpz_struct* out) { mpz_tdiv_q(out, r.num(), r.den()); }
+
+void rat_round_mpz(const Rat& r, __mpz_struct* out)
+   {
+   __mpz_struct rem, twice;
+   mpz_init(&rem);
+   mpz_init(&twice);
+   mpz_fdiv_qr(out, &rem, r.num(), r.den()); // out=floor, 0 <= rem < den
+   mpz_mul_2exp(&twice, &rem, 1);            // 2*rem
+   int c = mpz_cmp(&twice, r.den());
+   if (c > 0 || (c == 0 && mpz_odd_p(out))) // > half, or halfway with odd floor
+      mpz_add_ui(out, out, 1);
+   mpz_clear(&rem);
+   mpz_clear(&twice);
+   }

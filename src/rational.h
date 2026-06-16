@@ -143,3 +143,11 @@ CPPSCHEME2_API int64_t rat_floor(const Rat& r);
 CPPSCHEME2_API int64_t rat_ceil(const Rat& r);
 CPPSCHEME2_API int64_t rat_trunc(const Rat& r);
 CPPSCHEME2_API int64_t rat_round(const Rat& r); // ndigits=None (return integer)
+
+// Arbitrary-precision variants: store the integer result in `out` (which the
+// caller must have mpz_init'd).  Use these for bignum rationals, whose
+// floor/ceiling/truncate/round do not fit int64.
+CPPSCHEME2_API void rat_floor_mpz(const Rat& r, __mpz_struct* out);
+CPPSCHEME2_API void rat_ceil_mpz(const Rat& r, __mpz_struct* out);
+CPPSCHEME2_API void rat_trunc_mpz(const Rat& r, __mpz_struct* out);
+CPPSCHEME2_API void rat_round_mpz(const Rat& r, __mpz_struct* out);
