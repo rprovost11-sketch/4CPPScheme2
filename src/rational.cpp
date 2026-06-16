@@ -146,6 +146,15 @@ Rat Rat::from_float(double f)
    return r;
    }
 
+Rat Rat::from_int(const __mpz_struct* n)
+   {
+   __mpz_struct one;
+   mpz_init_set_si(&one, 1);
+   Rat r(n, &one);
+   mpz_clear(&one);
+   return r;
+   }
+
 // ── Predicates / conversions ──────────────────────────────────────────────────
 
 bool Rat::is_zero() const { return mpz_sgn(&num_) == 0; }

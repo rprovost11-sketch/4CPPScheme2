@@ -131,6 +131,8 @@ static Rat _as_exact_component(const Value& v)
    {
    if (is_integer(v))
       return Rat(as_integer(v));
+   if (is_bignum(v))
+      return Rat::from_int(as_bignum(v));
    return Rat(as_rational_num(v), as_rational_den(v));
    }
 
@@ -330,7 +332,7 @@ static NumAny _num_real(const Value& v, const char* name, const Value* app, int 
    if (is_integer(v))
       return as_integer(v);
    if (is_bignum(v))
-      return mpz_get_d(as_bignum(v));
+      return Rat::from_int(as_bignum(v)); // exact, not double-degraded
    if (is_rational(v))
       return Rat(as_rational_num(v), as_rational_den(v));
    if (is_real(v))
@@ -346,7 +348,7 @@ static NumAny _any_num(const Value& v, const char* name, const Value* app, int i
    if (is_integer(v))
       return as_integer(v);
    if (is_bignum(v))
-      return mpz_get_d(as_bignum(v));
+      return Rat::from_int(as_bignum(v)); // exact, not double-degraded
    if (is_rational(v))
       return Rat(as_rational_num(v), as_rational_den(v));
    if (is_real(v))
@@ -370,6 +372,8 @@ static CplxResult _extract_complex(const Value& v)
       return {as_complex_real(v), as_complex_imag(v), false, true};
    if (is_integer(v))
       return {as_integer(v), int64_t(0), true, true};
+   if (is_bignum(v))
+      return {Rat::from_int(as_bignum(v)), int64_t(0), true, true};
    if (is_rational(v))
       return {Rat(as_rational_num(v), as_rational_den(v)), int64_t(0), true, true};
    if (is_real(v))
@@ -988,16 +992,7 @@ static Value _prim_abs(Context* ctx, Environment* env, std::vector<Value>& args,
       double im = static_cast<double>(_as_exact_component(as_exact_complex_imag(v)));
       return make_real(std::hypot(re, im));
       }
-   if (is_bignum(v))
-      {
-      __mpz_struct z;
-      mpz_init(&z);
-      mpz_abs(&z, as_bignum(v));
-      Value r = _mpz_to_value(&z);
-      mpz_clear(&z);
-      return r;
-      }
-   NumAny n = _num_real(v, "abs", app, 1);
+   NumAny n = _num_real(v, "abs", app, 1); // bignum now flows through as Rat
    return std::visit([](auto x) -> Value
                      {
         using T = std::decay_t<decltype(x)>;

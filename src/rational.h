@@ -37,6 +37,9 @@ struct CPPSCHEME2_API Rat
 
    // Port of _Rat.from_float: converts double to its exact rational value.
    static Rat from_float(double f);
+   // n/1 from an exact-integer mpz (a named factory, not a constructor, to
+   // avoid Rat(0) ambiguity with the int64 ctor since 0 is a null-pointer constant).
+   static Rat from_int(const __mpz_struct* n);
 
    // Exact component access (denominator always > 0).
    const __mpz_struct* num() const { return &num_; }
