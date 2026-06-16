@@ -307,6 +307,32 @@ TEST(write_barrier_via_env_bind)
    gc_env_root_pop(&env);
    }
 
+// Sibling of the set-car!/set-cdr!/env-bind write-barrier tests above, for the
+// record-mutator path.  A record mutator from define-record-type (e.g.
+// node.left-set!), applied through the evaluator, stores into a record field;
+// when the record is old-gen and the value freshly allocated (young), that
+// old->young edge needs the generational write barrier or the minor GC frees the
+// child.  The evaluator's record-mutator apply once omitted the barrier (cons
+// and env paths had it; records did not) -> use-after-free, surfaced by gcbench.
+TEST(write_barrier_via_record_mutator)
+   {
+   gc_test_reset();
+   gc_test_set_young_threshold(1000000); // no incidental minor GC; we force it
+   Interpreter interp;
+   interp.eval("(define-record-type node (mk v) node? (v getv setv!))");
+   interp.eval("(define root (mk 0))");
+   force_minor_gc(); // promote root (and its record type) to old gen
+   // Old record <- freshly allocated (young) record, via the record mutator.
+   interp.eval("(setv! root (mk 42))");
+   // Without the write barrier the inner (mk 42) is reachable only through the
+   // old record, which is not in the remembered set -> this minor GC frees it.
+   force_minor_gc();
+   check_invariants("after minor GC");
+   // Post-fix the child survived intact; pre-fix this read freed memory.
+   CHECK(interp.eval("(getv (getv root))") == std::string("42"));
+   gc_test_set_young_threshold(256);
+   }
+
 TEST(reachability_count_matches)
    {
    gc_test_reset();
