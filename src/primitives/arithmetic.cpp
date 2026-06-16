@@ -2,6 +2,7 @@
 // Direct port of pyscheme/primitives/arithmetic.py.
 #include "arithmetic.h"
 #include "primitives.h"
+#include "comparison.h" // scheme_real_cmp, shared by min/max
 #include "../AST.h"
 #include "../Environment.h"
 #include "../rational.h"
@@ -1172,6 +1173,24 @@ static Value _prim_modulo(Context*, Environment*, std::vector<Value>& args, cons
 
 static Value _prim_min(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
+   // Exact fast path: when every argument is an exact real (fixnum, bignum,
+   // or rational), compare exactly and return the original winning Value.
+   // The default NumAny path below collapses a bignum to double.
+   bool all_exact = !args.empty();
+   for (const Value& a : args)
+      if (!(is_integer(a) || is_bignum(a) || is_rational(a)))
+         {
+         all_exact = false;
+         break;
+         }
+   if (all_exact)
+      {
+      size_t best = 0;
+      for (size_t i = 1; i < args.size(); ++i)
+         if (scheme_real_cmp(args[i], args[best]) < 0)
+            best = i;
+      return args[best];
+      }
    NumAny result = _num_real(args[0], "min", app, 1);
    bool any_real = is_real(args[0]);
    for (size_t i = 1; i < args.size(); ++i)
@@ -1196,6 +1215,23 @@ static Value _prim_min(Context*, Environment*, std::vector<Value>& args, const V
 
 static Value _prim_max(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
+   // Exact fast path (see _prim_min): exact reals compare exactly and the
+   // original winning Value is returned, avoiding the NumAny double collapse.
+   bool all_exact = !args.empty();
+   for (const Value& a : args)
+      if (!(is_integer(a) || is_bignum(a) || is_rational(a)))
+         {
+         all_exact = false;
+         break;
+         }
+   if (all_exact)
+      {
+      size_t best = 0;
+      for (size_t i = 1; i < args.size(); ++i)
+         if (scheme_real_cmp(args[i], args[best]) > 0)
+            best = i;
+      return args[best];
+      }
    NumAny result = _num_real(args[0], "max", app, 1);
    bool any_real = is_real(args[0]);
    for (size_t i = 1; i < args.size(); ++i)

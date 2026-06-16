@@ -37,17 +37,20 @@ static bool _is_exact_real(const Value& v)
    return is_integer(v) || is_bignum(v) || is_rational(v);
    }
 
-// True when every arg is an exact real and at least one is a bignum (the only
-// case where the default double-collapsing path can give a wrong answer).
-static bool _exact_chain_applies(const std::vector<Value>& args)
+// True when at least one arg is a bignum and every arg is a real number (no
+// complex).  This is exactly the set of chains the default double-collapsing
+// path can get wrong: both all-exact-with-bignum AND bignum-vs-inexact mixes
+// (a bignum that rounds to the same double as a nearby inexact would compare
+// equal).  scheme_real_cmp compares such pairs exactly.
+static bool _bignum_real_chain_applies(const std::vector<Value>& args)
    {
    bool has_bignum = false;
    for (const Value& v : args)
       {
       if (is_bignum(v))
          has_bignum = true;
-      else if (!_is_exact_real(v))
-         return false;
+      else if (!(is_integer(v) || is_rational(v) || is_real(v)))
+         return false; // complex or non-number -> use the general path
       }
    return has_bignum;
    }
@@ -94,12 +97,54 @@ static int _exact_cmp(const Value& a, const Value& b)
    return c;
    }
 
+// Real-valued double for a number Value.  Only used in scheme_real_cmp's
+// fallback, where no bignum is in the pair, so the bignum->double loss does
+// not apply here.
+static double _to_double_real(const Value& v)
+   {
+   if (is_integer(v))  return static_cast<double>(as_integer(v));
+   if (is_bignum(v))   return mpz_get_d(as_bignum(v));
+   if (is_rational(v)) return static_cast<double>(Rat{as_rational_num(v), as_rational_den(v)});
+   return as_real(v);
+   }
+
+// Sign of (a - b) for two real-number Values: -1, 0, 1, or -2 when unordered
+// (a NaN is involved).  Exact pairs (fixnum/bignum/rational) compare exactly;
+// a bignum vs an inexact real compares exactly via mpz_cmp_d (GMP rounds
+// neither operand); any other inexact pair falls back to double.  Declared in
+// comparison.h so min/max in arithmetic.cpp can share it.
+int scheme_real_cmp(const Value& a, const Value& b)
+   {
+   if (_is_exact_real(a) && _is_exact_real(b))
+      return _exact_cmp(a, b);
+   if (is_bignum(a) && is_real(b))
+      {
+      double d = as_real(b);
+      if (std::isnan(d)) return -2;
+      int c = mpz_cmp_d(as_bignum(a), d);
+      return c < 0 ? -1 : (c > 0 ? 1 : 0);
+      }
+   if (is_real(a) && is_bignum(b))
+      {
+      double d = as_real(a);
+      if (std::isnan(d)) return -2;
+      int c = mpz_cmp_d(as_bignum(b), d); // sign of (b - a)
+      return c < 0 ? 1 : (c > 0 ? -1 : 0);
+      }
+   double da = _to_double_real(a), db = _to_double_real(b);
+   if (std::isnan(da) || std::isnan(db)) return -2;
+   return da < db ? -1 : (da > db ? 1 : 0);
+   }
+
 template <class Pred>
-static Value _exact_chain(const std::vector<Value>& args, Pred ok)
+static Value _real_chain(const std::vector<Value>& args, Pred ok)
    {
    for (size_t i = 1; i < args.size(); ++i)
-      if (!ok(_exact_cmp(args[i - 1], args[i])))
+      {
+      int c = scheme_real_cmp(args[i - 1], args[i]);
+      if (c == -2 || !ok(c)) // unordered (NaN) fails every comparison
          return make_boolean(false);
+      }
    return make_boolean(true);
    }
 
@@ -304,8 +349,8 @@ static Value num_compare(std::vector<Value>& args, const Value* app,
 
 static Value _prim_num_eq(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   if (_exact_chain_applies(args))
-      return _exact_chain(args, [](int c) { return c == 0; });
+   if (_bignum_real_chain_applies(args))
+      return _real_chain(args, [](int c) { return c == 0; });
    return num_compare<NumAny>(args, app,
        [](const Value& v, const Value* a, int i) { return _num_eq_val(v, a, i); },
        [](const NumAny& x, const NumAny& y) { return any_eq(x, y); });
@@ -313,8 +358,8 @@ static Value _prim_num_eq(Context*, Environment*, std::vector<Value>& args, cons
 
 static Value _prim_num_lt(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   if (_exact_chain_applies(args))
-      return _exact_chain(args, [](int c) { return c < 0; });
+   if (_bignum_real_chain_applies(args))
+      return _real_chain(args, [](int c) { return c < 0; });
    return num_compare<NumReal>(args, app,
        [](const Value& v, const Value* a, int i) { return _num(v, "<", a, i); },
        [](const NumReal& x, const NumReal& y) { return real_lt(x, y); });
@@ -322,8 +367,8 @@ static Value _prim_num_lt(Context*, Environment*, std::vector<Value>& args, cons
 
 static Value _prim_num_gt(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   if (_exact_chain_applies(args))
-      return _exact_chain(args, [](int c) { return c > 0; });
+   if (_bignum_real_chain_applies(args))
+      return _real_chain(args, [](int c) { return c > 0; });
    return num_compare<NumReal>(args, app,
        [](const Value& v, const Value* a, int i) { return _num(v, ">", a, i); },
        [](const NumReal& x, const NumReal& y) { return real_lt(y, x); });
@@ -331,8 +376,8 @@ static Value _prim_num_gt(Context*, Environment*, std::vector<Value>& args, cons
 
 static Value _prim_num_le(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   if (_exact_chain_applies(args))
-      return _exact_chain(args, [](int c) { return c <= 0; });
+   if (_bignum_real_chain_applies(args))
+      return _real_chain(args, [](int c) { return c <= 0; });
    return num_compare<NumReal>(args, app,
        [](const Value& v, const Value* a, int i) { return _num(v, "<=", a, i); },
        [](const NumReal& x, const NumReal& y) { return real_le(x, y); });
@@ -340,8 +385,8 @@ static Value _prim_num_le(Context*, Environment*, std::vector<Value>& args, cons
 
 static Value _prim_num_ge(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
-   if (_exact_chain_applies(args))
-      return _exact_chain(args, [](int c) { return c >= 0; });
+   if (_bignum_real_chain_applies(args))
+      return _real_chain(args, [](int c) { return c >= 0; });
    return num_compare<NumReal>(args, app,
        [](const Value& v, const Value* a, int i) { return _num(v, ">=", a, i); },
        [](const NumReal& x, const NumReal& y) { return real_le(y, x); });
