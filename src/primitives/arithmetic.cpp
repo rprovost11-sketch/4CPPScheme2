@@ -134,11 +134,14 @@ static Rat _as_exact_component(const Value& v)
    return Rat(as_rational_num(v), as_rational_den(v));
    }
 
-static Value _wrap_component(const Rat& r)
+// Convert a Rat to a Value: an exact integer (fixnum or bignum) when the
+// denominator is 1, else a rational.  (Phase 2a: make_rational is still int64;
+// bignum rationals arrive with the SchemeRational storage change in 2b.)
+static Value rat_to_value(const Rat& r)
    {
-   if (r.denominator == 1)
-      return make_integer(r.numerator);
-   return make_rational(r.numerator, r.denominator);
+   if (r.is_integer())
+      return _mpz_to_value(r.num());
+   return make_rational(r.numerator(), r.denominator());
    }
 
 // ── NumAny operations ────────────────────────────────────────────────────────
@@ -197,7 +200,7 @@ static bool _is_exact_zero(const NumAny& n)
    if (auto* i = std::get_if<int64_t>(&n))
       return *i == 0;
    if (auto* r = std::get_if<Rat>(&n))
-      return r->numerator == 0;
+      return r->is_zero();
    return false;
    }
 
@@ -211,8 +214,7 @@ static Value _wrap_numany(const NumAny& n)
         if constexpr (std::is_same_v<T, int64_t>)
             return make_integer(x);
         else if constexpr (std::is_same_v<T, Rat>) {
-            if (x.denominator == 1) return make_integer(x.numerator);
-            return make_rational(x.numerator, x.denominator);
+            return rat_to_value(x);
         } else {
             return make_real(x);
         } }, n);
@@ -226,8 +228,7 @@ static Value _component_to_value(const NumAny& n)
         if constexpr (std::is_same_v<T, int64_t>)
             return make_integer(x);
         else if constexpr (std::is_same_v<T, Rat>) {
-            if (x.denominator == 1) return make_integer(x.numerator);
-            return make_rational(x.numerator, x.denominator);
+            return rat_to_value(x);
         } else {
             return make_real(x);
         } }, n);
@@ -428,12 +429,12 @@ static CplxResult _complex_div(const CplxResult& a, const CplxResult& b)
       Rat are = _numany_to_rat(a.re), aim = _numany_to_rat(a.im);
       Rat bre = _numany_to_rat(b.re), bim = _numany_to_rat(b.im);
       Rat denom = bre * bre + bim * bim;
-      if (denom.numerator == 0)
+      if (denom.is_zero())
          return {int64_t(0), int64_t(0), true, false};
       Rat re = (are * bre + aim * bim) / denom;
       Rat im = (aim * bre - are * bim) / denom;
-      NumAny re_n = (re.denominator == 1) ? NumAny{re.numerator} : NumAny{re};
-      NumAny im_n = (im.denominator == 1) ? NumAny{im.numerator} : NumAny{im};
+      NumAny re_n = re.is_integer() ? NumAny{re.numerator()} : NumAny{re};
+      NumAny im_n = im.is_integer() ? NumAny{im.numerator()} : NumAny{im};
       return {re_n, im_n, true, true};
       }
    else
@@ -612,7 +613,7 @@ static Value _float_to_exact(double f, const char* name, const Value* app)
    if (f == std::trunc(f))
       return make_integer(static_cast<int64_t>(f));
    Rat frac = Rat::from_float(f);
-   return make_rational(frac.numerator, frac.denominator);
+   return rat_to_value(frac);
    }
 
 // Banker's rounding (round half to even), matching Python's round().
@@ -996,8 +997,7 @@ static Value _prim_abs(Context* ctx, Environment* env, std::vector<Value>& args,
             return make_integer(x < 0 ? -x : x);
         else if constexpr (std::is_same_v<T, Rat>) {
             Rat r = rat_abs(x);
-            if (r.denominator == 1) return make_integer(r.numerator);
-            return make_rational(r.numerator, r.denominator);
+            return rat_to_value(r);
         } else {
             return make_real(std::abs(x));
         } }, n);
@@ -1356,7 +1356,7 @@ static Value _prim_expt(Context*, Environment*, std::vector<Value>& args, const 
          Rat base_r(as_integer(base_v));
          int neg_e = ((-e) > (int64_t)INT_MAX) ? INT_MAX : (int)(-e);
          Rat pos = base_r.pow(neg_e);
-         if (pos.numerator == 0)
+         if (pos.is_zero())
             throw SchemeTypeError("expt: division by zero", _src(&exp_v));
          return _wrap_numany(NumAny{Rat(1) / pos});
          }
@@ -1375,7 +1375,7 @@ static Value _prim_expt(Context*, Environment*, std::vector<Value>& args, const 
          {
          int neg_e = ((-e) > (int64_t)INT_MAX) ? INT_MAX : (int)(-e);
          Rat pos = base_r.pow(neg_e);
-         if (pos.numerator == 0)
+         if (pos.is_zero())
             throw SchemeTypeError("expt: division by zero", _src(&exp_v));
          return _wrap_numany(NumAny{Rat(1) / pos});
          }
@@ -1614,7 +1614,7 @@ static Value _prim_numerator(Context*, Environment*, std::vector<Value>& args, c
          return make_real(f);
       if (f == std::trunc(f))
          return make_real(f);
-      return make_real((double)Rat::from_float(f).numerator);
+      return make_real(mpz_get_d(Rat::from_float(f).num()));
       }
    throw SchemeTypeError("numerator: argument must be a real number", _src(app));
    }
@@ -1633,7 +1633,7 @@ static Value _prim_denominator(Context*, Environment*, std::vector<Value>& args,
          return make_real(1.0);
       if (f == std::trunc(f))
          return make_real(1.0);
-      return make_real((double)Rat::from_float(f).denominator);
+      return make_real(mpz_get_d(Rat::from_float(f).den()));
       }
    throw SchemeTypeError("denominator: argument must be a real number", _src(app));
    }
@@ -1839,9 +1839,7 @@ static Value _prim_string_to_number(Context*, Environment*, std::vector<Value>& 
             Rat frac(num, den);
             if (exact == 0)
                return make_real(static_cast<double>(frac));
-            if (frac.denominator == 1)
-               return make_integer(frac.numerator);
-            return make_rational(frac.numerator, frac.denominator);
+            return rat_to_value(frac);
             }
          }
       catch (...)

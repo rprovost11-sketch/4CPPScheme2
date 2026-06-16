@@ -415,9 +415,9 @@ static Value comp_to_scheme(const ComplexComp& v)
       return make_integer(*ip);
    if (auto* rp = std::get_if<Rat>(&v))
       {
-      if (rp->denominator == 1)
-         return make_integer(rp->numerator);
-      return make_rational(rp->numerator, rp->denominator);
+      if (rp->is_integer())
+         return make_integer(rp->numerator());
+      return make_rational(rp->numerator(), rp->denominator());
       }
    return make_real(std::get<double>(v));
    }
@@ -911,8 +911,8 @@ static Token try_parse_prefixed_number(const std::string& text, const SourceInfo
                      return t;
                      }
                   Token t(TokenKind::RATIONAL, src);
-                  t.int_val = frac.numerator;
-                  t.int_val2 = frac.denominator;
+                  t.int_val = frac.numerator();
+                  t.int_val2 = frac.denominator();
                   return t;
                   }
                }
@@ -984,8 +984,8 @@ static Token try_parse_prefixed_number(const std::string& text, const SourceInfo
                   }
                Rat frac = decimal_str_to_rat(rest);
                Token t(TokenKind::RATIONAL, src);
-               t.int_val = frac.numerator;
-               t.int_val2 = frac.denominator;
+               t.int_val = frac.numerator();
+               t.int_val2 = frac.denominator();
                return t;
                }
             Token t(TokenKind::REAL, src);
@@ -1082,8 +1082,8 @@ static Token build_word_token(const std::string& word, const SourceInfo& src, bo
                {
                Rat r(std::stoll(num_s), std::stoll(den_s));
                Token t(TokenKind::RATIONAL, src);
-               t.int_val = r.numerator;
-               t.int_val2 = r.denominator;
+               t.int_val = r.numerator();
+               t.int_val2 = r.denominator();
                return t;
                }
             catch (...)

@@ -1,34 +1,57 @@
 #pragma once
 // rational.h -- Exact rational arithmetic type.
-// Direct port of pyscheme/rational.py _Rat.
-// Stack-allocated value type used by the evaluator for rational arithmetic.
-// Results are converted back to Value via make_rational() in AST.h.
+// Port of pyscheme/rational.py _Rat.  Stack-allocated value type used by the
+// evaluator for rational arithmetic.  Results are converted back to Value via
+// make_rational() / rat_to_value() callers.
+//
+// Arbitrary precision: numerator and denominator are mini-gmp mpz integers
+// (Phase 2 of the bignum work), matching pyScheme's arbitrary-precision _Rat.
+// This makes Rat a non-trivial RAII type (each value owns two mpz); copies
+// deep-copy.  The int64 accessors numerator()/denominator() truncate and are
+// retained only for callers that still need int64 (e.g. the parser's rational
+// literal token fields); use num()/den() for exact access.
 #include "scheme_export.h"
+#include "mini-gmp/mini-gmp.h"
 #include <cstdint>
 #include <stdexcept>
 #include <string>
 
 // ── Rat ───────────────────────────────────────────────────────────────────────
-// Port of rational.py _Rat.
 // Invariants after construction: denominator > 0, gcd(|numerator|,denominator) == 1.
-// Uses int64_t for both fields; may lose precision for extreme double values in
-// from_float (unlike Python's arbitrary-precision int).
 
 struct CPPSCHEME2_API Rat
    {
-   int64_t numerator;
-   int64_t denominator;
+   __mpz_struct num_; // numerator (carries the sign)
+   __mpz_struct den_; // denominator, always > 0
 
    Rat();                             // 0/1
    Rat(int64_t num, int64_t den = 1); // normalizes; throws std::domain_error if den==0
+   Rat(const __mpz_struct* num, const __mpz_struct* den); // from mpz pair; normalizes
 
-   // Port of _Rat.from_float: converts double to nearest exact rational.
+   // RAII (each Rat owns two mpz).
+   Rat(const Rat& o);
+   Rat(Rat&& o) noexcept;
+   Rat& operator=(const Rat& o);
+   Rat& operator=(Rat&& o) noexcept;
+   ~Rat();
+
+   // Port of _Rat.from_float: converts double to its exact rational value.
    static Rat from_float(double f);
+
+   // Exact component access (denominator always > 0).
+   const __mpz_struct* num() const { return &num_; }
+   const __mpz_struct* den() const { return &den_; }
+   bool is_zero() const;      // numerator == 0
+   bool is_integer() const;   // denominator == 1
 
    // Conversions (port of __float__, __int__, __bool__)
    explicit operator double() const;
-   explicit operator int64_t() const; // truncate toward zero
+   explicit operator int64_t() const; // truncate toward zero (may overflow)
    explicit operator bool() const;
+
+   // Truncating int64 component access (legacy; lossy for bignum components).
+   int64_t numerator() const;
+   int64_t denominator() const;
 
    // Unary (port of __neg__, __abs__, __pos__)
    Rat operator-() const;
@@ -110,7 +133,9 @@ CPPSCHEME2_API bool operator>=(double f, const Rat& r);
 // rat_abs (port of __abs__)
 CPPSCHEME2_API Rat rat_abs(const Rat& r);
 
-// Floor/ceil/trunc/round (port of __floor__, __ceil__, __trunc__, __round__)
+// Floor/ceil/trunc/round (port of __floor__, __ceil__, __trunc__, __round__).
+// Return int64_t (truncating); used by floor/ceiling/truncate/round on
+// non-integer rationals, whose values currently fit int64.
 CPPSCHEME2_API int64_t rat_floor(const Rat& r);
 CPPSCHEME2_API int64_t rat_ceil(const Rat& r);
 CPPSCHEME2_API int64_t rat_trunc(const Rat& r);
