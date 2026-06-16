@@ -124,13 +124,6 @@ struct CplxResult
    bool valid = true; // false = non-numeric input
    };
 
-// ── IntXResult: result of _check_int_x ──────────────────────────────────────
-struct IntXResult
-   {
-   int64_t re;
-   bool exact;
-   };
-
 // ── Exact component helpers ──────────────────────────────────────────────────
 
 static Rat _as_exact_component(const Value& v)
@@ -391,21 +384,6 @@ static bool _has_any_complex(const std::vector<Value>& args)
    }
 
 // ── Integer helpers ──────────────────────────────────────────────────────────
-
-static IntXResult _check_int_x(const Value& v, const char* name, const Value* app, int i)
-   {
-   if (is_integer(v))
-      return {as_integer(v), true};
-   if (is_real(v))
-      {
-      double fv = as_real(v);
-      if (std::isfinite(fv) && fv == std::trunc(fv))
-         return {static_cast<int64_t>(fv), false};
-      }
-   throw SchemeTypeError(
-       std::string(name) + ": argument " + std::to_string(i) + " is not an integer",
-       _src(app));
-   }
 
 static int64_t _check_int(const Value& v, const char* name, const Value* app, int i)
    {
@@ -1000,6 +978,15 @@ static Value _prim_abs(Context* ctx, Environment* env, std::vector<Value>& args,
       double im = static_cast<double>(_as_exact_component(as_exact_complex_imag(v)));
       return make_real(std::hypot(re, im));
       }
+   if (is_bignum(v))
+      {
+      __mpz_struct z;
+      mpz_init(&z);
+      mpz_abs(&z, as_bignum(v));
+      Value r = _mpz_to_value(&z);
+      mpz_clear(&z);
+      return r;
+      }
    NumAny n = _num_real(v, "abs", app, 1);
    return std::visit([](auto x) -> Value
                      {
@@ -1231,47 +1218,70 @@ static Value _prim_max(Context*, Environment*, std::vector<Value>& args, const V
    return _wrap_numany(result);
    }
 
+// Extract an integer-valued argument (exact fixnum/bignum, or an integral
+// inexact real) into an mpz for gcd/lcm.  Sets `inexact` true for a real arg
+// (gcd/lcm of any inexact yields an inexact result).  Caller owns z; this
+// initializes it.  Bignum-aware, unlike the old int64 _check_int_x path.
+static void _int_arg_to_mpz(__mpz_struct* z, const Value& v, const char* name,
+                            const Value* app, int i, bool& inexact)
+   {
+   if (is_integer(v) || is_bignum(v))
+      {
+      _val_to_mpz(z, v); // inits z
+      return;
+      }
+   if (is_real(v))
+      {
+      double fv = as_real(v);
+      if (std::isfinite(fv) && fv == std::trunc(fv))
+         {
+         inexact = true;
+         mpz_init(z);
+         mpz_set_d(z, fv); // exact for an integral double
+         return;
+         }
+      }
+   throw SchemeTypeError(
+       std::string(name) + ": argument " + std::to_string(i) + " is not an integer",
+       _src(app));
+   }
+
 static Value _prim_gcd(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
    if (args.empty())
       return make_integer(0);
-   auto a0 = _check_int_x(args[0], "gcd", app, 1);
-   bool any_inexact = !a0.exact;
-   int64_t result = std::abs(a0.re);
-   for (size_t i = 1; i < args.size(); ++i)
+   __mpz_struct result;
+   mpz_init(&result); // 0; gcd(0, x) == |x|
+   bool any_inexact = false;
+   for (size_t i = 0; i < args.size(); ++i)
       {
-      auto v = _check_int_x(args[i], "gcd", app, (int)(i + 1));
-      if (!v.exact)
-         any_inexact = true;
-      result = std::gcd(result, std::abs(v.re));
+      __mpz_struct a;
+      _int_arg_to_mpz(&a, args[i], "gcd", app, (int)(i + 1), any_inexact);
+      mpz_gcd(&result, &result, &a);
+      mpz_clear(&a);
       }
-   return any_inexact ? make_real((double)result) : make_integer(result);
+   Value out = any_inexact ? make_real(mpz_get_d(&result)) : _mpz_to_value(&result);
+   mpz_clear(&result);
+   return out;
    }
 
 static Value _prim_lcm(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
    if (args.empty())
       return make_integer(1);
-   auto a0 = _check_int_x(args[0], "lcm", app, 1);
-   bool any_inexact = !a0.exact;
-   int64_t result = std::abs(a0.re);
-   for (size_t i = 1; i < args.size(); ++i)
+   __mpz_struct result;
+   mpz_init_set_si(&result, 1); // lcm(1, x) == |x|; lcm(x, 0) == 0
+   bool any_inexact = false;
+   for (size_t i = 0; i < args.size(); ++i)
       {
-      auto v = _check_int_x(args[i], "lcm", app, (int)(i + 1));
-      if (!v.exact)
-         any_inexact = true;
-      if (result == 0 || v.re == 0)
-         {
-         result = 0;
-         }
-      else
-         {
-         int64_t av = std::abs(v.re);
-         int64_t g = std::gcd(result, av);
-         result = result / g * av;
-         }
+      __mpz_struct a;
+      _int_arg_to_mpz(&a, args[i], "lcm", app, (int)(i + 1), any_inexact);
+      mpz_lcm(&result, &result, &a);
+      mpz_clear(&a);
       }
-   return any_inexact ? make_real((double)result) : make_integer(result);
+   Value out = any_inexact ? make_real(mpz_get_d(&result)) : _mpz_to_value(&result);
+   mpz_clear(&result);
+   return out;
    }
 
 static Value _prim_expt(Context*, Environment*, std::vector<Value>& args, const Value* app)
@@ -1434,6 +1444,8 @@ static Value _prim_square(Context*, Environment*, std::vector<Value>& args, cons
 
 static Value _prim_floor(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
+   if (is_bignum(args[0]))
+      return args[0]; // an integer is already floored
    NumAny v = _num_real(args[0], "floor", app, 1);
    return std::visit([](auto x) -> Value
                      {
@@ -1448,6 +1460,8 @@ static Value _prim_floor(Context*, Environment*, std::vector<Value>& args, const
 
 static Value _prim_ceiling(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
+   if (is_bignum(args[0]))
+      return args[0]; // an integer is already ceiled
    NumAny v = _num_real(args[0], "ceiling", app, 1);
    return std::visit([](auto x) -> Value
                      {
@@ -1463,6 +1477,8 @@ static Value _prim_ceiling(Context*, Environment*, std::vector<Value>& args, con
 
 static Value _prim_truncate(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
+   if (is_bignum(args[0]))
+      return args[0]; // an integer is already truncated
    NumAny v = _num_real(args[0], "truncate", app, 1);
    return std::visit([](auto x) -> Value
                      {
@@ -1478,6 +1494,8 @@ static Value _prim_truncate(Context*, Environment*, std::vector<Value>& args, co
 
 static Value _prim_round(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
+   if (is_bignum(args[0]))
+      return args[0]; // an integer is already rounded
    NumAny v = _num_real(args[0], "round", app, 1);
    return std::visit([](auto x) -> Value
                      {
