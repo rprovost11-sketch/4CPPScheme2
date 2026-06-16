@@ -96,14 +96,12 @@ class CPPSCHEME2_API Listener
       };
 
    Listener(InterpreterBase* interp,
-            const std::string& testdir = "feature-tests",
             const std::string& language = "cppscheme2",
             const std::string& version = "0.1",
             const std::string& author = "cppscheme2 authors",
             const std::string& project = "https://example/cppscheme2",
-            const std::string& compliancedir = "",
-            const std::string& regressiondir = "",
-            const std::string& runsdir = "",
+            const std::string& scheme_tests_dir = "",
+            const std::string& scheme_tests_source = "unset",
             bool show_banner = true);
    ~Listener();
 
@@ -147,6 +145,12 @@ class CPPSCHEME2_API Listener
    static int s_history_max;
 
    InterpreterBase* _interp;
+   // The scheme-tests root (from -T/--scheme-tests, $SCHEME_TESTS_DIR, or the
+   // ]scheme-tests command; never hardcoded) and the four suite directories
+   // derived from it (hardcoded relative subpaths -- a config file is the
+   // eventual home).  All empty when no root is set.
+   std::string _scheme_tests_dir;
+   std::string _scheme_tests_source;
    std::string _testdir;
    std::string _compliancedir;
    std::string _regressiondir;
@@ -229,4 +233,9 @@ class CPPSCHEME2_API Listener
    TestResult _cmd_regression(std::vector<std::string>& args);
    void _cmd_gc_stress(std::vector<std::string>& args);
    void _cmd_suites(std::vector<std::string>& args);
+   void _cmd_scheme_tests(std::vector<std::string>& args);
+   // scheme-tests root resolution (no path hardcoded; subdirs derived from root).
+   void _set_scheme_tests_dir(const std::string& path, const std::string& source);
+   void _require_scheme_tests();
+   static std::string _no_scheme_tests_message();
    };

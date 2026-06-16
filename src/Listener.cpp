@@ -451,17 +451,18 @@ void Listener::print_welcome_banner(bool use_color)
 // ── Constructor / destructor ──────────────────────────────────────────────────
 
 Listener::Listener(InterpreterBase* interp,
-                   const std::string& testdir,
                    const std::string& language,
                    const std::string& version,
                    const std::string& author,
                    const std::string& project,
-                   const std::string& compliancedir,
-                   const std::string& regressiondir,
-                   const std::string& runsdir,
+                   const std::string& scheme_tests_dir,
+                   const std::string& scheme_tests_source,
                    bool show_banner)
-    : _interp(interp), _testdir(fs::absolute(fs::path(testdir)).string()), _compliancedir(compliancedir.empty() ? "" : fs::absolute(fs::path(compliancedir)).string()), _regressiondir(regressiondir.empty() ? "" : fs::absolute(fs::path(regressiondir)).string()), _runsdir(runsdir.empty() ? "" : fs::absolute(fs::path(runsdir)).string()), _logStream(nullptr), _language(language), _version(version), _author(author), _project(project)
+    : _interp(interp), _logStream(nullptr), _language(language), _version(version), _author(author), _project(project)
    {
+   // The scheme-tests root is supplied (or left empty) by the caller; the four
+   // suite directories are derived from it.  ]scheme-tests can change it later.
+   _set_scheme_tests_dir(scheme_tests_dir, scheme_tests_source);
    _init_readline();
    // A live Listener means an interactive REPL session: (exit) should abort to
    // the prompt, not terminate the process (batch evalFile never builds a
@@ -512,6 +513,8 @@ Listener::Listener(InterpreterBase* interp,
    { _cmd_regression(a); };
    _commands["suites"] = [this](std::vector<std::string>& a)
    { _cmd_suites(a); };
+   _commands["scheme-tests"] = [this](std::vector<std::string>& a)
+   { _cmd_scheme_tests(a); };
    _commands["gc-stress"] = [this](std::vector<std::string>& a)
    { _cmd_gc_stress(a); };
    _commands["toggle-tty-color"] = [this](std::vector<std::string>& a)
@@ -541,6 +544,7 @@ Listener::Listener(InterpreterBase* interp,
    _help["compliance"] = "Usage: ]compliance [<file.log> | <start> [<end>]]\nRun the R7RS compliance test suite against the configured directory.\n  ]compliance              -- run all tests\n  ]compliance 3            -- run tests with filename >= \"3\"\n  ]compliance 3 4          -- run tests with \"3\" <= filename < \"4\"\n  ]compliance 3.1 Booleans.log  -- run that one file\nFilename comparison is case-insensitive.  The interpreter is rebooted\nbefore each file.  Supports '==> X or ==> Y' alternatives;\n'%%% *' / '%%% %any-error%' require any error to be raised (R7RS\n'an error is signaled'); '%%% %optional-error%' models R7RS\n'it is an error' -- passes whether an error is raised or the form\nreturns (asserts only that evaluation terminates).\nAutomatically runs under GC-stress, which is forced OFF when the run finishes.";
    _help["regression"] = "Usage: ]regression [<file.log> | <start> [<end>]]\nRun the regression test suite (Scheme-observable, non-spec tripwires) against\nthe configured directory.\n  ]regression                  -- run all regression files\n  ]regression 03               -- run files with filename >= \"03\"\n  ]regression 03 06            -- run files with \"03\" <= filename < \"06\"\n  ]regression 03-evaluator.log -- run that one file\nSpec deviations are guarded by ]compliance instead.  Files are grouped by\nsubsystem; see regression-tests/00-conventions.md.  The interpreter is\nrebooted before each file.";
    _help["suites"] = "Usage: ]suites <suite> [<suite> ...]\nRun one or more test suites in sequence (each fully rebooted between files)\nand print one combined pass/fail verdict.  This is the batch runner Cherry's\n\"Run test suites\" dialog drives; it is equally usable headless.\nSuite tokens (run in the canonical order feature -> compliance -> regression\nregardless of order; duplicates collapse):\n  feature             the feature suite\n  regression          the regression suite\n  compliance-quick    compliance with the default 100k TCO soak\n  compliance          alias for compliance-quick\n  compliance-slow     calibrate this machine's heap-OOM (broken-TCO) threshold,\n                      then soak compliance above it (a GC stress run)\n  all-quick           feature + compliance-quick + regression\n  all-slow            feature + compliance-slow + regression\n  all                 alias for all-quick\nFor a specific TCO iteration count use ]compliance -I:<count> directly;\n]suites exposes only the quick/slow variants.";
+   _help["scheme-tests"] = "Usage: ]scheme-tests [<directory>]\nWith no argument, show the current scheme-tests root (and where it was set from)\nplus the derived suite directories.  With a directory, set the root for this\nsession, overriding the -T/--scheme-tests option and the SCHEME_TESTS_DIR\nenvironment variable.  No path is hardcoded; this is one of the three ways to\npoint the interpreter at the test suites.";
    _help["gc-stress"] = "Usage: ]gc-stress [on|off|status]\nToggle GC-stress mode.  When ON, the garbage collector's thresholds and\neffective nursery are slashed so minor collections fire constantly -- this\nexercises the moving GC and surfaces any missing-root bug on whatever you\nthen run (e.g. ]compliance or ]feature).  GC is invisible to Scheme semantics,\nso results are unchanged; runs just get much slower and far more thorough.\nThe setting persists (across reboots) until you toggle it off.\nWith no argument, prints the current state.";
 
    // The startup banner is interactive-REPL chrome.  -e/--evaluate builds the
@@ -1598,10 +1602,8 @@ TestResult Listener::_cmd_compliance(std::vector<std::string>& args)
    if (_logStream)
       throw ListenerCommandError("Please close the log before running compliance (]close).");
 
+   _require_scheme_tests();
    std::string compdir = _compliancedir;
-   if (compdir.empty())
-      throw ListenerCommandError(
-          "No compliance directory configured.  Set compliancedir at startup.");
    if (!fs::is_directory(compdir))
       throw ListenerCommandError("Compliance directory not found: " + compdir);
 
@@ -1698,10 +1700,8 @@ TestResult Listener::_cmd_regression(std::vector<std::string>& args)
    if (_logStream)
       throw ListenerCommandError("Please close the log before running regressions (]close).");
 
+   _require_scheme_tests();
    std::string regdir = _regressiondir;
-   if (regdir.empty())
-      throw ListenerCommandError(
-          "No regression directory configured.  Set regressiondir at startup.");
    if (!fs::is_directory(regdir))
       throw ListenerCommandError("Regression directory not found: " + regdir);
 
@@ -1776,6 +1776,7 @@ void Listener::_cmd_suites(std::vector<std::string>& args)
    {
    if (_logStream)
       throw ListenerCommandError("Please close the log before running suites (]close).");
+   _require_scheme_tests();
    if (args.empty())
       throw ListenerCommandError(
           "Usage: ]suites <suite> ...  (feature, regression, "
@@ -1993,6 +1994,78 @@ void Listener::_cmd_suites(std::vector<std::string>& args)
       }
    }
 
+// ── scheme-tests directory resolution ─────────────────────────────────────────
+
+void Listener::_set_scheme_tests_dir(const std::string& path, const std::string& source)
+   {
+   // Set (or clear, when path is empty) the scheme-tests root and derive the
+   // per-suite subdirectories.  source is a label shown by ]scheme-tests.
+   if (!path.empty())
+      {
+      fs::path base = fs::absolute(fs::path(path));
+      _scheme_tests_dir = base.string();
+      _testdir = (base / "log-tests" / "feature-tests").string();
+      _compliancedir = (base / "log-tests" / "R7RS-Compliance-Tests").string();
+      _regressiondir = (base / "log-tests" / "regression-tests").string();
+      _runsdir = (base / "runs").string();
+      _scheme_tests_source = source;
+      }
+   else
+      {
+      _scheme_tests_dir.clear();
+      _testdir.clear();
+      _compliancedir.clear();
+      _regressiondir.clear();
+      _runsdir.clear();
+      _scheme_tests_source = "unset";
+      }
+   }
+
+std::string Listener::_no_scheme_tests_message()
+   {
+   return "the scheme-tests directory is not set, so tests cannot run.\n"
+          "Point it at the repo's scheme-tests folder (the one containing\n"
+          "log-tests/) in any of these ways (a later one overrides an earlier):\n"
+          "  1. environment variable:  SCHEME_TESTS_DIR=<path>/scheme-tests\n"
+          "  2. command-line option:   cppscheme2 --scheme-tests <path>/scheme-tests\n"
+          "  3. listener command:      ]scheme-tests <path>/scheme-tests";
+   }
+
+void Listener::_require_scheme_tests()
+   {
+   if (_scheme_tests_dir.empty())
+      throw ListenerCommandError(_no_scheme_tests_message());
+   }
+
+void Listener::_cmd_scheme_tests(std::vector<std::string>& args)
+   {
+   if (!args.empty())
+      {
+      std::string path;
+      for (size_t i = 0; i < args.size(); ++i)
+         path += (i ? " " : "") + args[i];
+      _set_scheme_tests_dir(path, "listener command");
+      std::string note = fs::is_directory(_scheme_tests_dir)
+                             ? ""
+                             : "  (warning: directory does not exist)";
+      std::cout << "scheme-tests set to " << _scheme_tests_dir << note << '\n';
+      return;
+      }
+   if (_scheme_tests_dir.empty())
+      {
+      std::cout << "scheme-tests: not set\n"
+                << _no_scheme_tests_message() << '\n';
+      return;
+      }
+   std::string exists = fs::is_directory(_scheme_tests_dir) ? "" : "  (does not exist)";
+   std::cout << "scheme-tests: " << _scheme_tests_dir
+             << "  [" << _scheme_tests_source << "]" << exists << '\n';
+   std::cout << "  feature:    " << _testdir << '\n';
+   std::cout << "  compliance: " << _compliancedir << '\n';
+   std::cout << "  regression: " << _regressiondir << '\n';
+   std::cout << "  runs:       " << _runsdir << '\n';
+   }
+
 void Listener::_cmd_gc_stress(std::vector<std::string>& args)
    {
    if (args.size() > 1)
@@ -2057,8 +2130,9 @@ TestResult Listener::_cmd_feature(std::vector<std::string>& args)
       }
    else
       {
+      _require_scheme_tests();
       if (!fs::is_directory(_testdir))
-         throw ListenerCommandError("No test directory: " + _testdir);
+         throw ListenerCommandError("feature test directory not found: " + _testdir);
       testDir = fs::absolute(fs::path(_testdir)).string();
       filenames = retrieveFileList(_testdir);
       if (filenames.empty())

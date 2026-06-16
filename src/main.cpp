@@ -2,6 +2,7 @@
 // Direct port of pyscheme/__main__.py.
 #include "Interpreter.h"
 #include "Listener.h"
+#include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <string>
@@ -31,7 +32,8 @@ static void _sigbreak_handler(int)
 static bool parse_args(int argc, char* argv[],
                        std::vector<std::string>& library_paths,
                        std::string& target, bool& have_target,
-                       std::vector<std::string>& eval_exprs, bool& have_eval)
+                       std::vector<std::string>& eval_exprs, bool& have_eval,
+                       std::string& scheme_tests, bool& have_scheme_tests)
    {
 #ifdef _WIN32
    const char sep = ';';
@@ -106,6 +108,26 @@ static bool parse_args(int argc, char* argv[],
          eval_exprs.push_back(a.substr(11));
          have_eval = true;
          }
+      else if (a == "-T" || a == "--scheme-tests")
+         {
+         if (i + 1 >= argc)
+            {
+            std::cerr << "cppscheme2: option " << a << " requires an argument\n";
+            return false;
+            }
+         scheme_tests = argv[++i];
+         have_scheme_tests = true;
+         }
+      else if (a.rfind("-T=", 0) == 0)
+         {
+         scheme_tests = a.substr(3);
+         have_scheme_tests = true;
+         }
+      else if (a.rfind("--scheme-tests=", 0) == 0)
+         {
+         scheme_tests = a.substr(15);
+         have_scheme_tests = true;
+         }
       else if (a == "-" || a.empty() || a[0] != '-')
          {
          if (have_target)
@@ -141,7 +163,10 @@ int main(int argc, char* argv[])
    bool have_target = false;
    std::vector<std::string> eval_exprs;
    bool have_eval = false;
-   if (!parse_args(argc, argv, library_paths, target, have_target, eval_exprs, have_eval))
+   std::string scheme_tests_cli;
+   bool have_scheme_tests = false;
+   if (!parse_args(argc, argv, library_paths, target, have_target, eval_exprs,
+                   have_eval, scheme_tests_cli, have_scheme_tests))
       {
       std::cerr << "Usage: cppscheme2 [-L <dir" << char(
 #ifdef _WIN32
@@ -149,9 +174,26 @@ int main(int argc, char* argv[])
 #else
                        ':'
 #endif
-                       ) << "...>] [-I <dir>]... [-e <expr>]... "
-                   "[<directory> | <scheme-source-file>]\n";
+                       ) << "...>] [-I <dir>]... [-T <scheme-tests-dir>] "
+                   "[-e <expr>]... [<directory> | <scheme-source-file>]\n";
       return 2;
+      }
+
+   // Resolve the scheme-tests root: the -T/--scheme-tests option overrides the
+   // SCHEME_TESTS_DIR environment variable; the ]scheme-tests listener command
+   // can override both at runtime.  Nothing is hardcoded -- if none is given the
+   // test commands explain how to set it.
+   std::string scheme_tests_dir;
+   std::string scheme_tests_source = "unset";
+   if (have_scheme_tests)
+      {
+      scheme_tests_dir = scheme_tests_cli;
+      scheme_tests_source = "--scheme-tests option";
+      }
+   else if (const char* env = std::getenv("SCHEME_TESTS_DIR"); env && env[0])
+      {
+      scheme_tests_dir = env;
+      scheme_tests_source = "SCHEME_TESTS_DIR env";
       }
 
    // File mode: evaluate file, then hard-exit to bypass DLL static destructors.
@@ -186,46 +228,6 @@ int main(int argc, char* argv[])
 
    Interpreter interp(library_paths);
 
-   // Derive scheme-tests/ dir by walking up from the exe until we find a directory
-   // that contains scheme-tests/ as a subdirectory.  This works for any build
-   // configuration (Release, Debug, x64/Debug, etc.) without hardcoding depth.
-   // Uses GetModuleFileNameW (Windows) so CWD and argv[0] ambiguity don't matter.
-   std::string testdir, compliancedir, regressiondir, runsdir;
-      {
-      std::error_code ec;
-#ifdef _WIN32
-      wchar_t exeBuf[260] = {};
-      GetModuleFileNameW(nullptr, exeBuf, 260);
-      auto dir = std::filesystem::path(exeBuf).parent_path();
-#else
-      auto dir = std::filesystem::absolute(argv[0], ec).parent_path();
-#endif
-      std::filesystem::path scheme_tests;
-      for (int i = 0; i < 8; ++i)
-         {
-         auto candidate = dir / "scheme-tests";
-         if (std::filesystem::is_directory(candidate))
-            {
-            scheme_tests = candidate;
-            break;
-            }
-         auto parent = dir.parent_path();
-         if (parent == dir)
-            break; // reached filesystem root
-         dir = parent;
-         }
-      if (!scheme_tests.empty())
-         {
-         // The .log REPL-transcript suites live under scheme-tests/log-tests/
-         // (grouped there to distinguish them from the application-tests suites).
-         auto log_tests = scheme_tests / "log-tests";
-         testdir = (log_tests / "feature-tests").string();
-         compliancedir = (log_tests / "R7RS-Compliance-Tests").string();
-         regressiondir = (log_tests / "regression-tests").string();
-         runsdir = (scheme_tests / "runs").string();
-         }
-      }
-
    // -e/--evaluate: evaluate each expression as a REPL transcript, then exit.
    // The banner is suppressed so the first line is the '>>> ' echo.  Hard-exit
    // (like file mode) to skip DLL static destructors while GC objects are live.
@@ -234,9 +236,9 @@ int main(int argc, char* argv[])
       int status = 0;
          {
          Listener listener(
-             &interp, testdir, "cppscheme2", "0.6.7", "Ron Provost/Longo",
-             "https://github.com/rprovost11/cppscheme2", compliancedir,
-             regressiondir, runsdir, /*show_banner=*/false);
+             &interp, "cppscheme2", "0.6.7", "Ron Provost/Longo",
+             "https://github.com/rprovost11/cppscheme2", scheme_tests_dir,
+             scheme_tests_source, /*show_banner=*/false);
          status = listener.eval_and_exit(eval_exprs);
          }
       std::cout.flush();
@@ -251,9 +253,8 @@ int main(int argc, char* argv[])
       {
       if (std::filesystem::is_directory(target))
          {
-         // Directory argument overrides testdir for one-off runs.
+         // Directory argument: run the REPL rooted there.
          std::filesystem::current_path(target);
-         testdir = std::filesystem::current_path().string();
          // fall through to REPL
          }
       else
@@ -265,14 +266,12 @@ int main(int argc, char* argv[])
 
    Listener listener(
        &interp,
-       testdir,
        "cppscheme2",
        "0.6.7",
        "Ron Provost/Longo",
        "https://github.com/rprovost11/cppscheme2",
-       compliancedir,
-       regressiondir,
-       runsdir);
+       scheme_tests_dir,
+       scheme_tests_source);
    listener.readEvalPrintLoop();
 
    return 0;
