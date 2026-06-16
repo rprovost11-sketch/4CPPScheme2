@@ -609,13 +609,14 @@ struct ExactComplex
    };
 
 // Exact rational in lowest terms.  Invariants: den >= 2, den > 0, gcd(|num|,den)==1.
+// Arbitrary precision: num/den are mini-gmp mpz; the GC calls mpz_clear on both
+// before deleting (like SchemeBignum).
 struct SchemeRational
    {
    GcHeader header{GcType::Rational};
-   int64_t num;
-   int64_t den;
+   __mpz_struct num; // initialized via mpz_init in gc_alloc_rational
+   __mpz_struct den; // > 0
 
-   SchemeRational(int64_t n, int64_t d) : num(n), den(d) {}
    SchemeRational(const SchemeRational&) = delete;
    SchemeRational& operator=(const SchemeRational&) = delete;
    };
@@ -771,6 +772,10 @@ CPPSCHEME2_API Value make_boolean(bool b, SourceInfo* src = nullptr);
 CPPSCHEME2_API Value make_integer(int64_t n, SourceInfo* src = nullptr);
 CPPSCHEME2_API Value make_real(double x, SourceInfo* src = nullptr);
 CPPSCHEME2_API Value make_rational(int64_t num, int64_t den, SourceInfo* src = nullptr);
+// Arbitrary-precision rational from an mpz pair; normalizes (sign, gcd) and
+// returns an exact integer (fixnum/bignum) when the reduced denominator is 1.
+CPPSCHEME2_API Value make_rational_mpz(const __mpz_struct* num, const __mpz_struct* den,
+                                       SourceInfo* src = nullptr);
 CPPSCHEME2_API Value make_complex(double re, double im, SourceInfo* src = nullptr);
 CPPSCHEME2_API Value make_exact_complex(Value re, Value im, SourceInfo* src = nullptr);
 CPPSCHEME2_API Value make_character(char32_t c, SourceInfo* src = nullptr);
@@ -888,8 +893,8 @@ CPPSCHEME2_API bool as_boolean(const Value& val);
 CPPSCHEME2_API int64_t as_integer(const Value& val);
 CPPSCHEME2_API SourceInfo* integer_src(const Value& val);
 CPPSCHEME2_API double as_real(const Value& val);
-CPPSCHEME2_API int64_t as_rational_num(const Value& val);
-CPPSCHEME2_API int64_t as_rational_den(const Value& val);
+CPPSCHEME2_API const __mpz_struct* as_rational_num(const Value& val);
+CPPSCHEME2_API const __mpz_struct* as_rational_den(const Value& val);
 CPPSCHEME2_API double as_complex_real(const Value& val);
 CPPSCHEME2_API double as_complex_imag(const Value& val);
 CPPSCHEME2_API Value as_exact_complex_real(const Value& val);
@@ -898,6 +903,7 @@ CPPSCHEME2_API char32_t as_character(const Value& val);
 CPPSCHEME2_API SourceInfo* character_src(const Value& val);
 CPPSCHEME2_API const __mpz_struct* as_bignum(const Value& val);
 CPPSCHEME2_API std::string bignum_to_string(const Value& val, int base = 10);
+CPPSCHEME2_API std::string mpz_to_string(const __mpz_struct* z, int base = 10);
 CPPSCHEME2_API const std::string& as_string(const Value& val);
 CPPSCHEME2_API std::string& as_string_mut(Value& val);
 CPPSCHEME2_API std::string as_symbol(const Value& val); // returns name string

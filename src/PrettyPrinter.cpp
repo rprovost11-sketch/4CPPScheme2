@@ -343,8 +343,8 @@ std::string scheme_pretty_print(const Value& val)
    if (is_real(val))
       return format_float(as_real(val));
    if (is_rational(val))
-      return std::to_string(as_rational_num(val)) + '/' +
-             std::to_string(as_rational_den(val));
+      return mpz_to_string(as_rational_num(val)) + '/' +
+             mpz_to_string(as_rational_den(val));
    if (is_complex(val))
       {
       double re = as_complex_real(val);
@@ -366,8 +366,14 @@ std::string scheme_pretty_print(const Value& val)
       Value im_v = as_exact_complex_imag(val);
       std::string re_s = scheme_pretty_print(re_v);
       std::string im_s = scheme_pretty_print(im_v);
-      int64_t im_py = is_integer(im_v) ? as_integer(im_v) : as_rational_num(im_v);
-      if (im_py >= 0)
+      bool im_neg;
+      if (is_integer(im_v))
+         im_neg = as_integer(im_v) < 0;
+      else if (is_bignum(im_v))
+         im_neg = mpz_sgn(as_bignum(im_v)) < 0;
+      else
+         im_neg = mpz_sgn(as_rational_num(im_v)) < 0;
+      if (!im_neg)
          return re_s + '+' + im_s + 'i';
       return re_s + im_s + 'i';
       }

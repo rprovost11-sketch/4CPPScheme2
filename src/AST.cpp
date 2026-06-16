@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <cinttypes>
 #include <cstdio>
+#include <cerrno>
 
 // ── Symbol intern pool ────────────────────────────────────────────────────────
 // Port of AST.py _SYMBOL_POOL / _SYMBOL_NAMES.
@@ -206,21 +207,74 @@ static int64_t scheme_gcd(int64_t a, int64_t b)
    return a;
    }
 
+// int64 -> mpz (MSVC `long` is 32-bit, so route through a decimal string).
+static void _ast_set_i64(__mpz_struct* z, int64_t n)
+   {
+   uint64_t mag = (n < 0) ? (~static_cast<uint64_t>(n) + 1u) : static_cast<uint64_t>(n);
+   char buf[24];
+   std::snprintf(buf, sizeof(buf), "%s%" PRIu64, (n < 0 ? "-" : ""), mag);
+   mpz_set_str(z, buf, 10);
+   }
+
+// mpz -> exact integer Value: a fixnum when it fits int64, else a bignum copy.
+static Value _ast_mpz_to_int(const __mpz_struct* z, SourceInfo* src)
+   {
+   if (mpz_sizeinbase(z, 2) <= 63)
+      {
+      char buf[24];
+      mpz_get_str(buf, 10, z);
+      errno = 0;
+      int64_t n = std::strtoll(buf, nullptr, 10);
+      if (errno == 0)
+         return make_integer(n, src);
+      }
+   return make_bignum_copy(z, src);
+   }
+
 Value make_rational(int64_t num, int64_t den, SourceInfo* src)
    {
-   if (den < 0)
+   __mpz_struct n, d;
+   mpz_init(&n);
+   mpz_init(&d);
+   _ast_set_i64(&n, num);
+   _ast_set_i64(&d, den);
+   Value v = make_rational_mpz(&n, &d, src);
+   mpz_clear(&n);
+   mpz_clear(&d);
+   return v;
+   }
+
+Value make_rational_mpz(const __mpz_struct* num_in, const __mpz_struct* den_in, SourceInfo* src)
+   {
+   __mpz_struct n, d, g;
+   mpz_init_set(&n, num_in);
+   mpz_init_set(&d, den_in);
+   if (mpz_sgn(&d) < 0)
       {
-      num = -num;
-      den = -den;
+      mpz_neg(&n, &n);
+      mpz_neg(&d, &d);
       }
-   int64_t n_abs = (num < 0) ? -num : num;
-   int64_t g = scheme_gcd(n_abs, den);
-   num /= g;
-   den /= g;
-   if (den == 1)
-      return make_integer(num, src);
-   SchemeRational* r = gc_alloc_rational(num, den);
-   return Value{Value::Repr(r)};
+   mpz_init(&g);
+   mpz_gcd(&g, &n, &d); // gcd(0,d)=d, so 0/d reduces to 0/1
+   if (mpz_sgn(&g) != 0 && mpz_cmp_si(&g, 1) != 0)
+      {
+      mpz_divexact(&n, &n, &g);
+      mpz_divexact(&d, &d, &g);
+      }
+   mpz_clear(&g);
+   Value result;
+   if (mpz_cmp_si(&d, 1) == 0)
+      result = _ast_mpz_to_int(&n, src);
+   else
+      {
+      SchemeRational* r = gc_alloc_rational();
+      mpz_set(&r->num, &n);
+      mpz_set(&r->den, &d);
+      result = Value{Value::Repr(r)};
+      }
+   mpz_clear(&n);
+   mpz_clear(&d);
+   return result;
    }
 
 Value make_complex(double re, double im, SourceInfo* /*src*/)
@@ -569,13 +623,17 @@ const __mpz_struct* as_bignum(const Value& val)
    return &std::get<SchemeBignum*>(val.repr)->value;
    }
 
-std::string bignum_to_string(const Value& val, int base)
+std::string mpz_to_string(const __mpz_struct* z, int base)
    {
-   const __mpz_struct* z = as_bignum(val);
    char* s = mpz_get_str(nullptr, base, z);
    std::string result(s);
    free(s);
    return result;
+   }
+
+std::string bignum_to_string(const Value& val, int base)
+   {
+   return mpz_to_string(as_bignum(val), base);
    }
 
 // ── Predicates ────────────────────────────────────────────────────────────────
@@ -759,14 +817,14 @@ double as_real(const Value& val)
    return std::get<SchemeReal*>(val.repr)->value;
    }
 
-int64_t as_rational_num(const Value& val)
+const __mpz_struct* as_rational_num(const Value& val)
    {
-   return std::get<SchemeRational*>(val.repr)->num;
+   return &std::get<SchemeRational*>(val.repr)->num;
    }
 
-int64_t as_rational_den(const Value& val)
+const __mpz_struct* as_rational_den(const Value& val)
    {
-   return std::get<SchemeRational*>(val.repr)->den;
+   return &std::get<SchemeRational*>(val.repr)->den;
    }
 
 double as_complex_real(const Value& val)
@@ -1227,8 +1285,8 @@ bool eqv_atom(const Value& a, const Value& b)
    if (is_real(a) && is_real(b))
       return as_real(a) == as_real(b);
    if (is_rational(a) && is_rational(b))
-      return as_rational_num(a) == as_rational_num(b) &&
-             as_rational_den(a) == as_rational_den(b);
+      return mpz_cmp(as_rational_num(a), as_rational_num(b)) == 0 &&
+             mpz_cmp(as_rational_den(a), as_rational_den(b)) == 0;
    if (is_complex(a) && is_complex(b))
       return as_complex_real(a) == as_complex_real(b) &&
              as_complex_imag(a) == as_complex_imag(b);

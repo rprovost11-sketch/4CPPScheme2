@@ -34,7 +34,7 @@ CPPSCHEME2_API Port* gc_alloc_port(bool is_input, bool is_text,
                                    const std::string& name);
 CPPSCHEME2_API SchemeComplex* gc_alloc_complex(double real, double imag);
 CPPSCHEME2_API ExactComplex* gc_alloc_exact_complex(Value re, Value im);
-CPPSCHEME2_API SchemeRational* gc_alloc_rational(int64_t num, int64_t den);
+CPPSCHEME2_API SchemeRational* gc_alloc_rational();
 CPPSCHEME2_API RecordAccessor* gc_alloc_record_accessor(RecordType* rt, int idx,
                                                         std::string name);
 CPPSCHEME2_API RecordMutator* gc_alloc_record_mutator(RecordType* rt, int idx,

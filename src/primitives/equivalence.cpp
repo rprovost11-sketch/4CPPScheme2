@@ -92,7 +92,8 @@ static bool _eq_leaf(const Value& a, const Value& b, _Seen& seen,
    if (is_real(a) && is_real(b))
       return as_real(a) == as_real(b);
    if (is_rational(a) && is_rational(b))
-      return as_rational_num(a) == as_rational_num(b) && as_rational_den(a) == as_rational_den(b);
+      return mpz_cmp(as_rational_num(a), as_rational_num(b)) == 0 &&
+             mpz_cmp(as_rational_den(a), as_rational_den(b)) == 0;
    if (is_complex(a) && is_complex(b))
       return as_complex_real(a) == as_complex_real(b) && as_complex_imag(a) == as_complex_imag(b);
    if (is_exact_complex(a) && is_exact_complex(b))

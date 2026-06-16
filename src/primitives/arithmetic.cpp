@@ -141,7 +141,7 @@ static Value rat_to_value(const Rat& r)
    {
    if (r.is_integer())
       return _mpz_to_value(r.num());
-   return make_rational(r.numerator(), r.denominator());
+   return make_rational_mpz(r.num(), r.den());
    }
 
 // ── NumAny operations ────────────────────────────────────────────────────────
@@ -611,7 +611,15 @@ static Value _float_to_exact(double f, const char* name, const Value* app)
    if (!std::isfinite(f))
       throw SchemeTypeError(std::string(name) + ": no exact representation for non-finite real", _src(app));
    if (f == std::trunc(f))
-      return make_integer(static_cast<int64_t>(f));
+      {
+      // integral value -> exact integer (a bignum when it exceeds int64)
+      __mpz_struct z;
+      mpz_init(&z);
+      mpz_set_d(&z, f); // exact for an integral double
+      Value r = _mpz_to_value(&z);
+      mpz_clear(&z);
+      return r;
+      }
    Rat frac = Rat::from_float(f);
    return rat_to_value(frac);
    }
@@ -1418,24 +1426,19 @@ static Value _prim_sqrt(Context*, Environment*, std::vector<Value>& args, const 
       }
    if (is_rational(v))
       {
-      int64_t num = as_rational_num(v), den = as_rational_den(v);
-      if (num >= 0)
+      const __mpz_struct* num = as_rational_num(v);
+      const __mpz_struct* den = as_rational_den(v);
+      if (mpz_sgn(num) >= 0 && mpz_perfect_square_p(num) && mpz_perfect_square_p(den))
          {
-         int64_t rn = (int64_t)std::sqrt((double)num);
-         int64_t rd = (int64_t)std::sqrt((double)den);
-         while (rn > 0 && rn * rn > num)
-            --rn;
-         while ((rn + 1) * (rn + 1) <= num)
-            ++rn;
-         while (rd > 0 && rd * rd > den)
-            --rd;
-         while ((rd + 1) * (rd + 1) <= den)
-            ++rd;
-         if (rn * rn == num && rd * rd == den)
-            {
-            Rat r(rn, rd);
-            return _wrap_numany(NumAny{r});
-            }
+         __mpz_struct rn, rd;
+         mpz_init(&rn);
+         mpz_init(&rd);
+         mpz_sqrt(&rn, num);
+         mpz_sqrt(&rd, den);
+         Value result = make_rational_mpz(&rn, &rd);
+         mpz_clear(&rn);
+         mpz_clear(&rd);
+         return result;
          }
       }
    // Float path.
@@ -1443,7 +1446,7 @@ static Value _prim_sqrt(Context*, Environment*, std::vector<Value>& args, const 
    if (is_integer(v))
       fv = (double)as_integer(v);
    else if (is_rational(v))
-      fv = as_rational_num(v) / (double)as_rational_den(v);
+      fv = mpz_get_d(as_rational_num(v)) / mpz_get_d(as_rational_den(v));
    else if (is_real(v))
       fv = as_real(v);
    else
@@ -1585,7 +1588,7 @@ static Value _prim_inexact(Context*, Environment*, std::vector<Value>& args, con
    if (is_bignum(v))
       return make_real(mpz_get_d(as_bignum(v)));
    if (is_rational(v))
-      return make_real(as_rational_num(v) / (double)as_rational_den(v));
+      return make_real(mpz_get_d(as_rational_num(v)) / mpz_get_d(as_rational_den(v)));
    if (is_exact_complex(v))
       {
       double re = static_cast<double>(_as_exact_component(as_exact_complex_real(v)));
@@ -1606,7 +1609,7 @@ static Value _prim_numerator(Context*, Environment*, std::vector<Value>& args, c
    if (is_integer(v) || is_bignum(v))
       return v;
    if (is_rational(v))
-      return make_integer(as_rational_num(v));
+      return _mpz_to_value(as_rational_num(v));
    if (is_real(v))
       {
       double f = as_real(v);
@@ -1625,7 +1628,7 @@ static Value _prim_denominator(Context*, Environment*, std::vector<Value>& args,
    if (is_integer(v) || is_bignum(v))
       return make_integer(1);
    if (is_rational(v))
-      return make_integer(as_rational_den(v));
+      return _mpz_to_value(as_rational_den(v));
    if (is_real(v))
       {
       double f = as_real(v);
@@ -1673,7 +1676,7 @@ static Value _prim_number_to_string(Context*, Environment*, std::vector<Value>& 
       {
       if (radix != 10)
          throw SchemeTypeError("number->string: only radix 10 supported for rational numbers", _src(app));
-      return make_string(std::to_string(as_rational_num(v)) + "/" + std::to_string(as_rational_den(v)));
+      return make_string(mpz_to_string(as_rational_num(v)) + "/" + mpz_to_string(as_rational_den(v)));
       }
    if (is_complex(v))
       {
@@ -1691,9 +1694,9 @@ static Value _prim_number_to_string(Context*, Environment*, std::vector<Value>& 
          throw SchemeTypeError("number->string: only radix 10 supported for complex numbers", _src(app));
       Value re_v = as_exact_complex_real(v), im_v = as_exact_complex_imag(v);
       std::string re_s = is_integer(re_v) ? std::to_string(as_integer(re_v))
-                                          : std::to_string(as_rational_num(re_v)) + "/" + std::to_string(as_rational_den(re_v));
+                                          : mpz_to_string(as_rational_num(re_v)) + "/" + mpz_to_string(as_rational_den(re_v));
       std::string im_s = is_integer(im_v) ? std::to_string(as_integer(im_v))
-                                          : std::to_string(as_rational_num(im_v)) + "/" + std::to_string(as_rational_den(im_v));
+                                          : mpz_to_string(as_rational_num(im_v)) + "/" + mpz_to_string(as_rational_den(im_v));
       Rat im_r = _as_exact_component(im_v);
       if (im_r >= int64_t(0))
          return make_string(re_s + "+" + im_s + "i");
@@ -2084,7 +2087,7 @@ static Value _prim_make_rectangular(Context*, Environment*, std::vector<Value>& 
    if (is_integer(re))
       re_f = (double)as_integer(re);
    else if (is_rational(re))
-      re_f = as_rational_num(re) / (double)as_rational_den(re);
+      re_f = mpz_get_d(as_rational_num(re)) / mpz_get_d(as_rational_den(re));
    else if (is_real(re))
       re_f = as_real(re);
    else
@@ -2092,7 +2095,7 @@ static Value _prim_make_rectangular(Context*, Environment*, std::vector<Value>& 
    if (is_integer(im))
       im_f = (double)as_integer(im);
    else if (is_rational(im))
-      im_f = as_rational_num(im) / (double)as_rational_den(im);
+      im_f = mpz_get_d(as_rational_num(im)) / mpz_get_d(as_rational_den(im));
    else if (is_real(im))
       im_f = as_real(im);
    else

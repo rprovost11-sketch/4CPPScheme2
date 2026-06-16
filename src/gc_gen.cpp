@@ -525,7 +525,7 @@ static size_t g_gc_leak_counts[32] = {0};
    X(Continuation, Continuation) X(SyntaxTransformer, SyntaxTransformer)        \
    X(Vector, SchemeVector) X(Bytevector, SchemeBytevector) X(Port, Port)        \
    X(Complex, SchemeComplex) X(ExactComplex, ExactComplex)                      \
-   X(Rational, SchemeRational) X(RecordAccessor, RecordAccessor)                \
+   X(RecordAccessor, RecordAccessor)                                            \
    X(RecordMutator, RecordMutator) X(Environment, Environment) X(EnvBox, EnvBox) \
    X(AliasCell, AliasCell)
 
@@ -553,6 +553,14 @@ static void free_object(GcHeader* header)
       auto* b = reinterpret_cast<SchemeBignum*>(header);
       mpz_clear(&b->value);
       delete b;
+      break;
+      }
+   case GcType::Rational:
+      {
+      auto* r = reinterpret_cast<SchemeRational*>(header);
+      mpz_clear(&r->num);
+      mpz_clear(&r->den);
+      delete r;
       break;
       }
    case GcType::Integer:
@@ -1034,9 +1042,11 @@ ExactComplex* gc_alloc_exact_complex(Value re, Value im)
    return z;
    }
 
-SchemeRational* gc_alloc_rational(int64_t num, int64_t den)
+SchemeRational* gc_alloc_rational()
    {
-   auto* r = new SchemeRational{num, den};
+   auto* r = new SchemeRational{};
+   mpz_init(&r->num);
+   mpz_init(&r->den);
    register_young(&r->header);
    return r;
    }

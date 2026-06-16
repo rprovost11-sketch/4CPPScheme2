@@ -205,8 +205,8 @@ static std::string render(const Value& sexpr)
    if (is_boolean(sexpr))
       return as_boolean(sexpr) ? "#t" : "#f";
    if (is_rational(sexpr))
-      return std::to_string(as_rational_num(sexpr)) + "/" +
-             std::to_string(as_rational_den(sexpr));
+      return mpz_to_string(as_rational_num(sexpr)) + "/" +
+             mpz_to_string(as_rational_den(sexpr));
    return "<value>";
    }
 

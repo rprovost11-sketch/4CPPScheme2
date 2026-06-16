@@ -72,8 +72,8 @@ static void _exact_to_ratio(const Value& v, __mpz_struct* num, __mpz_struct* den
       }
    else // rational: int64 numerator/denominator, denominator normalized positive
       {
-      _cmp_set_i64(num, as_rational_num(v));
-      _cmp_set_i64(den, as_rational_den(v));
+      mpz_set(num, as_rational_num(v));
+      mpz_set(den, as_rational_den(v));
       }
    }
 

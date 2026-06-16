@@ -141,8 +141,8 @@ static void _describe_object(const Value& val, Context* ctx)
    if (is_rational(val))
       {
       wl(scheme_pretty_print(val) + " is a rational");
-      wl("  Numerator:   " + std::to_string(as_rational_num(val)));
-      wl("  Denominator: " + std::to_string(as_rational_den(val)));
+      wl("  Numerator:   " + mpz_to_string(as_rational_num(val)));
+      wl("  Denominator: " + mpz_to_string(as_rational_den(val)));
       return;
       }
    if (is_complex(val) || is_exact_complex(val))
