@@ -7,6 +7,8 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <cstdlib>
+#include <cstdio>
 
 // ── Module-private globals ─────────────────────────────────────────────────
 // Port of syntax_rules.py _SYNTACTIC_KEYWORDS, _GENSYM_COUNTER, _GENSYM_PREFIX.
@@ -694,6 +696,17 @@ static Value instantiate_list(Value tmpl_list, const SyntaxMatch& match,
 // the results to `output`.  num_ell == 1 is the ordinary case (one value per
 // match); num_ell >= 2 flattens that many nested levels, e.g. (x ... ...)
 // collapses ((1 2) (3) (4 5 6)) to 1 2 3 4 5 6 (R7RS 4.3.2).
+// Expander invariant auditing (#4a): off unless CPPSCHEME2_EXPANDER_AUDIT is
+// set.  Reports hygiene/expansion invariant violations to stderr WITHOUT
+// changing expansion behavior, so a full test run becomes a white-box sweep
+// complementing the black-box cross-port harness.  Mirrors pyScheme's
+// PYSCHEME_EXPANDER_AUDIT; see scheme-tests/cross-port-tests/README.md.
+static bool expander_audit()
+   {
+   static bool enabled = std::getenv("CPPSCHEME2_EXPANDER_AUDIT") != nullptr;
+   return enabled;
+   }
+
 static void expand_ellipsis_run(const Value& elem, const SyntaxMatch& match,
                                 int num_ell, uint32_t ellipsis_id, SourceInfo* use_src,
                                 const std::unordered_map<uint32_t, uint32_t>& free_id_map,
@@ -704,6 +717,25 @@ static void expand_ellipsis_run(const Value& elem, const SyntaxMatch& match,
    if (ell_syms.empty())
       return;
    int count = (int)match.ellipsis.at(ell_syms[0]).size();
+   if (expander_audit())
+      {
+      // Invariant: every ellipsis var combined in one run has the SAME match
+      // count (the loop below indexes them all by k).  A violation is exactly
+      // the F1 bug -- a shorter later var gets indexed out of bounds.
+      for (uint32_t sv : ell_syms)
+         {
+         int n = (int)match.ellipsis.at(sv).size();
+         if (n != count)
+            std::fprintf(stderr,
+               "[EXPANDER-AUDIT] ellipsis-length-mismatch: run keyed on '%s' (len %d) but '%s' has len %d\n",
+               symbol_name(ell_syms[0]).c_str(), count, symbol_name(sv).c_str(), n);
+         int d = match.ell_depth.count(sv) ? match.ell_depth.at(sv) : 0;
+         if (d < 1)
+            std::fprintf(stderr,
+               "[EXPANDER-AUDIT] ellipsis-depth: '%s' collected as ellipsis ref but has depth %d\n",
+               symbol_name(sv).c_str(), d);
+         }
+      }
    for (int k = 0; k < count; ++k)
       {
       SyntaxMatch sub;
