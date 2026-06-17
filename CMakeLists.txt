@@ -131,6 +131,17 @@ else()
     endif()
 endif()
 
+# ── Example native plugin (demonstrates the plugin ABI; loaded via import) ────
+add_library(example_plugin SHARED examples/example_plugin.cpp)
+target_link_libraries(example_plugin PRIVATE cppscheme2_core)
+set_target_properties(example_plugin PROPERTIES PREFIX "")
+if(MSVC)
+    target_compile_options(example_plugin PRIVATE /W4 /utf-8 /wd4100 /wd4458 /wd4251 /wd4275)
+    target_compile_definitions(example_plugin PRIVATE _CRT_SECURE_NO_WARNINGS)
+else()
+    target_compile_options(example_plugin PRIVATE -Wall -Wextra -Wno-unused-parameter)
+endif()
+
 # Place DLL next to the executable.
 set_target_properties(cppscheme2_core PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"

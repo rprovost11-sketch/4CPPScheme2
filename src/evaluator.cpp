@@ -11,6 +11,7 @@
 #include "PrettyPrinter.h"
 #include "Tracer.h"
 #include "library.h"
+#include "plugin_loader.h"
 #include "gc.h"
 #include <algorithm>
 #include <chrono>
@@ -2578,6 +2579,20 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                      }
                   const std::string& base = dirs[el_di];
                   std::string prefix = base.empty() ? bpath : (base + "/" + bpath);
+                  // Native plugin: if a colocated <prefix>.dll exists, load it
+                  // (registering its primitives into the global env) BEFORE the
+                  // .sld -- mirrors pyScheme's .py-then-.sld ordering.  Runs
+                  // inline (synchronous), so it precedes the .sld's evaluation;
+                  // the .sld registers the library, so this dir isn't revisited.
+                  std::string dll = prefix + ".dll";
+                     {
+                     std::ifstream dll_file(dll, std::ios::binary);
+                     if (dll_file.is_open())
+                        {
+                        dll_file.close();
+                        load_plugin(dll, get_global_env());
+                        }
+                     }
                   std::string sld = prefix + ".sld";
                   frame.depth = (int)el_di + 1; // advance; re-check after this dir
                   K.push_back(std::move(frame));
