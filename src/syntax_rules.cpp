@@ -735,6 +735,15 @@ static void expand_ellipsis_run(const Value& elem, const SyntaxMatch& match,
                symbol_name(sv).c_str(), d);
          }
       }
+   // R7RS 4.3.2: pattern variables combined under a single ellipsis must have
+   // matched the same number of times.  Unequal counts are "an error" -- raise
+   // a clean syntax error rather than indexing the shorter match vector out of
+   // bounds (was F1: an OOB read fabricating #<unknown> / segfaulting).
+   for (uint32_t sv : ell_syms)
+      if ((int)match.ellipsis.at(sv).size() != count)
+         throw SchemeSyntaxError(
+            "syntax-rules: ellipsis pattern variables matched unequal numbers of times",
+            use_src ? new SourceInfo(*use_src) : nullptr);
    for (int k = 0; k < count; ++k)
       {
       SyntaxMatch sub;
