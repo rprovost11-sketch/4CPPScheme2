@@ -700,12 +700,11 @@ static Value instantiate_list(Value tmpl_list, const SyntaxMatch& match,
 // set.  Reports hygiene/expansion invariant violations to stderr WITHOUT
 // changing expansion behavior, so a full test run becomes a white-box sweep
 // complementing the black-box cross-port harness.  Mirrors pyScheme's
-// PYSCHEME_EXPANDER_AUDIT; see scheme-tests/cross-port-tests/README.md.
-static bool expander_audit()
-   {
-   static bool enabled = std::getenv("CPPSCHEME2_EXPANDER_AUDIT") != nullptr;
-   return enabled;
-   }
+// PYSCHEME_EXPANDER_AUDIT.  Resolved once at startup so the per-expansion check
+// is a plain bool load (no call, no magic-static guard); see
+// scheme-tests/cross-port-tests/README.md.
+static const bool s_expander_audit =
+   std::getenv("CPPSCHEME2_EXPANDER_AUDIT") != nullptr;
 
 static void expand_ellipsis_run(const Value& elem, const SyntaxMatch& match,
                                 int num_ell, uint32_t ellipsis_id, SourceInfo* use_src,
@@ -717,7 +716,7 @@ static void expand_ellipsis_run(const Value& elem, const SyntaxMatch& match,
    if (ell_syms.empty())
       return;
    int count = (int)match.ellipsis.at(ell_syms[0]).size();
-   if (expander_audit())
+   if (s_expander_audit)
       {
       // Invariant: every ellipsis var combined in one run has the SAME match
       // count (the loop below indexes them all by k).  A violation is exactly
