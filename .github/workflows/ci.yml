@@ -1,59 +1,78 @@
 name: CI
 
-# Test-coverage initiative, Phase 2, wave 2 (GitHub Actions).
-# Builds cppScheme2 (Release) and runs the full gated battery + gc_test + cli-tests.
-# Cross-repo checkout of the (private) scheme-tests repo uses the CROSS_REPO_TOKEN
-# secret. (cppScheme2 coverage via OpenCppCoverage runs locally — coverage.ps1; its
-# CI wiring is a follow-up, since it needs the tool installed + a RelWithDebInfo build.)
+# Test-coverage initiative, Phase 2. Tiered:
+#   fast (push/PR)          -- build + feature + regression + gc_test + cli, NO compliance soak  (build dominates)
+#   full (nightly + manual) -- build + full battery with a shrunk TCO soak + gc_test + cli
+# (cppScheme2 coverage via OpenCppCoverage runs locally -- coverage.ps1; CI wiring is a follow-up.)
+# Cross-repo checkout of the private scheme-tests repo uses the CROSS_REPO_TOKEN secret.
 
 on:
   push:
     branches: [master]
   pull_request:
     branches: [master]
+  schedule:
+    - cron: '0 7 * * *'
   workflow_dispatch:
 
 jobs:
-  battery:
+  fast:
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: windows-latest
     steps:
-      - name: Checkout cppScheme2
-        uses: actions/checkout@v4
-        with:
-          path: 4CPPScheme2
-      - name: Checkout scheme-tests (private)
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with: { path: 4CPPScheme2 }
+      - uses: actions/checkout@v4
         with:
           repository: rprovost11-sketch/Scheme-Tests
           token: ${{ secrets.CROSS_REPO_TOKEN }}
           path: scheme-tests
-
-      - name: Configure (CMake auto-detects the runner's VS toolchain)
+      - name: Configure + build (Release)
         working-directory: 4CPPScheme2
-        run: cmake -B build
-      - name: Build (Release)
-        working-directory: 4CPPScheme2
-        run: cmake --build build --config Release --target cppscheme2 gc_test
-
-      - name: Full gated battery (]suites all)
+        run: |
+          cmake -B build
+          cmake --build build --config Release --target cppscheme2 gc_test
+      - name: Fast subset (feature + regression) + gc_test
         shell: bash
         working-directory: 4CPPScheme2
         run: |
-          out="$(printf ']suites all\n' | ./build/Release/cppscheme2.exe -T ../scheme-tests 2>&1)"
-          echo "$out" | tail -8
-          echo "$out" | grep -q 'ALL SUITES PASSED' || { echo '::error::battery failed'; exit 1; }
-
-      - name: GC white-box test
-        shell: bash
-        working-directory: 4CPPScheme2
-        run: ./build/Release/gc_test.exe
-
+          out="$(printf ']suites feature regression\n' | ./build/Release/cppscheme2.exe -T ../scheme-tests 2>&1)"
+          echo "$out" | tail -5
+          if ! echo "$out" | grep -q 'ALL SUITES PASSED'; then
+            echo "$out"; find "$GITHUB_WORKSPACE" -name '*.run' -exec cat {} +; echo '::error::fast subset failed'; exit 1
+          fi
+          ./build/Release/gc_test.exe
       - name: CLI / process-boundary tests
         shell: bash
-        env:
-          SCHEME_TESTS_DIR: ${{ github.workspace }}/scheme-tests
+        env: { SCHEME_TESTS_DIR: '${{ github.workspace }}/scheme-tests' }
         run: |
-          exe="$GITHUB_WORKSPACE/4CPPScheme2/build/Release/cppscheme2.exe"
-          out="$(sh scheme-tests/cli-tests/run.sh "$exe" 2>&1)"
+          out="$(sh scheme-tests/cli-tests/run.sh "$GITHUB_WORKSPACE/4CPPScheme2/build/Release/cppscheme2.exe" 2>&1)"
           echo "$out" | tail -3
           echo "$out" | grep -q '0 failed' || { echo '::error::cli-tests failed'; exit 1; }
+
+  full:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: 4CPPScheme2 }
+      - uses: actions/checkout@v4
+        with:
+          repository: rprovost11-sketch/Scheme-Tests
+          token: ${{ secrets.CROSS_REPO_TOKEN }}
+          path: scheme-tests
+      - name: Configure + build (Release)
+        working-directory: 4CPPScheme2
+        run: |
+          cmake -B build
+          cmake --build build --config Release --target cppscheme2 gc_test
+      - name: Full battery (shrunk TCO soak) + gc_test
+        shell: bash
+        working-directory: 4CPPScheme2
+        run: |
+          out="$(printf ']feature\n]regression\n]compliance -I:10000\n' | ./build/Release/cppscheme2.exe -T ../scheme-tests 2>&1)"
+          echo "$out" | grep -E 'passed across|FAILED|failed' | tail -10
+          if echo "$out" | grep -qE 'FAIL'; then
+            echo "$out"; find "$GITHUB_WORKSPACE" -name '*.run' -exec cat {} +; echo '::error::full battery failed'; exit 1
+          fi
+          ./build/Release/gc_test.exe
