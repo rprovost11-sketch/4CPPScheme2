@@ -4,3 +4,7 @@
 # regardless of the user's core.autocrlf setting.
 src/unicode_tables.h    text eol=lf
 src/unicode_tables.cpp  text eol=lf
+
+# Pre-push hook scripts must stay LF or sh (git-bash) breaks on CR.
+hooks/pre-push   text eol=lf
+hooks/install.sh text eol=lf

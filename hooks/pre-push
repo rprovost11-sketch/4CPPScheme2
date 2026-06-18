@@ -1,0 +1,35 @@
+#!/bin/sh
+# pre-push — fast regression gate (test-coverage initiative, Phase 2, wave 1).
+# Runs cppScheme2's fast suite subset (feature + regression) + gc_test against the
+# existing Release build and the sibling scheme-tests repo. Does NOT rebuild (keeps
+# the hook fast) but REFUSES to certify a stale binary. Skips the 27s compliance soak.
+# Bypass with:  git push --no-verify     Enable:  git config core.hooksPath hooks
+
+REPO="$(git rev-parse --show-toplevel)"
+LISP="$(dirname "$REPO")"
+TESTS="${SCHEME_TESTS_DIR:-$LISP/scheme-tests}"
+EXE="$REPO/build/Release/cppscheme2.exe"
+GCT="$REPO/build/Release/gc_test.exe"
+
+[ -d "$TESTS/log-tests" ] || { echo "pre-push: scheme-tests not found at '$TESTS' -- skipping." >&2; exit 0; }
+[ -x "$EXE" ] || { echo "pre-push: no Release build at $EXE -- build first or use --no-verify." >&2; exit 1; }
+
+fail() { echo "pre-push: $1 -- push BLOCKED (use --no-verify to override)" >&2; exit 1; }
+
+# Refuse to certify a Release binary older than any source file.
+if find "$REPO/src" -type f \( -name '*.cpp' -o -name '*.h' \) -newer "$EXE" -print -quit 2>/dev/null | grep -q .; then
+    fail "Release build is stale (source newer than the binary) -- rebuild before pushing"
+fi
+
+echo "pre-push: cppScheme2 fast subset (feature + regression)..."
+out="$(printf ']suites feature regression\n' | "$EXE" -T "$TESTS" 2>&1)"
+echo "$out" | grep -E 'passed|FAIL' | tail -4
+echo "$out" | grep -q 'ALL SUITES PASSED' || fail "suite failure"
+
+echo "pre-push: gc_test (white-box GC)..."
+gout="$("$GCT" 2>&1)"; grc=$?
+echo "$gout" | tail -1
+[ "$grc" -eq 0 ] || fail "gc_test failure"
+
+echo "pre-push: OK"
+exit 0
