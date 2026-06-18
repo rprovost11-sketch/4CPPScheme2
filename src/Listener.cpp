@@ -513,6 +513,8 @@ Listener::Listener(InterpreterBase* interp,
    { _cmd_regression(a); };
    _commands["suites"] = [this](std::vector<std::string>& a)
    { _cmd_suites(a); };
+   _commands["tests"] = [this](std::vector<std::string>& a)
+   { _cmd_tests(a); };
    _commands["scheme-tests"] = [this](std::vector<std::string>& a)
    { _cmd_scheme_tests(a); };
    _commands["gc-stress"] = [this](std::vector<std::string>& a)
@@ -544,6 +546,7 @@ Listener::Listener(InterpreterBase* interp,
    _help["compliance"] = "Usage: ]compliance [<file.log> | <start> [<end>]]\nRun the R7RS compliance test suite against the configured directory.\n  ]compliance              -- run all tests\n  ]compliance 3            -- run tests with filename >= \"3\"\n  ]compliance 3 4          -- run tests with \"3\" <= filename < \"4\"\n  ]compliance 3.1 Booleans.log  -- run that one file\nFilename comparison is case-insensitive.  The interpreter is rebooted\nbefore each file.  Supports '==> X or ==> Y' alternatives;\n'%%% *' / '%%% %any-error%' require any error to be raised (R7RS\n'an error is signaled'); '%%% %optional-error%' models R7RS\n'it is an error' -- passes whether an error is raised or the form\nreturns (asserts only that evaluation terminates).\nAutomatically runs under GC-stress, which is forced OFF when the run finishes.";
    _help["regression"] = "Usage: ]regression [<file.log> | <start> [<end>]]\nRun the regression test suite (Scheme-observable, non-spec tripwires) against\nthe configured directory.\n  ]regression                  -- run all regression files\n  ]regression 03               -- run files with filename >= \"03\"\n  ]regression 03 06            -- run files with \"03\" <= filename < \"06\"\n  ]regression 03-evaluator.log -- run that one file\nSpec deviations are guarded by ]compliance instead.  Files are grouped by\nsubsystem; see regression-tests/00-conventions.md.  The interpreter is\nrebooted before each file.";
    _help["suites"] = "Usage: ]suites <suite> [<suite> ...]\nRun one or more test suites in sequence (each fully rebooted between files)\nand print one combined pass/fail verdict.  This is the batch runner Cherry's\n\"Run test suites\" dialog drives; it is equally usable headless.\nSuite tokens (run in the canonical order feature -> compliance -> regression\nregardless of order; duplicates collapse):\n  feature             the feature suite\n  regression          the regression suite\n  compliance-quick    compliance with the default 100k TCO soak\n  compliance          alias for compliance-quick\n  compliance-slow     calibrate this machine's heap-OOM (broken-TCO) threshold,\n                      then soak compliance above it (a GC stress run)\n  all-quick           feature + compliance-quick + regression\n  all-slow            feature + compliance-slow + regression\n  all                 alias for all-quick\nFor a specific TCO iteration count use ]compliance -I:<count> directly;\n]suites exposes only the quick/slow variants.";
+   _help["tests"] = "Usage: ]tests [--list | all | <name> ...]\nRun any or all tests from the registry (scheme-tests/tests.manifest) via\nrun-tests.sh -- the WHOLE arsenal, not just the .log battery: it also covers the\nexternal harnesses (cross-port differential, fuzzer, metamorphic property tests,\ngc_test).  Cherry's checklist drives this too.\n  ]tests --list        list registered tests (name, kind, ports)\n  ]tests <name> ...    run the named test(s)\n  ]tests  (or all)     run every test\nDelegates to run-tests.sh, so it needs a POSIX shell (bash/git-bash).  Known-open\nbugs are reported as 'xfail'.  ]suites stays the fast in-process .log shortcut.";
    _help["scheme-tests"] = "Usage: ]scheme-tests [<directory>]\nWith no argument, show the current scheme-tests root (and where it was set from)\nplus the derived suite directories.  With a directory, set the root for this\nsession, overriding the -T/--scheme-tests option and the SCHEME_TESTS_DIR\nenvironment variable.  No path is hardcoded; this is one of the three ways to\npoint the interpreter at the test suites.";
    _help["gc-stress"] = "Usage: ]gc-stress [on|off|status]\nToggle GC-stress mode.  When ON, the garbage collector's thresholds and\neffective nursery are slashed so minor collections fire constantly -- this\nexercises the moving GC and surfaces any missing-root bug on whatever you\nthen run (e.g. ]compliance or ]feature).  GC is invisible to Scheme semantics,\nso results are unchanged; runs just get much slower and far more thorough.\nThe setting persists (across reboots) until you toggle it off.\nWith no argument, prints the current state.";
 
@@ -1771,6 +1774,21 @@ TestResult Listener::_cmd_regression(std::vector<std::string>& args)
 
    return _runTestFiles(filtered, regdir, "regression");
    }
+
+void Listener::_cmd_tests(std::vector<std::string>& args)
+{
+   // ]tests delegates to scheme-tests/run-tests.sh (the manifest-driven
+   // orchestrator) so the REPL -- and Cherry -- can run ANY registered test, not
+   // just the in-process .log battery.  system() is synchronous and the child's
+   // stdout is inherited, so run-tests.sh output streams straight through to us
+   // (and thus to Cherry).  Needs a POSIX shell (bash/git-bash) on PATH.
+   _require_scheme_tests();
+   std::string script = _scheme_tests_dir + "/run-tests.sh";
+   std::string cmd = "bash \"" + script + "\"";
+   for (const std::string& a : args)
+      cmd += " " + a;
+   std::system(cmd.c_str());
+}
 
 void Listener::_cmd_suites(std::vector<std::string>& args)
    {

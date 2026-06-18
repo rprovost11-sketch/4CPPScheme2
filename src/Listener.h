@@ -233,6 +233,7 @@ class CPPSCHEME2_API Listener
    TestResult _cmd_regression(std::vector<std::string>& args);
    void _cmd_gc_stress(std::vector<std::string>& args);
    void _cmd_suites(std::vector<std::string>& args);
+   void _cmd_tests(std::vector<std::string>& args);
    void _cmd_scheme_tests(std::vector<std::string>& args);
    // scheme-tests root resolution (no path hardcoded; subdirs derived from root).
    void _set_scheme_tests_dir(const std::string& path, const std::string& source);
