@@ -1,0 +1,59 @@
+name: CI
+
+# Test-coverage initiative, Phase 2, wave 2 (GitHub Actions).
+# Builds cppScheme2 (Release) and runs the full gated battery + gc_test + cli-tests.
+# Cross-repo checkout of the (private) scheme-tests repo uses the CROSS_REPO_TOKEN
+# secret. (cppScheme2 coverage via OpenCppCoverage runs locally — coverage.ps1; its
+# CI wiring is a follow-up, since it needs the tool installed + a RelWithDebInfo build.)
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  battery:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout cppScheme2
+        uses: actions/checkout@v4
+        with:
+          path: 4CPPScheme2
+      - name: Checkout scheme-tests (private)
+        uses: actions/checkout@v4
+        with:
+          repository: rprovost11-sketch/Scheme-Tests
+          token: ${{ secrets.CROSS_REPO_TOKEN }}
+          path: scheme-tests
+
+      - name: Configure (CMake auto-detects the runner's VS toolchain)
+        working-directory: 4CPPScheme2
+        run: cmake -B build
+      - name: Build (Release)
+        working-directory: 4CPPScheme2
+        run: cmake --build build --config Release --target cppscheme2 gc_test
+
+      - name: Full gated battery (]suites all)
+        shell: bash
+        working-directory: 4CPPScheme2
+        run: |
+          out="$(printf ']suites all\n' | ./build/Release/cppscheme2.exe -T ../scheme-tests 2>&1)"
+          echo "$out" | tail -8
+          echo "$out" | grep -q 'ALL SUITES PASSED' || { echo '::error::battery failed'; exit 1; }
+
+      - name: GC white-box test
+        shell: bash
+        working-directory: 4CPPScheme2
+        run: ./build/Release/gc_test.exe
+
+      - name: CLI / process-boundary tests
+        shell: bash
+        env:
+          SCHEME_TESTS_DIR: ${{ github.workspace }}/scheme-tests
+        run: |
+          exe="$GITHUB_WORKSPACE/4CPPScheme2/build/Release/cppscheme2.exe"
+          out="$(sh scheme-tests/cli-tests/run.sh "$exe" 2>&1)"
+          echo "$out" | tail -3
+          echo "$out" | grep -q '0 failed' || { echo '::error::cli-tests failed'; exit 1; }
