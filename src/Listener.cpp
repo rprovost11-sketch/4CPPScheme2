@@ -1819,13 +1819,28 @@ void Listener::_cmd_suites(std::vector<std::string>& args)
    if (_logStream)
       throw ListenerCommandError("Please close the log before running suites (]close).");
 
-   std::vector<SuiteDef> selected = _resolve_suite_tokens(args, suites);
+   auto pairs = _resolve_suite_tokens(args, suites);
    std::string port = _port_tag();
-   std::vector<SuiteDef> runnable, skipped;
-   for (const SuiteDef& s : selected)
+   std::vector<SuiteDef> runnable;
+   std::vector<std::pair<std::string, std::string>> skipped;  // (label, ports)
+   for (auto& pr : pairs)
       {
-      if (s.ports == "both" || s.ports == port) runnable.push_back(s);
-      else skipped.push_back(s);
+      SuiteDef eff = pr.first;
+      const std::string& vname = pr.second;
+      std::string applied = "quick";
+      auto vit = pr.first.variants.find(vname);
+      // Apply the variant only if it exists AND is available on this port;
+      // otherwise the suite falls back to its base (quick) run.
+      if (vname != "quick" && vit != pr.first.variants.end())
+         {
+         SuiteDef probe = pr.first;
+         _parse_props(vit->second, probe);
+         if (probe.ports == "both" || probe.ports == port)
+            { eff = probe; applied = vname; }
+         }
+      eff.label = pr.first.name + (applied == "quick" ? "" : " (" + applied + ")");
+      if (eff.ports == "both" || eff.ports == port) runnable.push_back(eff);
+      else skipped.push_back({eff.label, eff.ports});
       }
 
    bool color = _use_color();
@@ -1836,10 +1851,10 @@ void Listener::_cmd_suites(std::vector<std::string>& args)
 
    std::string planStr;
    for (size_t i = 0; i < runnable.size(); ++i)
-      planStr += (i ? std::string(", ") : std::string("")) + runnable[i].name;
+      planStr += (i ? std::string(", ") : std::string("")) + runnable[i].label;
    std::cout << '\n' << BOLD << "; running suites: " << planStr << RESET << '\n';
-   for (const SuiteDef& s : skipped)
-      std::cout << "  (skipping " << s.name << " -- " << s.ports
+   for (const auto& sk : skipped)
+      std::cout << "  (skipping " << sk.first << " -- " << sk.second
                 << "-only on this port)\n";
    std::cout << '\n';
 
@@ -1874,7 +1889,7 @@ void Listener::_cmd_suites(std::vector<std::string>& args)
       {
       for (const SuiteDef& s : runnable)
          {
-         std::cout << BOLD << "-- " << s.name << " (" << (s.kind.empty() ? "?" : s.kind)
+         std::cout << BOLD << "-- " << s.label << " (" << (s.kind.empty() ? "?" : s.kind)
                    << ") --" << RESET << '\n';
          if (s.kind == "log") results.push_back(_run_log_suite(s));
          else if (s.kind == "scheme") results.push_back(_run_scheme_suite(s));
@@ -2037,6 +2052,46 @@ std::vector<Listener::SForm> Listener::_read_sexprs(const std::string& text)
    return forms;
    }
 
+void Listener::_parse_props(const std::vector<SForm>& props, SuiteDef& into)
+   {
+   // Fill `into` from (key value ...) prop forms.  Reused for a suite's base
+   // props and for a (variant ...) block's overrides (which set only the keys
+   // they mention; list-valued props REPLACE rather than append).
+   for (const SForm& prop : props)
+      {
+      if (!prop.isList || prop.list.empty()) continue;
+      const std::string& key = prop.list[0].atom;
+      auto val1 = [&]() -> std::string
+         { return prop.list.size() >= 2 ? prop.list[1].atom : std::string(); };
+      auto fill = [&](std::vector<std::string>& v)
+         { v.clear(); for (size_t j = 1; j < prop.list.size(); ++j) v.push_back(prop.list[j].atom); };
+      if (key == "kind") into.kind = val1();
+      else if (key == "ports") into.ports = val1();
+      else if (key == "path") into.path = val1();
+      else if (key == "cwd") into.cwd = val1();
+      else if (key == "desc") into.desc = val1();
+      else if (key == "alias") fill(into.alias);
+      else if (key == "categories") fill(into.categories);
+      else if (key == "libs") fill(into.libs);
+      else if (key == "run") fill(into.run);
+      else if (key == "tco-soak")
+         {
+         if (val1() == "calibrate") into.tcoCalibrate = true;
+         else { try { into.tcoSoak = std::stoll(val1()); into.tcoCalibrate = false; } catch (...) {} }
+         }
+      else if (key == "pass")
+         {
+         if (prop.list.size() >= 2 && prop.list[1].isList &&
+             prop.list[1].list.size() >= 2 && prop.list[1].list[0].atom == "grep")
+            { into.passExit0 = false; into.passGrep = prop.list[1].list[1].atom; }
+         else into.passExit0 = true;
+         }
+      else if (key == "variant" && prop.list.size() >= 2)
+         into.variants[prop.list[1].atom] =
+             std::vector<SForm>(prop.list.begin() + 2, prop.list.end());
+      }
+   }
+
 std::vector<Listener::SuiteDef> Listener::_load_suites()
    {
    std::string path = _registry_path();
@@ -2053,36 +2108,7 @@ std::vector<Listener::SuiteDef> Listener::_load_suites()
       if (form.list[0].isList || form.list[0].atom != "suite") continue;
       SuiteDef d;
       d.name = form.list[1].atom;
-      for (size_t k = 2; k < form.list.size(); ++k)
-         {
-         const SForm& prop = form.list[k];
-         if (!prop.isList || prop.list.empty()) continue;
-         const std::string& key = prop.list[0].atom;
-         auto val1 = [&]() -> std::string
-            { return prop.list.size() >= 2 ? prop.list[1].atom : std::string(); };
-         if (key == "kind") d.kind = val1();
-         else if (key == "ports") d.ports = val1();
-         else if (key == "path") d.path = val1();
-         else if (key == "cwd") d.cwd = val1();
-         else if (key == "desc") d.desc = val1();
-         else if (key == "alias")
-            for (size_t j = 1; j < prop.list.size(); ++j) d.alias.push_back(prop.list[j].atom);
-         else if (key == "categories")
-            for (size_t j = 1; j < prop.list.size(); ++j) d.categories.push_back(prop.list[j].atom);
-         else if (key == "libs")
-            for (size_t j = 1; j < prop.list.size(); ++j) d.libs.push_back(prop.list[j].atom);
-         else if (key == "run")
-            for (size_t j = 1; j < prop.list.size(); ++j) d.run.push_back(prop.list[j].atom);
-         else if (key == "tco-soak")
-            { try { d.tcoSoak = std::stoll(val1()); } catch (...) {} }
-         else if (key == "pass")
-            {
-            if (prop.list.size() >= 2 && prop.list[1].isList &&
-                prop.list[1].list.size() >= 2 && prop.list[1].list[0].atom == "grep")
-               { d.passExit0 = false; d.passGrep = prop.list[1].list[1].atom; }
-            else d.passExit0 = true;
-            }
-         }
+      _parse_props(std::vector<SForm>(form.list.begin() + 2, form.list.end()), d);
       suites.push_back(std::move(d));
       }
    if (suites.empty())
@@ -2090,26 +2116,57 @@ std::vector<Listener::SuiteDef> Listener::_load_suites()
    return suites;
    }
 
-std::vector<Listener::SuiteDef> Listener::_resolve_suite_tokens(
+std::vector<std::string> Listener::_selector_matches(
+    const std::string& sel, const std::vector<SuiteDef>& suites)
+   {
+   std::vector<std::string> names;
+   for (const SuiteDef& s : suites)
+      {
+      bool m = (sel == s.name) || (sel == "all");
+      if (!m) for (const std::string& a : s.alias) if (a == sel) { m = true; break; }
+      if (!m) for (const std::string& c : s.categories) if (c == sel) { m = true; break; }
+      if (m) names.push_back(s.name);
+      }
+   return names;
+   }
+
+std::vector<std::pair<Listener::SuiteDef, std::string>> Listener::_resolve_suite_tokens(
     const std::vector<std::string>& tokens, const std::vector<SuiteDef>& suites)
    {
-   std::set<std::string> chosen;
+   std::set<std::string> known = {"quick", "slow"};
+   for (const SuiteDef& s : suites)
+      for (const auto& kv : s.variants) known.insert(kv.first);
+   std::set<std::pair<std::string, std::string>> seen;
+   std::vector<std::pair<SuiteDef, std::string>> pairs;
    for (const std::string& tok : tokens)
       {
-      bool any = false;
-      for (const SuiteDef& s : suites)
+      std::string variant = "quick";
+      std::vector<std::string> names = _selector_matches(tok, suites);
+      if (names.empty())
          {
-         bool m = (tok == s.name) || (tok == "all");
-         if (!m) for (const std::string& a : s.alias) if (a == tok) { m = true; break; }
-         if (!m) for (const std::string& c : s.categories) if (c == tok) { m = true; break; }
-         if (m) { chosen.insert(s.name); any = true; }
+         for (const std::string& v : known)
+            {
+            std::string suf = "-" + v;
+            if (tok.size() > suf.size() &&
+                tok.compare(tok.size() - suf.size(), suf.size(), suf) == 0)
+               {
+               std::vector<std::string> cand =
+                   _selector_matches(tok.substr(0, tok.size() - suf.size()), suites);
+               if (!cand.empty()) { names = cand; variant = v; break; }
+               }
+            }
          }
-      if (!any)
+      if (names.empty())
          throw ListenerCommandError("unknown suite/category '" + tok + "' (try ]suites list)");
+      std::set<std::string> nameset(names.begin(), names.end());
+      for (const SuiteDef& s : suites)
+         if (nameset.count(s.name))
+            {
+            auto key = std::make_pair(s.name, variant);
+            if (!seen.count(key)) { seen.insert(key); pairs.push_back({s, variant}); }
+            }
       }
-   std::vector<SuiteDef> out;
-   for (const SuiteDef& s : suites) if (chosen.count(s.name)) out.push_back(s);
-   return out;
+   return pairs;
    }
 
 void Listener::_print_suite_list(const std::vector<SuiteDef>& suites)
@@ -2142,22 +2199,31 @@ void Listener::_print_suite_list(const std::vector<SuiteDef>& suites)
 
 Listener::SuiteRunResult Listener::_run_log_suite(const SuiteDef& s)
    {
+   std::string disp = s.label.empty() ? s.name : s.label;
    std::string path = _suite_abspath(s.path);
    if (!fs::is_directory(path))
-      return {s.name, false, 0, 1, 0, "directory not found: " + path};
+      return {disp, false, 0, 1, 0, "directory not found: " + path};
    std::vector<std::string> files = retrieveFileList(path);
    if (files.empty())
-      return {s.name, false, 0, 1, 0, "no .log files in " + path};
-   long long tco = (s.tcoSoak >= 0) ? s.tcoSoak : _TCO_ITER_DEFAULT;
+      return {disp, false, 0, 1, 0, "no .log files in " + path};
+   long long tco;
+   if (s.tcoCalibrate)
+      {
+      tco = calibrate_tco_threshold(std::cout);
+      if (tco <= 0) tco = _TCO_ITER_DEFAULT;
+      }
+   else
+      tco = (s.tcoSoak >= 0) ? s.tcoSoak : _TCO_ITER_DEFAULT;
    TestResult r = _runTestFiles(files, path, s.name, tco);
-   return {s.name, r.n_fail == 0, r.n_pass, r.n_fail, 0, ""};
+   return {disp, r.n_fail == 0, r.n_pass, r.n_fail, 0, ""};
    }
 
 Listener::SuiteRunResult Listener::_run_scheme_suite(const SuiteDef& s)
    {
+   std::string disp = s.label.empty() ? s.name : s.label;
    std::string fpath = _suite_abspath(s.path);
    if (!fs::is_regular_file(fpath))
-      return {s.name, false, 0, 1, 0, "file not found: " + fpath};
+      return {disp, false, 0, 1, 0, "file not found: " + fpath};
    std::string cmd = "\"" + _self_exe_path() + "\"";
    for (const std::string& l : s.libs) cmd += " -L \"" + _suite_abspath(l) + "\"";
    cmd += " \"" + fpath + "\" 2>&1";
@@ -2168,14 +2234,15 @@ Listener::SuiteRunResult Listener::_run_scheme_suite(const SuiteDef& s)
    while (std::getline(iss, line)) std::cout << "    " << line << '\n';
    int np, nf, nx;
    _parse_test_output(out, np, nf, nx);
-   if (nf < 0) return {s.name, false, np, 1, 0, "no test summary"};
-   return {s.name, nf == 0, np, nf, nx, ""};
+   if (nf < 0) return {disp, false, np, 1, 0, "no test summary"};
+   return {disp, nf == 0, np, nf, nx, ""};
    }
 
 Listener::SuiteRunResult Listener::_run_external_suite(const SuiteDef& s)
    {
+   std::string disp = s.label.empty() ? s.name : s.label;
    if (s.run.empty())
-      return {s.name, false, 0, 1, 0, "no (run ...) in registry"};
+      return {disp, false, 0, 1, 0, "no (run ...) in registry"};
    std::string cwd = _suite_abspath(s.cwd);
    std::string exe = _self_exe_path();
    std::vector<std::string> argv;
@@ -2211,7 +2278,7 @@ Listener::SuiteRunResult Listener::_run_external_suite(const SuiteDef& s)
       { try { std::regex re(s.passGrep); ok = std::regex_search(out, re); } catch (...) { ok = false; } }
    else
       ok = (ec == 0);
-   return {s.name, ok, 0, ok ? 0 : 1, 0, ok ? "" : ("exit " + std::to_string(ec))};
+   return {disp, ok, 0, ok ? 0 : 1, 0, ok ? "" : ("exit " + std::to_string(ec))};
    }
 
 std::string Listener::_run_capture(const std::string& cmd, int& exitCode)

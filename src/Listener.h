@@ -7,8 +7,10 @@
 #include <fstream>
 #include <functional>
 #include <iosfwd>
+#include <map>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 struct Context;
@@ -236,13 +238,21 @@ class CPPSCHEME2_API Listener
    void _cmd_tests(std::vector<std::string>& args);
 
    // ── registry-driven ]suites (backlog #9) ──────────────────────────────────
-   // A parsed (suite ...) entry from scheme-tests/test-suites.scm.
+   // Minimal S-expression node for the registry reader: an atom (symbol / string
+   // / number, all kept as a plain string) or a list.  Structure is the only
+   // distinction the registry needs.
+   struct SForm { bool isList = false; std::string atom; std::vector<SForm> list; };
+   // A parsed (suite ...) entry from scheme-tests/test-suites.scm.  `label` and
+   // the applied variant are filled transiently when a run is dispatched.
    struct SuiteDef
       {
-      std::string name, kind, ports = "both", path, cwd = ".", desc, passGrep;
+      std::string name, kind, ports = "both", path, cwd = ".", desc, passGrep, label;
       std::vector<std::string> alias, categories, libs, run;
-      bool passExit0 = true;     // false => external pass is (grep passGrep)
-      long long tcoSoak = -1;    // -1 => use _TCO_ITER_DEFAULT
+      bool passExit0 = true;       // false => external pass is (grep passGrep)
+      long long tcoSoak = -1;      // -1 => use _TCO_ITER_DEFAULT
+      bool tcoCalibrate = false;   // (tco-soak calibrate) -> calibrate at runtime
+      // variant name -> its override prop forms (applied over the base on demand)
+      std::map<std::string, std::vector<SForm>> variants;
       };
    struct SuiteRunResult
       {
@@ -251,20 +261,20 @@ class CPPSCHEME2_API Listener
       int npass = 0, nfail = 0, nxpass = 0;
       std::string note;
       };
-   // Minimal S-expression node for the registry reader: an atom (symbol / string
-   // / number, all kept as a plain string) or a list.  Structure is the only
-   // distinction the registry needs.
-   struct SForm { bool isList = false; std::string atom; std::vector<SForm> list; };
    static std::vector<SForm> _read_sexprs(const std::string& text);
+   static void _parse_props(const std::vector<SForm>& props, SuiteDef& into);
    static void _parse_test_output(const std::string& out, int& npass, int& nfail, int& nxpass);
    static std::string _run_capture(const std::string& cmd, int& exitCode);
+   static std::vector<std::string> _selector_matches(const std::string& sel,
+                                                     const std::vector<SuiteDef>& suites);
    std::string _port_tag() const;
    std::string _registry_path() const;
    std::string _suite_abspath(const std::string& rel) const;
    std::string _self_exe_path() const;
    std::vector<SuiteDef> _load_suites();
-   std::vector<SuiteDef> _resolve_suite_tokens(const std::vector<std::string>& tokens,
-                                               const std::vector<SuiteDef>& suites);
+   // (suite, variant-name) selections in registry order, deduped.
+   std::vector<std::pair<SuiteDef, std::string>> _resolve_suite_tokens(
+       const std::vector<std::string>& tokens, const std::vector<SuiteDef>& suites);
    void _print_suite_list(const std::vector<SuiteDef>& suites);
    SuiteRunResult _run_log_suite(const SuiteDef& s);
    SuiteRunResult _run_scheme_suite(const SuiteDef& s);
