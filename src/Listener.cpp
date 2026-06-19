@@ -15,12 +15,16 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <climits>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
+#include <regex>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -29,8 +33,13 @@
 #include <io.h>
 #define IS_STDOUT_TTY() (_isatty(_fileno(stdout)) != 0)
 #define IS_STDIN_TTY() (_isatty(_fileno(stdin)) != 0)
+// Declared here (not via <windows.h>) so this TU keeps its AST.h BOOLEAN enum
+// tag, which <windows.h>'s BOOLEAN typedef would clash with.
+extern "C" __declspec(dllimport) unsigned long __stdcall
+GetModuleFileNameA(void*, char*, unsigned long);
 #else
 #include <unistd.h>
+#include <sys/wait.h>
 #define IS_STDOUT_TTY() (isatty(STDOUT_FILENO) != 0)
 #define IS_STDIN_TTY() (isatty(STDIN_FILENO) != 0)
 #endif
@@ -1792,66 +1801,32 @@ void Listener::_cmd_tests(std::vector<std::string>& args)
 
 void Listener::_cmd_suites(std::vector<std::string>& args)
    {
+   _require_scheme_tests();
+   std::vector<SuiteDef> suites = _load_suites();
+
+   std::string a0lower;
+   if (args.size() == 1)
+      {
+      a0lower = args[0];
+      std::transform(a0lower.begin(), a0lower.end(), a0lower.begin(),
+                     [](unsigned char c) { return std::tolower(c); });
+      }
+   if (args.empty() || a0lower == "list")
+      {
+      _print_suite_list(suites);
+      return;
+      }
    if (_logStream)
       throw ListenerCommandError("Please close the log before running suites (]close).");
-   _require_scheme_tests();
-   if (args.empty())
-      throw ListenerCommandError(
-          "Usage: ]suites <suite> ...  (feature, regression, "
-          "compliance[-quick|-slow], all[-quick|-slow])");
 
-   bool run_feature = false, run_regression = false;
-   int compliance_mode = 0; // 0 none, 1 quick, 2 slow
-
-   auto want_compliance = [&](int mode)
-   {
-      if (compliance_mode != 0 && compliance_mode != mode)
-         throw ListenerCommandError(
-             "compliance-quick and compliance-slow are mutually exclusive");
-      compliance_mode = mode;
-   };
-
-   for (const std::string& tok : args)
+   std::vector<SuiteDef> selected = _resolve_suite_tokens(args, suites);
+   std::string port = _port_tag();
+   std::vector<SuiteDef> runnable, skipped;
+   for (const SuiteDef& s : selected)
       {
-      std::string t = tok;
-      std::transform(t.begin(), t.end(), t.begin(),
-                     [](unsigned char c) { return std::tolower(c); });
-      if (t == "feature")
-         run_feature = true;
-      else if (t == "regression")
-         run_regression = true;
-      else if (t == "compliance" || t == "compliance-quick")
-         want_compliance(1);
-      else if (t == "compliance-slow")
-         want_compliance(2);
-      else if (t == "all" || t == "all-quick")
-         {
-         run_feature = true;
-         run_regression = true;
-         want_compliance(1);
-         }
-      else if (t == "all-slow")
-         {
-         run_feature = true;
-         run_regression = true;
-         want_compliance(2);
-         }
-      else
-         throw ListenerCommandError(
-             "unknown suite '" + tok + "'.  Valid: feature, regression, "
-             "compliance[-quick|-slow], all[-quick|-slow].");
+      if (s.ports == "both" || s.ports == port) runnable.push_back(s);
+      else skipped.push_back(s);
       }
-
-   // Canonical order: feature -> compliance -> regression.
-   std::vector<std::string> plan;
-   if (run_feature)
-      plan.push_back("feature");
-   if (compliance_mode == 1)
-      plan.push_back("compliance-quick");
-   else if (compliance_mode == 2)
-      plan.push_back("compliance-slow");
-   if (run_regression)
-      plan.push_back("regression");
 
    bool color = _use_color();
    std::string BOLD = color ? ansi::BOLD : "";
@@ -1860,14 +1835,21 @@ void Listener::_cmd_suites(std::vector<std::string>& args)
    std::string RESET = color ? ansi::RESET : "";
 
    std::string planStr;
-   for (size_t i = 0; i < plan.size(); ++i)
-      planStr += (i ? std::string(", ") : std::string("")) + plan[i];
-   std::cout << '\n'
-             << BOLD << "; running suites: " << planStr << RESET << "\n\n";
+   for (size_t i = 0; i < runnable.size(); ++i)
+      planStr += (i ? std::string(", ") : std::string("")) + runnable[i].name;
+   std::cout << '\n' << BOLD << "; running suites: " << planStr << RESET << '\n';
+   for (const SuiteDef& s : skipped)
+      std::cout << "  (skipping " << s.name << " -- " << s.ports
+                << "-only on this port)\n";
+   std::cout << '\n';
 
-   // Open ONE shared run report for the whole batch; each suite's section is
-   // appended to it (filename carries only the timestamp, no suite type).
+   // A combined .run report is opened only when a log-kind suite is present;
+   // those append their sections to it as before.
+   bool have_log = false;
+   for (const SuiteDef& s : runnable)
+      if (s.kind == "log") { have_log = true; break; }
    std::string shared_filename;
+   if (have_log)
       {
       std::string runsDir = !_runsdir.empty()
                                 ? _runsdir
@@ -1879,137 +1861,402 @@ void Listener::_cmd_suites(std::vector<std::string>& args)
              (fs::path(runsDir) / (_timestamp_file() + "-CPPScheme2.run")).string();
          auto* rf = new std::ofstream(shared_filename, std::ios::out);
          if (!rf->is_open())
-            {
-            delete rf;
-            _shared_run_file = nullptr;
-            _shared_run_filename = "";
-            shared_filename = "";
-            }
+            { delete rf; _shared_run_file = nullptr; _shared_run_filename = ""; shared_filename = ""; }
          else
-            {
-            _shared_run_file = rf;
-            _shared_run_filename = shared_filename;
-            }
+            { _shared_run_file = rf; _shared_run_filename = shared_filename; }
          }
       catch (...)
-         {
-         _shared_run_file = nullptr;
-         _shared_run_filename = "";
-         shared_filename = "";
-         }
+         { _shared_run_file = nullptr; _shared_run_filename = ""; shared_filename = ""; }
       }
 
-   struct SuiteResult
-      {
-      std::string label;
-      int p;
-      int f;
-      };
-   std::vector<SuiteResult> results;
-
+   std::vector<SuiteRunResult> results;
    try
       {
-   for (const std::string& name : plan)
-      {
-      if (name == "feature")
+      for (const SuiteDef& s : runnable)
          {
-         std::vector<std::string> a;
-         TestResult r = _cmd_feature(a);
-         results.push_back({name, r.n_pass, r.n_fail});
+         std::cout << BOLD << "-- " << s.name << " (" << (s.kind.empty() ? "?" : s.kind)
+                   << ") --" << RESET << '\n';
+         if (s.kind == "log") results.push_back(_run_log_suite(s));
+         else if (s.kind == "scheme") results.push_back(_run_scheme_suite(s));
+         else if (s.kind == "external") results.push_back(_run_external_suite(s));
+         else results.push_back({s.name, false, 0, 1, 0, "unknown kind '" + s.kind + "'"});
+         std::cout << '\n';
          }
-      else if (name == "regression")
-         {
-         std::vector<std::string> a;
-         TestResult r = _cmd_regression(a);
-         results.push_back({name, r.n_pass, r.n_fail});
-         }
-      else // compliance-quick or compliance-slow
-         {
-         std::vector<std::string> a;
-         std::string label = name;
-         if (name == "compliance-slow")
-            {
-            long long iters = calibrate_tco_threshold(std::cout);
-            if (iters <= 0)
-               {
-               std::cout << "; calibration unavailable; running compliance-quick instead.\n";
-               label = "compliance-quick(calib-failed)";
-               }
-            else
-               a.push_back("-I:" + std::to_string(iters));
-            }
-         TestResult r = _cmd_compliance(a);
-         results.push_back({label, r.n_pass, r.n_fail});
-         }
-      std::cout << '\n';
-      }
       }
    catch (...)
       {
       std::ofstream* sf = _shared_run_file;
-      _shared_run_file = nullptr;
-      _shared_run_filename = "";
-      if (sf)
-         {
-         sf->close();
-         delete sf;
-         }
+      _shared_run_file = nullptr; _shared_run_filename = "";
+      if (sf) { sf->close(); delete sf; }
       throw;
       }
 
-   // Detach the shared report so the per-suite runs are done writing to it.
    std::ofstream* shared = _shared_run_file;
    _shared_run_file = nullptr;
    _shared_run_filename = "";
 
-   int total_pass = 0, total_fail = 0;
-   for (const SuiteResult& sr : results)
-      {
-      total_pass += sr.p;
-      total_fail += sr.f;
-      }
+   int total_pass = 0, total_fail = 0, total_xpass = 0;
+   for (const SuiteRunResult& r : results)
+      { total_pass += r.npass; total_fail += r.nfail; total_xpass += r.nxpass; }
 
    std::cout << BOLD << "===== SUITES COMPLETE =====" << RESET << '\n';
-   for (const SuiteResult& sr : results)
+   for (const SuiteRunResult& r : results)
       {
       std::string detail;
-      if (sr.f == 0)
-         detail = GREEN + std::to_string(sr.p) + " passed" + RESET;
+      if (!r.ok)
+         detail = RED + std::string("FAILED") + (r.note.empty() ? "" : " -- " + r.note) + RESET;
+      else if (r.nxpass > 0)
+         detail = GREEN + std::string("passed") + RESET + " " + BOLD + "("
+                  + std::to_string(r.nxpass) + " now-passing expect-fail -- promote it)" + RESET;
+      else if (r.npass > 0)
+         detail = GREEN + std::to_string(r.npass) + " passed" + RESET;
       else
-         detail = RED + std::to_string(sr.f) + " of " +
-                  std::to_string(sr.p + sr.f) + " failed" + RESET;
-      std::cout << "  " << _ljust(sr.label, 28) << ' ' << detail << '\n';
+         detail = GREEN + std::string("ok") + RESET;
+      std::cout << "  " << _ljust(r.name, 24) << ' ' << detail << '\n';
       }
-   std::cout << "  " << _ljust("Total test cases", 28) << ' '
-             << BOLD << (total_pass + total_fail) << RESET << '\n';
    if (total_fail == 0)
       std::cout << BOLD << GREEN << "  ALL SUITES PASSED" << RESET << '\n';
    else
       std::cout << BOLD << RED << "  SUITE FAILURES: " << total_fail << RESET << '\n';
+   if (total_xpass > 0)
+      std::cout << BOLD << "  (" << total_xpass
+                << " known-open expect-fail case(s) now pass -- update the pins)" << RESET << '\n';
 
-   // Append the combined verdict to the shared report, then close it.
    if (shared)
       {
       *shared << "\n===== SUITES COMPLETE =====\n";
-      for (const SuiteResult& sr : results)
+      for (const SuiteRunResult& r : results)
          {
-         std::string detail = (sr.f == 0)
-                                  ? std::to_string(sr.p) + " passed"
-                                  : std::to_string(sr.f) + " of " +
-                                        std::to_string(sr.p + sr.f) + " failed";
-         *shared << "  " << _ljust(sr.label, 28) << ' ' << detail << '\n';
+         std::string detail = !r.ok ? "FAILED"
+             : (r.npass > 0 ? std::to_string(r.npass) + " passed" : std::string("ok"));
+         *shared << "  " << _ljust(r.name, 24) << ' ' << detail << '\n';
          }
-      *shared << "  " << _ljust("Total test cases", 28) << ' '
-              << (total_pass + total_fail) << '\n';
-      if (total_fail == 0)
-         *shared << "  ALL SUITES PASSED\n";
-      else
-         *shared << "  SUITE FAILURES: " << total_fail << '\n';
+      *shared << (total_fail == 0 ? "  ALL SUITES PASSED\n"
+                                  : "  SUITE FAILURES: " + std::to_string(total_fail) + "\n");
       shared->close();
       delete shared;
-      std::cout << '\n'
-                << "Test output: " << shared_filename << '\n';
+      std::cout << '\n' << "Test output: " << shared_filename << '\n';
       }
+   }
+
+// ── registry-driven ]suites helpers (backlog #9) ──────────────────────────────
+
+std::string Listener::_port_tag() const
+   { return _language.find("cpp") != std::string::npos ? "cpp" : "py"; }
+
+std::string Listener::_registry_path() const
+   { return (fs::path(_scheme_tests_dir) / "test-suites.scm").string(); }
+
+std::string Listener::_suite_abspath(const std::string& rel) const
+   { return (fs::path(_scheme_tests_dir) / rel).lexically_normal().string(); }
+
+std::string Listener::_self_exe_path() const
+   {
+#ifdef _WIN32
+   char buf[4096];
+   unsigned long len = GetModuleFileNameA(nullptr, buf, (unsigned long)sizeof(buf));
+   if (len > 0 && len < sizeof(buf)) return std::string(buf, len);
+   return "cppscheme2";
+#else
+   char buf[4096];
+   ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf));
+   return len > 0 ? std::string(buf, (size_t)len) : std::string("cppscheme2");
+#endif
+   }
+
+std::vector<Listener::SForm> Listener::_read_sexprs(const std::string& text)
+   {
+   size_t i = 0, n = text.size();
+   std::function<void()> skip_ws = [&]()
+   {
+      while (i < n)
+         {
+         char c = text[i];
+         if (c == ';') { while (i < n && text[i] != '\n') ++i; }
+         else if (c == ' ' || c == '\t' || c == '\r' || c == '\n') ++i;
+         else break;
+         }
+   };
+   std::function<bool(SForm&)> read_form = [&](SForm& out) -> bool
+   {
+      skip_ws();
+      if (i >= n) return false;          // EOF (top level only)
+      char c = text[i];
+      if (c == '(')
+         {
+         ++i;
+         out.isList = true;
+         while (true)
+            {
+            skip_ws();
+            if (i >= n)
+               throw ListenerCommandError("]suites: malformed registry (unclosed paren)");
+            if (text[i] == ')') { ++i; return true; }
+            SForm child;
+            read_form(child);
+            out.list.push_back(std::move(child));
+            }
+         }
+      if (c == ')')
+         throw ListenerCommandError("]suites: malformed registry (unexpected ')')");
+      if (c == '"')
+         {
+         ++i;
+         std::string buf;
+         while (i < n && text[i] != '"')
+            {
+            if (text[i] == '\\' && i + 1 < n)
+               {
+               ++i;
+               char e = text[i];
+               buf += (e == 'n' ? '\n' : e == 't' ? '\t' : e == 'r' ? '\r' : e);
+               }
+            else buf += text[i];
+            ++i;
+            }
+         ++i;                            // closing quote
+         out.isList = false; out.atom = buf; return true;
+         }
+      size_t start = i;                  // bare atom
+      while (i < n)
+         {
+         char d = text[i];
+         if (d == ' ' || d == '\t' || d == '\r' || d == '\n' ||
+             d == '(' || d == ')' || d == '"' || d == ';') break;
+         ++i;
+         }
+      out.isList = false; out.atom = text.substr(start, i - start); return true;
+   };
+   std::vector<SForm> forms;
+   while (true)
+      {
+      SForm f;
+      if (!read_form(f)) break;
+      forms.push_back(std::move(f));
+      }
+   return forms;
+   }
+
+std::vector<Listener::SuiteDef> Listener::_load_suites()
+   {
+   std::string path = _registry_path();
+   std::ifstream in(path, std::ios::binary);
+   if (!in)
+      throw ListenerCommandError("]suites: registry not found: " + path);
+   std::stringstream ss;
+   ss << in.rdbuf();
+   std::vector<SForm> forms = _read_sexprs(ss.str());
+   std::vector<SuiteDef> suites;
+   for (const SForm& form : forms)
+      {
+      if (!form.isList || form.list.size() < 2) continue;
+      if (form.list[0].isList || form.list[0].atom != "suite") continue;
+      SuiteDef d;
+      d.name = form.list[1].atom;
+      for (size_t k = 2; k < form.list.size(); ++k)
+         {
+         const SForm& prop = form.list[k];
+         if (!prop.isList || prop.list.empty()) continue;
+         const std::string& key = prop.list[0].atom;
+         auto val1 = [&]() -> std::string
+            { return prop.list.size() >= 2 ? prop.list[1].atom : std::string(); };
+         if (key == "kind") d.kind = val1();
+         else if (key == "ports") d.ports = val1();
+         else if (key == "path") d.path = val1();
+         else if (key == "cwd") d.cwd = val1();
+         else if (key == "desc") d.desc = val1();
+         else if (key == "alias")
+            for (size_t j = 1; j < prop.list.size(); ++j) d.alias.push_back(prop.list[j].atom);
+         else if (key == "categories")
+            for (size_t j = 1; j < prop.list.size(); ++j) d.categories.push_back(prop.list[j].atom);
+         else if (key == "libs")
+            for (size_t j = 1; j < prop.list.size(); ++j) d.libs.push_back(prop.list[j].atom);
+         else if (key == "run")
+            for (size_t j = 1; j < prop.list.size(); ++j) d.run.push_back(prop.list[j].atom);
+         else if (key == "tco-soak")
+            { try { d.tcoSoak = std::stoll(val1()); } catch (...) {} }
+         else if (key == "pass")
+            {
+            if (prop.list.size() >= 2 && prop.list[1].isList &&
+                prop.list[1].list.size() >= 2 && prop.list[1].list[0].atom == "grep")
+               { d.passExit0 = false; d.passGrep = prop.list[1].list[1].atom; }
+            else d.passExit0 = true;
+            }
+         }
+      suites.push_back(std::move(d));
+      }
+   if (suites.empty())
+      throw ListenerCommandError("]suites: no suites found in " + path);
+   return suites;
+   }
+
+std::vector<Listener::SuiteDef> Listener::_resolve_suite_tokens(
+    const std::vector<std::string>& tokens, const std::vector<SuiteDef>& suites)
+   {
+   std::set<std::string> chosen;
+   for (const std::string& tok : tokens)
+      {
+      bool any = false;
+      for (const SuiteDef& s : suites)
+         {
+         bool m = (tok == s.name) || (tok == "all");
+         if (!m) for (const std::string& a : s.alias) if (a == tok) { m = true; break; }
+         if (!m) for (const std::string& c : s.categories) if (c == tok) { m = true; break; }
+         if (m) { chosen.insert(s.name); any = true; }
+         }
+      if (!any)
+         throw ListenerCommandError("unknown suite/category '" + tok + "' (try ]suites list)");
+      }
+   std::vector<SuiteDef> out;
+   for (const SuiteDef& s : suites) if (chosen.count(s.name)) out.push_back(s);
+   return out;
+   }
+
+void Listener::_print_suite_list(const std::vector<SuiteDef>& suites)
+   {
+   bool color = _use_color();
+   std::string BOLD = color ? ansi::BOLD : "";
+   std::string RESET = color ? ansi::RESET : "";
+   std::string port = _port_tag();
+   std::cout << BOLD << "Available test suites  (registry: " << _registry_path() << ")"
+             << RESET << '\n';
+   std::cout << "  " << _ljust("NAME", 22) << _ljust("ALIASES", 13)
+             << _ljust("KIND", 10) << _ljust("PORTS", 7) << "DESCRIPTION\n";
+   std::set<std::string> cats;
+   for (const SuiteDef& s : suites)
+      {
+      for (const std::string& c : s.categories) cats.insert(c);
+      std::string aliases;
+      for (size_t i = 0; i < s.alias.size(); ++i) aliases += (i ? ", " : "") + s.alias[i];
+      std::string na = (s.ports == "both" || s.ports == port) ? "" : "  (n/a here)";
+      std::cout << "  " << _ljust(s.name, 22) << _ljust(aliases, 13)
+                << _ljust(s.kind.empty() ? "?" : s.kind, 10) << _ljust(s.ports, 7)
+                << s.desc << na << '\n';
+      }
+   std::string catList;
+   for (auto it = cats.begin(); it != cats.end(); ++it)
+      catList += (it == cats.begin() ? "" : ", ") + *it;
+   std::cout << '\n' << "  Categories: " << catList << "   (+ all)\n";
+   std::cout << "  Run:  ]suites <name|alias|category> ...   |   ]suites all\n";
+   }
+
+Listener::SuiteRunResult Listener::_run_log_suite(const SuiteDef& s)
+   {
+   std::string path = _suite_abspath(s.path);
+   if (!fs::is_directory(path))
+      return {s.name, false, 0, 1, 0, "directory not found: " + path};
+   std::vector<std::string> files = retrieveFileList(path);
+   if (files.empty())
+      return {s.name, false, 0, 1, 0, "no .log files in " + path};
+   long long tco = (s.tcoSoak >= 0) ? s.tcoSoak : _TCO_ITER_DEFAULT;
+   TestResult r = _runTestFiles(files, path, s.name, tco);
+   return {s.name, r.n_fail == 0, r.n_pass, r.n_fail, 0, ""};
+   }
+
+Listener::SuiteRunResult Listener::_run_scheme_suite(const SuiteDef& s)
+   {
+   std::string fpath = _suite_abspath(s.path);
+   if (!fs::is_regular_file(fpath))
+      return {s.name, false, 0, 1, 0, "file not found: " + fpath};
+   std::string cmd = "\"" + _self_exe_path() + "\"";
+   for (const std::string& l : s.libs) cmd += " -L \"" + _suite_abspath(l) + "\"";
+   cmd += " \"" + fpath + "\" 2>&1";
+   int ec = -1;
+   std::string out = _run_capture(cmd, ec);
+   std::istringstream iss(out);
+   std::string line;
+   while (std::getline(iss, line)) std::cout << "    " << line << '\n';
+   int np, nf, nx;
+   _parse_test_output(out, np, nf, nx);
+   if (nf < 0) return {s.name, false, np, 1, 0, "no test summary"};
+   return {s.name, nf == 0, np, nf, nx, ""};
+   }
+
+Listener::SuiteRunResult Listener::_run_external_suite(const SuiteDef& s)
+   {
+   if (s.run.empty())
+      return {s.name, false, 0, 1, 0, "no (run ...) in registry"};
+   std::string cwd = _suite_abspath(s.cwd);
+   std::string exe = _self_exe_path();
+   std::vector<std::string> argv;
+   for (std::string a : s.run)
+      {
+      size_t pos = a.find("{interp}");
+      if (pos != std::string::npos) a.replace(pos, std::string("{interp}").size(), exe);
+      argv.push_back(a);
+      }
+   if (argv[0].find('/') != std::string::npos || argv[0].find('\\') != std::string::npos)
+      argv[0] = (fs::path(cwd) / argv[0]).lexically_normal().string();
+   std::string cmd;
+#ifdef _WIN32
+   cmd = "cd /d \"" + cwd + "\" && ";
+#else
+   cmd = "cd \"" + cwd + "\" && ";
+#endif
+   for (size_t k = 0; k < argv.size(); ++k)
+      { if (k) cmd += " "; cmd += "\"" + argv[k] + "\""; }
+   cmd += " 2>&1";
+   int ec = -1;
+   std::string out = _run_capture(cmd, ec);
+   std::vector<std::string> lines;
+      {
+      std::istringstream iss(out);
+      std::string ln;
+      while (std::getline(iss, ln)) if (!ln.empty()) lines.push_back(ln);
+      }
+   for (size_t i = (lines.size() > 3 ? lines.size() - 3 : 0); i < lines.size(); ++i)
+      std::cout << "    " << lines[i] << '\n';
+   bool ok;
+   if (!s.passExit0)
+      { try { std::regex re(s.passGrep); ok = std::regex_search(out, re); } catch (...) { ok = false; } }
+   else
+      ok = (ec == 0);
+   return {s.name, ok, 0, ok ? 0 : 1, 0, ok ? "" : ("exit " + std::to_string(ec))};
+   }
+
+std::string Listener::_run_capture(const std::string& cmd, int& exitCode)
+   {
+   std::string out;
+#ifdef _WIN32
+   // cmd.exe (/c) strips a leading+trailing quote pair from the command, which
+   // mangles a command that starts with a quoted program path; wrapping the
+   // whole thing in one more quote pair makes /c strip THOSE and run the rest.
+   std::string full = "\"" + cmd + "\"";
+   FILE* p = _popen(full.c_str(), "r");
+#else
+   FILE* p = popen(cmd.c_str(), "r");
+#endif
+   if (!p) { exitCode = -1; return out; }
+   char buf[4096];
+   size_t r;
+   while ((r = fread(buf, 1, sizeof(buf), p)) > 0) out.append(buf, r);
+#ifdef _WIN32
+   exitCode = _pclose(p);
+#else
+   int rc = pclose(p);
+   exitCode = (rc == -1) ? -1 : WEXITSTATUS(rc);
+#endif
+   return out;
+   }
+
+void Listener::_parse_test_output(const std::string& out, int& npass, int& nfail, int& nxpass)
+   {
+   npass = 0; nfail = -1; nxpass = 0;
+   auto lastInt = [&](const char* pat) -> long long
+   {
+      std::regex re(pat);
+      long long val = LLONG_MIN;
+      for (auto it = std::sregex_iterator(out.begin(), out.end(), re);
+           it != std::sregex_iterator(); ++it)
+         { try { val = std::stoll((*it)[1].str()); } catch (...) {} }
+      return val;
+   };
+   long long f = lastInt(R"((\d+)\s+failed)");
+   if (f != LLONG_MIN) nfail = (int)f;
+   long long p = lastInt(R"((\d+)\s+(?:passed|checks|datums))");
+   if (p != LLONG_MIN) npass = (int)p;
+   long long x = lastInt(R"((\d+)\s+unexpected-pass)");
+   if (x != LLONG_MIN) nxpass = (int)x;
    }
 
 // ── scheme-tests directory resolution ─────────────────────────────────────────
