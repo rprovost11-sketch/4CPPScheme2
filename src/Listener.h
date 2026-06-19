@@ -235,7 +235,6 @@ class CPPSCHEME2_API Listener
    TestResult _cmd_regression(std::vector<std::string>& args);
    void _cmd_gc_stress(std::vector<std::string>& args);
    void _cmd_suites(std::vector<std::string>& args);
-   void _cmd_tests(std::vector<std::string>& args);
 
    // ── registry-driven ]suites (backlog #9) ──────────────────────────────────
    // Minimal S-expression node for the registry reader: an atom (symbol / string
