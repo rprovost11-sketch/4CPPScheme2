@@ -271,6 +271,8 @@ class CPPSCHEME2_API Listener
    std::string _suite_abspath(const std::string& rel) const;
    std::string _self_exe_path() const;
    std::vector<SuiteDef> _load_suites();
+   // {suite-name: relpath} for log-kind suites; {} if the registry is unreadable.
+   std::map<std::string, std::string> _registry_log_paths();
    // (suite, variant-name) selections in registry order, deduped.
    std::vector<std::pair<SuiteDef, std::string>> _resolve_suite_tokens(
        const std::vector<std::string>& tokens, const std::vector<SuiteDef>& suites);

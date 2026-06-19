@@ -2071,6 +2071,21 @@ void Listener::_parse_props(const std::vector<SForm>& props, SuiteDef& into)
       }
    }
 
+std::map<std::string, std::string> Listener::_registry_log_paths()
+   {
+   // Tolerant: never throws.  Lets feature/compliance/regression derive their
+   // dirs from test-suites.scm instead of hardcoding the subpaths twice.
+   std::map<std::string, std::string> out;
+   try
+      {
+      for (const SuiteDef& s : _load_suites())
+         if (s.kind == "log" && !s.path.empty())
+            out[s.name] = s.path;
+      }
+   catch (...) { }
+   return out;
+   }
+
 std::vector<Listener::SuiteDef> Listener::_load_suites()
    {
    std::string path = _registry_path();
@@ -2315,9 +2330,19 @@ void Listener::_set_scheme_tests_dir(const std::string& path, const std::string&
       {
       fs::path base = fs::absolute(fs::path(path));
       _scheme_tests_dir = base.string();
-      _testdir = (base / "log-tests" / "feature-tests").string();
-      _compliancedir = (base / "log-tests" / "R7RS-Compliance-Tests").string();
-      _regressiondir = (base / "log-tests" / "regression-tests").string();
+      // The .log suite dirs come from test-suites.scm (the single source of
+      // truth -- the same feature/compliance/regression suites ]suites runs);
+      // the hardcoded subpaths are only a fallback for a tests root with no (or
+      // an unreadable) registry.
+      std::map<std::string, std::string> reg = _registry_log_paths();
+      auto pick = [&](const char* name, const char* fallback) -> std::string
+         {
+         auto it = reg.find(name);
+         return (base / (it != reg.end() ? it->second : std::string(fallback))).string();
+         };
+      _testdir = pick("feature", "log-tests/feature-tests");
+      _compliancedir = pick("compliance", "log-tests/R7RS-Compliance-Tests");
+      _regressiondir = pick("regression", "log-tests/regression-tests");
       _runsdir = (base / "runs").string();
       _scheme_tests_source = source;
       }
