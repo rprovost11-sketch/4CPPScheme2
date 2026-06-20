@@ -236,7 +236,7 @@ int main(int argc, char* argv[])
       int status = 0;
          {
          Listener listener(
-             &interp, "cppscheme2", "0.7.0", "Ron Provost/Longo",
+             &interp, "cppscheme2", "0.7.1", "Ron Provost/Longo",
              "https://github.com/rprovost11/cppscheme2", scheme_tests_dir,
              scheme_tests_source, /*show_banner=*/false);
          status = listener.eval_and_exit(eval_exprs);
@@ -267,7 +267,7 @@ int main(int argc, char* argv[])
    Listener listener(
        &interp,
        "cppscheme2",
-       "0.7.0",
+       "0.7.1",
        "Ron Provost/Longo",
        "https://github.com/rprovost11/cppscheme2",
        scheme_tests_dir,
