@@ -173,9 +173,16 @@ static bool needs_vertical_bars(const std::string& name)
            low(name[3]) == 'n'))
          return true;
       }
+   // A leading '.' followed by a digit (e.g. ".9t") lexes as a number, not this
+   // symbol, so it must be bar-quoted.  (A lone '.' is handled above; ".foo" and
+   // "..." are valid identifiers.)
+   if (name[0] == '.' && name.size() > 1 && name[1] >= '0' && name[1] <= '9')
+      return true;
    char first = name[0];
+   // '@' is a valid <special subsequent> but NOT a valid <initial> (R7RS 7.1.1),
+   // so an @-initial name (e.g. "@") is not a bare identifier and needs bars.
    if (!is_safe_symbol_initial(first) &&
-       first != '+' && first != '-' && first != '@' && first != '.')
+       first != '+' && first != '-' && first != '.')
       return true;
    for (char c : name)
       if (!is_safe_symbol_subsequent(c))
