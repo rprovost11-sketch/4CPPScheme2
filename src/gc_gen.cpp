@@ -671,13 +671,19 @@ static void minor_collect()
    std::vector<GcHeader*> freshly_promoted;
       {
       GcHeader** prev = &g_young_head;
-      unsigned long long _minguard = 0; // TEMP DEBUG runaway guard
+      // Runaway guard.  This walk visits each young-list node exactly once
+      // (removing it as it goes), so the iteration count equals the initial
+      // young population.  Bound the guard to that (with slack) instead of a
+      // fixed constant; a cyclic next-chain still trips it.  See the matching
+      // note in the major-mark loop on why the old 20M cap was a false positive.
+      const unsigned long long _minlimit = 2ull * (unsigned long long)g_young_count + 4096ull;
+      unsigned long long _minguard = 0;
       while (*prev)
          {
-         if (++_minguard > 20000000ull)
+         if (++_minguard > _minlimit)
             {
-            fprintf(stderr, "[GCGUARD] minor young-walk runaway: young=%zu old=%zu\n",
-                    g_young_count, g_old_count);
+            fprintf(stderr, "[GCGUARD] minor young-walk runaway: young=%zu old=%zu limit=%llu\n",
+                    g_young_count, g_old_count, _minlimit);
             fflush(stderr);
             abort();
             }
@@ -853,13 +859,22 @@ void gc_collect()
       // Full stop-the-world mark.  shade_gray skips gen!=1 objects, so the
       // minor collection above is required to ensure all live roots are old-gen.
       gc_major_start();
-      unsigned long long _majguard = 0; // TEMP DEBUG runaway guard
+      // Runaway guard.  shade_gray() marks an object before pushing it and skips
+      // already-marked objects, so each live old-gen object is enqueued at most
+      // once: the loop pops at most g_old_count objects.  No allocation happens
+      // during this stop-the-world mark, so g_old_count is fixed here.  Bound the
+      // guard to that invariant (with generous slack) -- a genuine re-graying loop
+      // still trips it, while a legitimately large heap no longer does.  (The old
+      // fixed 20M cap spuriously aborted big-but-finite heaps: earley n=15
+      // materializes ~24M live cons cells.)
+      const unsigned long long _majlimit = 2ull * (unsigned long long)g_old_count + 4096ull;
+      unsigned long long _majguard = 0;
       while (!g_gray_stack.empty())
          {
-         if (++_majguard > 20000000ull)
+         if (++_majguard > _majlimit)
             {
-            fprintf(stderr, "[GCGUARD] major-mark loop runaway: gray=%zu old=%zu young=%zu\n",
-                    g_gray_stack.size(), g_old_count, g_young_count);
+            fprintf(stderr, "[GCGUARD] major-mark loop runaway: gray=%zu old=%zu young=%zu limit=%llu\n",
+                    g_gray_stack.size(), g_old_count, g_young_count, _majlimit);
             fflush(stderr);
             abort();
             }
