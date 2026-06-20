@@ -459,6 +459,47 @@ static std::string normalize_decimal_exponent(const std::string& s)
    return out;
    }
 
+// ── make_bignum_rational_token ────────────────────────────────────────────────
+// Build a token for a rational literal whose numerator and/or denominator
+// exceeds int64 (the int64 Rat path having thrown out_of_range).  num_s may
+// carry a leading sign; den_s is unsigned digits.  Both are already validated
+// as digit strings for `radix` by the caller.  Returns a BIGNUM token carrying
+// the prebuilt arbitrary-precision rational value, or a REAL token with its
+// double approximation when `inexact` is set (an #i-prefixed literal).  Returns
+// nullopt for a zero denominator (degenerate n/0 -> caller treats as malformed).
+static std::optional<Token> make_bignum_rational_token(const std::string& num_s,
+                                                       const std::string& den_s,
+                                                       int radix, const SourceInfo& src,
+                                                       bool inexact = false)
+   {
+   const char* np = num_s.c_str();
+   if (*np == '+')
+      ++np; // mpz_set_str does not accept a leading '+'
+   __mpz_struct n, d;
+   mpz_init(&n);
+   mpz_init(&d);
+   std::optional<Token> result;
+   if (mpz_set_str(&n, np, radix) == 0 && mpz_set_str(&d, den_s.c_str(), radix) == 0 &&
+       mpz_sgn(&d) != 0)
+      {
+      if (inexact)
+         {
+         Token t(TokenKind::REAL, src);
+         t.dbl_val = mpz_get_d(&n) / mpz_get_d(&d);
+         result = t;
+         }
+      else
+         {
+         Token t(TokenKind::BIGNUM, src);
+         t.val = make_rational_mpz(&n, &d, new SourceInfo(src));
+         result = t;
+         }
+      }
+   mpz_clear(&n);
+   mpz_clear(&d);
+   return result;
+   }
+
 // ── _parse_number_for_complex ─────────────────────────────────────────────────
 // Port of Parser.py _parse_number_for_complex.
 // Returns int64_t, Rat, or double; nullopt if not a valid number.
@@ -916,6 +957,12 @@ static Token try_parse_prefixed_number(const std::string& text, const SourceInfo
                   return t;
                   }
                }
+            catch (const std::out_of_range&)
+               {
+               // numerator and/or denominator exceeds int64: arbitrary precision.
+               if (auto t = make_bignum_rational_token(num_s, den_s, radix, src, exact == 0))
+                  return *t;
+               }
             catch (...)
                {
                }
@@ -1085,6 +1132,14 @@ static Token build_word_token(const std::string& word, const SourceInfo& src, bo
                t.int_val = r.numerator();
                t.int_val2 = r.denominator();
                return t;
+               }
+            catch (const std::out_of_range&)
+               {
+               // numerator and/or denominator exceeds int64: build an
+               // arbitrary-precision rational (mirrors the bignum integer
+               // fallback below).  The prebuilt value rides a BIGNUM token.
+               if (auto t = make_bignum_rational_token(num_s, den_s, 10, src))
+                  return *t;
                }
             catch (...)
                {

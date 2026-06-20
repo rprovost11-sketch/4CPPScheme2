@@ -1837,6 +1837,25 @@ static Value _prim_string_to_number(Context*, Environment*, std::vector<Value>& 
          return make_integer(n);
          }
       }
+   catch (const std::out_of_range&)
+      {
+      // A valid integer literal too large for int64: build a bignum rather than
+      // falling through to the real path (which would parse it as an inexact
+      // double).  mpz_set_str validates the digits for the radix and rejects a
+      // trailing '/' (so "<bignum>/d" falls through to the rational path below).
+      const char* p = s.c_str();
+      if (*p == '+')
+         ++p; // mpz_set_str does not accept a leading '+'
+      __mpz_struct z;
+      mpz_init(&z);
+      if (mpz_set_str(&z, p, radix) == 0)
+         {
+         Value v = (exact == 0) ? make_real(mpz_get_d(&z)) : _mpz_to_value(&z);
+         mpz_clear(&z);
+         return v;
+         }
+      mpz_clear(&z);
+      }
    catch (...)
       {
       }
@@ -1856,6 +1875,30 @@ static Value _prim_string_to_number(Context*, Environment*, std::vector<Value>& 
                return make_real(static_cast<double>(frac));
             return rat_to_value(frac);
             }
+         }
+      catch (const std::out_of_range&)
+         {
+         // One or both components exceed int64: parse at arbitrary precision.
+         const char* np = ns.c_str();
+         if (*np == '+')
+            ++np;
+         const char* dp = ds.c_str();
+         if (*dp == '+')
+            ++dp;
+         __mpz_struct n, d;
+         mpz_init(&n);
+         mpz_init(&d);
+         if (mpz_set_str(&n, np, radix) == 0 && mpz_set_str(&d, dp, radix) == 0 &&
+             mpz_sgn(&d) != 0)
+            {
+            Value v = (exact == 0) ? make_real(mpz_get_d(&n) / mpz_get_d(&d))
+                                   : make_rational_mpz(&n, &d);
+            mpz_clear(&n);
+            mpz_clear(&d);
+            return v;
+            }
+         mpz_clear(&n);
+         mpz_clear(&d);
          }
       catch (...)
          {
