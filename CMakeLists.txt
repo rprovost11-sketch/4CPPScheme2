@@ -131,6 +131,28 @@ else()
     endif()
 endif()
 
+# ── Numeric-tower white-box unit test binary ──────────────────────────────────
+# mini-gmp.c is compiled in directly: the vendored mpz_* C functions are used by
+# the core DLL but not exported from it, and this white-box test drives them
+# directly (mpz_init/set_str/clear on its own locals).  /W0 is inherited from the
+# source-file property set above.
+add_executable(rat_test undercarriage-tests/rat_test.cpp src/mini-gmp/mini-gmp.c)
+target_link_libraries(rat_test PRIVATE cppscheme2_core)
+if(MSVC)
+    target_compile_options(rat_test PRIVATE /W4 /utf-8 /wd4100 /wd4458 /wd4251 /wd4275)
+    target_compile_definitions(rat_test PRIVATE _CRT_SECURE_NO_WARNINGS)
+    if(ENABLE_ASAN)
+        target_compile_options(rat_test PRIVATE /fsanitize=address)
+        target_link_options(rat_test PRIVATE /fsanitize=address)
+    endif()
+else()
+    target_compile_options(rat_test PRIVATE -Wall -Wextra -Wno-unused-parameter)
+    if(ENABLE_ASAN)
+        target_compile_options(rat_test PRIVATE -fsanitize=address -fno-omit-frame-pointer)
+        target_link_options(rat_test PRIVATE -fsanitize=address)
+    endif()
+endif()
+
 # ── Example native plugin (demonstrates the plugin ABI; loaded via import) ────
 add_library(example_plugin SHARED examples/example_plugin.cpp)
 target_link_libraries(example_plugin PRIVATE cppscheme2_core)
