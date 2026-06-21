@@ -11,6 +11,7 @@
 #include "../Parser.h"
 #include "../library.h"
 #include "../PrettyPrinter.h"
+#include "../process_exec.h"
 #include "../unicode_tables.h"
 #include <chrono>
 #include <ctime>
@@ -429,6 +430,47 @@ static Value _prim_interpreter_executable_path(Context*, Environment*, std::vect
    return make_boolean(false);
    }
 
+// (run-process argv [stdin-string]) -> (values exit-code stdout stderr).
+// argv is a non-empty list of strings (argv[0] = program, searched on PATH; direct
+// exec, NO shell -> arguments are verbatim and injection-safe).  Blocks until the
+// child exits.  Optional 2nd arg = a string written to the child's stdin then EOF
+// (#f or omitted = empty stdin).  exit-code is the child's status (a negated signal
+// number on POSIX signal-kill).  cppScheme2/pyScheme extension; the subprocess
+// primitive the de-shelled test arsenal (cli-tests / cross-port diff / fuzz) needs.
+static Value _prim_run_process(Context*, Environment*, std::vector<Value>& args, const Value* app)
+   {
+   std::vector<std::string> argv;
+   Value cur = args[0];
+   while (is_cons(cur))
+      {
+      Value head = car(cur);
+      if (!is_string(head))
+         throw SchemeTypeError("run-process: argv elements must be strings", _src(app));
+      argv.push_back(as_string(head));
+      cur = cdr(cur);
+      }
+   if (argv.empty())
+      throw SchemeTypeError(
+          "run-process: first argument must be a non-empty list of strings", _src(app));
+   std::string stdin_buf;
+   const std::string* stdin_ptr = nullptr;
+   if (args.size() >= 2 && !(is_boolean(args[1]) && !as_boolean(args[1])))
+      {
+      if (!is_string(args[1]))
+         throw SchemeTypeError("run-process: stdin argument must be a string or #f", _src(app));
+      stdin_buf = as_string(args[1]);
+      stdin_ptr = &stdin_buf;
+      }
+   ProcessResult res = run_process_blocking(argv, stdin_ptr);
+   if (!res.launched)
+      throw SchemeTypeError(res.error, _src(app));
+   std::vector<Value> vals;
+   vals.push_back(make_integer(res.exit_code));
+   vals.push_back(make_string(res.out));
+   vals.push_back(make_string(res.err));
+   return make_multi_values(std::move(vals), _src(app));
+   }
+
 static Value _prim_exit(Context* ctx, Environment*, std::vector<Value>& args, const Value*)
    {
    int code;
@@ -652,6 +694,14 @@ void register_meta()
                       "it cannot be determined.  cppScheme2 extension: lets a test locate native "
                       "plugins (e.g. example_plugin.dll) colocated with the exe.",
                       CATEGORY);
+
+   register_primitive("run-process", 1, 2, _prim_run_process,
+                      "(run-process argv [stdin-string])",
+                      "Run argv (a non-empty list of strings; argv[0] searched on PATH) as a child "
+                      "process with NO shell, blocking until it exits.  Optional 2nd arg = a string "
+                      "written to the child's stdin.  Returns THREE values: exit-code (a negated "
+                      "signal number on POSIX signal-kill), captured stdout string, captured stderr "
+                      "string.  cppScheme2/pyScheme extension.", CATEGORY);
 
    register_primitive("exit", 0, 1, _prim_exit,
                       "", "(exit [obj]) exits the process.  R7RS 6.14.", CATEGORY);

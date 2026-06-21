@@ -73,6 +73,8 @@ add_library(cppscheme2_core SHARED
     # Phase 19
     src/plugin_loader.cpp
     src/plugin_api_impl.cpp
+    # Phase 20: subprocess primitive (run-process); windows.h-isolated like plugin_loader
+    src/process_exec.cpp
 )
 
 # Suppress warnings from vendored mini-gmp C source.
