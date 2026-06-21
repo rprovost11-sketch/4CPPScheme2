@@ -18,13 +18,16 @@
 #include <fstream>
 #include <string>
 #ifdef _WIN32
-// Declare only the env-string functions we need to avoid pulling in <windows.h>,
-// which would conflict with the BOOLEAN constant defined in AST.h.
+// Declare only the functions we need to avoid pulling in <windows.h>, which would
+// conflict with the BOOLEAN constant defined in AST.h.
 extern "C"
    {
    __declspec(dllimport) char* __stdcall GetEnvironmentStringsA(void);
    __declspec(dllimport) int __stdcall FreeEnvironmentStringsA(char*);
+   __declspec(dllimport) unsigned long __stdcall GetModuleFileNameA(void*, char*, unsigned long);
    }
+#else
+#include <unistd.h>
 #endif
 
 static const char* CATEGORY = "meta";
@@ -369,6 +372,26 @@ static Value _prim_command_line(Context*, Environment*, std::vector<Value>&, con
    return result;
    }
 
+// (interpreter-executable-path) -- absolute path to the running cppscheme2 binary,
+// or #f if it cannot be determined.  Mirrors Listener::_self_exe_path but is exposed
+// to Scheme so tests can locate native plugins (e.g. example_plugin.dll) colocated
+// with the exe.  cppScheme2-only extension: pyScheme has no single-binary identity,
+// and the native .dll plugin path this serves is itself cpp-only.
+static Value _prim_interpreter_executable_path(Context*, Environment*, std::vector<Value>&, const Value*)
+   {
+   char buf[4096];
+#ifdef _WIN32
+   unsigned long len = GetModuleFileNameA(nullptr, buf, (unsigned long)sizeof(buf));
+   if (len > 0 && len < sizeof(buf))
+      return make_string(std::string(buf, len));
+#else
+   ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf));
+   if (len > 0)
+      return make_string(std::string(buf, (size_t)len));
+#endif
+   return make_boolean(false);
+   }
+
 static Value _prim_exit(Context* ctx, Environment*, std::vector<Value>& args, const Value*)
    {
    int code;
@@ -576,6 +599,13 @@ void register_meta()
 
    register_primitive("command-line", 0, 0, _prim_command_line,
                       "", "(command-line) returns the command-line arguments as a list of strings.  R7RS 6.14.",
+                      CATEGORY);
+
+   register_primitive("interpreter-executable-path", 0, 0, _prim_interpreter_executable_path,
+                      "(interpreter-executable-path)",
+                      "Return the absolute path to the running cppscheme2 executable image, or #f if "
+                      "it cannot be determined.  cppScheme2 extension: lets a test locate native "
+                      "plugins (e.g. example_plugin.dll) colocated with the exe.",
                       CATEGORY);
 
    register_primitive("exit", 0, 1, _prim_exit,
