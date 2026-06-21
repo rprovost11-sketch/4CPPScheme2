@@ -12,7 +12,9 @@
 #include "../library.h"
 #include "../PrettyPrinter.h"
 #include "../process_exec.h"
+#include "../dir_list.h"
 #include "../unicode_tables.h"
+#include <algorithm>
 #include <chrono>
 #include <ctime>
 #include <cstdlib>
@@ -453,6 +455,25 @@ static Value _prim_interpreter_argv(Context*, Environment*, std::vector<Value>&,
 // (#f or omitted = empty stdin).  exit-code is the child's status (a negated signal
 // number on POSIX signal-kill).  cppScheme2/pyScheme extension; the subprocess
 // primitive the de-shelled test arsenal (cli-tests / cross-port diff / fuzz) needs.
+// (directory-files path) -> a sorted list of the bare entry names in directory
+// PATH, excluding "." and ".." (dotfiles kept).  Models SRFI 170 directory-files;
+// names are strings (not full paths) -- join with "/" to build a path.  Errors if
+// PATH cannot be opened.  cppScheme2/pyScheme extension.
+static Value _prim_directory_files(Context*, Environment*, std::vector<Value>& args, const Value* app)
+   {
+   if (!is_string(args[0]))
+      throw SchemeTypeError("directory-files: argument must be a string", _src(app));
+   std::vector<std::string> names;
+   if (!list_directory(as_string(args[0]), names))
+      throw SchemeTypeError("directory-files: cannot open directory: " + as_string(args[0]),
+                            _src(app));
+   std::sort(names.begin(), names.end());
+   Value result = NIL_VALUE;
+   for (auto it = names.rbegin(); it != names.rend(); ++it)
+      result = alloc_cons(make_string(*it), result);
+   return result;
+   }
+
 static Value _prim_run_process(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
    std::vector<std::string> argv;
@@ -716,6 +737,14 @@ void register_meta()
                       "Return the argv list (of strings) that relaunches THIS interpreter, for "
                       "spawning self / sibling interpreters via run-process.  cppScheme2: a one-element "
                       "list (the exe path); pyScheme: (python -m pyscheme).  #f if undeterminable.  "
+                      "cppScheme2/pyScheme extension.", CATEGORY);
+
+   register_primitive("directory-files", 1, 1, _prim_directory_files,
+                      "(directory-files path)",
+                      "Return a sorted list of the bare filenames in directory PATH, excluding "
+                      "\".\" and \"..\" (dotfiles kept).  Names are strings, not full paths -- join "
+                      "with \"/\" to build a path (\"/\" works as an OS path separator on Windows "
+                      "too).  Errors if PATH cannot be opened.  Models SRFI 170 directory-files.  "
                       "cppScheme2/pyScheme extension.", CATEGORY);
 
    register_primitive("run-process", 1, 2, _prim_run_process,
