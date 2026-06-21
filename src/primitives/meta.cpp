@@ -127,6 +127,43 @@ static Value _prim_environment(Context*, Environment*, std::vector<Value>& args,
    return make_environment(result);
    }
 
+// (make-environment <library-spec>...) -- the MUTABLE sibling of R7RS `environment`.
+// Returns a fresh top-level environment that allows defines/mutations and isolates
+// them.  With NO args it is a child of the global (REPL) environment, so every
+// default binding is visible while new top-level defines stay local -- the
+// isolation neither `environment` (immutable/frozen) nor `interaction-environment`
+// (the single shared global) can give.  With library-specs it holds the union of
+// their exports (like `environment`, but not frozen).  Used with `eval` to run a
+// program in a clean sandbox (e.g. one ecraven benchmark per fresh env).
+// cppScheme2/pyScheme extension.
+static Value _prim_make_environment(Context*, Environment* env, std::vector<Value>& args, const Value* app)
+   {
+   if (args.empty())
+      return make_environment(gc_alloc_environment(env->getGlobalEnv()));
+   Environment* result = gc_alloc_environment(nullptr);
+   for (const Value& spec : args)
+      {
+      if (!is_cons(spec))
+         throw SchemeTypeError("make-environment: argument must be a library-name list", _src(app));
+      std::string key;
+      try
+         {
+         key = library_name_to_key(spec);
+         }
+      catch (const std::exception& e)
+         {
+         throw SchemeTypeError(std::string("make-environment: ") + e.what(), _src(app));
+         }
+      Environment* lib_env = library_lookup(key);
+      if (!lib_env)
+         throw SchemeTypeError(
+             "make-environment: library not found: " + scheme_pretty_print(spec), _src(app));
+      for (const auto& [sid, val] : lib_env->_bindings)
+         result->bind(symbol_name(sid), val);
+      }
+   return make_environment(result);  // deliberately NOT frozen -> mutable
+   }
+
 static Value _prim_null_environment(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
    if (!is_integer(args[0]))
@@ -539,6 +576,14 @@ void register_meta()
                       "(environment <library-spec>...)",
                       "Return a frozen environment built from named libraries' exports.  R7RS 6.12.",
                       CATEGORY);
+
+   register_primitive("make-environment", 0, -1, _prim_make_environment,
+                      "(make-environment <library-spec>...)",
+                      "Return a fresh MUTABLE top-level environment (the mutable sibling of R7RS "
+                      "`environment`).  No args: a child of the global REPL environment (all default "
+                      "bindings visible, new defines isolated).  With library-specs: the union of "
+                      "their exports, not frozen.  Use with `eval` to run a program in isolation.  "
+                      "cppScheme2/pyScheme extension.", CATEGORY);
 
    register_primitive("%make-record-type", 2, 2, _prim_make_record_type,
                       "", "Build a record-type descriptor.  Internal: used by define-record-type.", CATEGORY);
