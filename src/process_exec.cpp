@@ -2,10 +2,16 @@
 //
 // NO Scheme/AST headers here so we can include <windows.h> freely (its BOOLEAN
 // typedef clashes with AST.h's BOOLEAN enum tag).  See process_exec.h.
+//
+// All three std streams are pumped on separate threads so the main thread is free
+// to wait on the child with a timeout: on Windows via WaitForSingleObject, on POSIX
+// via a waitpid(WNOHANG) poll loop.  Killing the child closes its pipe ends, which
+// unblocks (and ends) the reader threads.
 
 #include "process_exec.h"
 
 #include <thread>
+#include <chrono>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -13,6 +19,7 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <spawn.h>
+#include <csignal>
 #include <cstring>
 extern char** environ;
 #endif
@@ -60,9 +67,10 @@ static void read_all(HANDLE h, std::string& into)
    }
 
 ProcessResult run_process_blocking(const std::vector<std::string>& argv,
-                                   const std::string* stdin_data)
+                                   const std::string* stdin_data,
+                                   double timeout_secs)
    {
-   ProcessResult r{false, 0, "", "", ""};
+   ProcessResult r{false, false, 0, "", "", ""};
    if (argv.empty()) { r.error = "run-process: empty argv"; return r; }
 
    std::string cmdline;
@@ -82,7 +90,6 @@ ProcessResult run_process_blocking(const std::vector<std::string>& argv,
        !CreatePipe(&outR, &outW, &sa, 0) ||
        !CreatePipe(&errR, &errW, &sa, 0))
       { r.error = "run-process: CreatePipe failed"; return r; }
-   // Parent-side handles must NOT be inherited by the child.
    SetHandleInformation(inW, HANDLE_FLAG_INHERIT, 0);
    SetHandleInformation(outR, HANDLE_FLAG_INHERIT, 0);
    SetHandleInformation(errR, HANDLE_FLAG_INHERIT, 0);
@@ -99,7 +106,6 @@ ProcessResult run_process_blocking(const std::vector<std::string>& argv,
    cmdbuf.push_back('\0');
    BOOL ok = CreateProcessA(nullptr, cmdbuf.data(), nullptr, nullptr,
                             TRUE, 0, nullptr, nullptr, &si, &pi);
-   // Close the child-side handles in the parent regardless of success.
    CloseHandle(inR); CloseHandle(outW); CloseHandle(errW);
    if (!ok)
       {
@@ -108,7 +114,7 @@ ProcessResult run_process_blocking(const std::vector<std::string>& argv,
       return r;
       }
 
-   // Feed stdin and drain stdout/stderr concurrently (avoids pipe deadlock).
+   // All I/O on threads so the main thread can wait with a timeout.
    std::thread writer([&]
       {
       if (stdin_data && !stdin_data->empty())
@@ -126,12 +132,20 @@ ProcessResult run_process_blocking(const std::vector<std::string>& argv,
       CloseHandle(inW);
       });
    std::thread t_out([&] { read_all(outR, r.out); });
-   read_all(errR, r.err);
-   t_out.join();
-   writer.join();
+   std::thread t_err([&] { read_all(errR, r.err); });
+
+   DWORD wait_ms = (timeout_secs > 0)
+                       ? (DWORD)(timeout_secs * 1000.0 + 0.5) : INFINITE;
+   if (WaitForSingleObject(pi.hProcess, wait_ms) == WAIT_TIMEOUT)
+      {
+      r.timed_out = true;
+      TerminateProcess(pi.hProcess, 1);   // closes child pipe ends -> readers end
+      WaitForSingleObject(pi.hProcess, INFINITE);
+      }
+
+   writer.join(); t_out.join(); t_err.join();
    CloseHandle(outR); CloseHandle(errR);
 
-   WaitForSingleObject(pi.hProcess, INFINITE);
    DWORD code = 0;
    GetExitCodeProcess(pi.hProcess, &code);
    CloseHandle(pi.hProcess);
@@ -153,9 +167,10 @@ static void read_all(int fd, std::string& into)
    }
 
 ProcessResult run_process_blocking(const std::vector<std::string>& argv,
-                                   const std::string* stdin_data)
+                                   const std::string* stdin_data,
+                                   double timeout_secs)
    {
-   ProcessResult r{false, 0, "", "", ""};
+   ProcessResult r{false, false, 0, "", "", ""};
    if (argv.empty()) { r.error = "run-process: empty argv"; return r; }
 
    int inP[2], outP[2], errP[2];
@@ -170,7 +185,6 @@ ProcessResult run_process_blocking(const std::vector<std::string>& argv,
    posix_spawn_file_actions_adddup2(&fa, inP[0], 0);
    posix_spawn_file_actions_adddup2(&fa, outP[1], 1);
    posix_spawn_file_actions_adddup2(&fa, errP[1], 2);
-   // Close inherited pipe ends in the child.
    posix_spawn_file_actions_addclose(&fa, inP[1]);
    posix_spawn_file_actions_addclose(&fa, outP[0]);
    posix_spawn_file_actions_addclose(&fa, errP[0]);
@@ -184,7 +198,6 @@ ProcessResult run_process_blocking(const std::vector<std::string>& argv,
    pid_t pid = 0;
    int rc = posix_spawnp(&pid, argv[0].c_str(), &fa, nullptr, cargv.data(), environ);
    posix_spawn_file_actions_destroy(&fa);
-   // Close child-side ends in the parent.
    close(inP[0]); close(outP[1]); close(errP[1]);
    if (rc != 0)
       {
@@ -208,18 +221,39 @@ ProcessResult run_process_blocking(const std::vector<std::string>& argv,
       close(inP[1]);
       });
    std::thread t_out([&] { read_all(outP[0], r.out); });
-   read_all(errP[0], r.err);
-   t_out.join();
-   writer.join();
-   close(outP[0]); close(errP[0]);
+   std::thread t_err([&] { read_all(errP[0], r.err); });
 
    int status = 0;
-   waitpid(pid, &status, 0);
+   if (timeout_secs > 0)
+      {
+      auto start = std::chrono::steady_clock::now();
+      for (;;)
+         {
+         pid_t w = waitpid(pid, &status, WNOHANG);
+         if (w == pid) break;                      // child exited
+         double elapsed = std::chrono::duration<double>(
+             std::chrono::steady_clock::now() - start).count();
+         if (elapsed >= timeout_secs)
+            {
+            r.timed_out = true;
+            kill(pid, SIGKILL);                    // closes pipe ends -> readers end
+            waitpid(pid, &status, 0);
+            break;
+            }
+         std::this_thread::sleep_for(std::chrono::milliseconds(10));
+         }
+      }
+   else
+      waitpid(pid, &status, 0);
+
+   writer.join(); t_out.join(); t_err.join();
+   close(outP[0]); close(errP[0]);
+
    r.launched = true;
    if (WIFEXITED(status))
       r.exit_code = WEXITSTATUS(status);
    else if (WIFSIGNALED(status))
-      r.exit_code = -WTERMSIG(status);  // signal-kill -> negated signal number
+      r.exit_code = -WTERMSIG(status);
    else
       r.exit_code = -1;
    return r;

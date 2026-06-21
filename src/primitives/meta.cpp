@@ -498,11 +498,19 @@ static Value _prim_run_process(Context*, Environment*, std::vector<Value>& args,
       stdin_buf = as_string(args[1]);
       stdin_ptr = &stdin_buf;
       }
-   ProcessResult res = run_process_blocking(argv, stdin_ptr);
+   double timeout = 0.0;   // <= 0 means no timeout
+   if (args.size() >= 3 && !(is_boolean(args[2]) && !as_boolean(args[2])))
+      {
+      if (!is_number(args[2]))
+         throw SchemeTypeError("run-process: timeout must be a number of seconds or #f", _src(app));
+      timeout = is_integer(args[2]) ? (double)as_integer(args[2]) : as_real(args[2]);
+      }
+   ProcessResult res = run_process_blocking(argv, stdin_ptr, timeout);
    if (!res.launched)
       throw SchemeTypeError(res.error, _src(app));
    std::vector<Value> vals;
-   vals.push_back(make_integer(res.exit_code));
+   // exit-code is #f when the child was killed for exceeding the timeout.
+   vals.push_back(res.timed_out ? make_boolean(false) : make_integer(res.exit_code));
    vals.push_back(make_string(res.out));
    vals.push_back(make_string(res.err));
    return make_multi_values(std::move(vals), _src(app));
@@ -747,13 +755,15 @@ void register_meta()
                       "too).  Errors if PATH cannot be opened.  Models SRFI 170 directory-files.  "
                       "cppScheme2/pyScheme extension.", CATEGORY);
 
-   register_primitive("run-process", 1, 2, _prim_run_process,
-                      "(run-process argv [stdin-string])",
+   register_primitive("run-process", 1, 3, _prim_run_process,
+                      "(run-process argv [stdin-string [timeout-secs]])",
                       "Run argv (a non-empty list of strings; argv[0] searched on PATH) as a child "
                       "process with NO shell, blocking until it exits.  Optional 2nd arg = a string "
-                      "written to the child's stdin.  Returns THREE values: exit-code (a negated "
-                      "signal number on POSIX signal-kill), captured stdout string, captured stderr "
-                      "string.  cppScheme2/pyScheme extension.", CATEGORY);
+                      "written to the child's stdin; optional 3rd arg = a timeout in seconds (a "
+                      "number; #f or omitted = no limit) after which the child is killed.  Returns "
+                      "THREE values: exit-code (a negated signal number on POSIX signal-kill, or #f "
+                      "if it timed out), captured stdout string, captured stderr string.  "
+                      "cppScheme2/pyScheme extension.", CATEGORY);
 
    register_primitive("exit", 0, 1, _prim_exit,
                       "", "(exit [obj]) exits the process.  R7RS 6.14.", CATEGORY);
