@@ -32,23 +32,16 @@ jobs:
         run: |
           cmake -B build
           cmake --build build --config Release --target cppscheme2 gc_test
-      - name: Fast subset (feature + regression) + gc_test
+      - name: Fast subset (feature + regression + cli-tests) + gc_test
         shell: bash
         working-directory: 4CPPScheme2
         run: |
-          out="$(printf ']suites feature regression\n' | ./build/Release/cppscheme2.exe -T ../scheme-tests 2>&1)"
-          echo "$out" | tail -5
+          out="$(printf ']suites feature regression cli-tests\n' | ./build/Release/cppscheme2.exe -T ../scheme-tests 2>&1)"
+          echo "$out" | tail -6
           if ! echo "$out" | grep -q 'ALL SUITES PASSED'; then
             echo "$out"; find "$GITHUB_WORKSPACE" -name '*.run' -exec cat {} +; echo '::error::fast subset failed'; exit 1
           fi
           ./build/Release/gc_test.exe
-      - name: CLI / process-boundary tests
-        shell: bash
-        env: { SCHEME_TESTS_DIR: '${{ github.workspace }}/scheme-tests' }
-        run: |
-          out="$(sh scheme-tests/cli-tests/run.sh "$GITHUB_WORKSPACE/4CPPScheme2/build/Release/cppscheme2.exe" 2>&1)"
-          echo "$out" | tail -3
-          echo "$out" | grep -q '0 failed' || { echo '::error::cli-tests failed'; exit 1; }
 
   full:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'

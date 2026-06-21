@@ -415,19 +415,35 @@ static Value _prim_command_line(Context*, Environment*, std::vector<Value>&, con
 // to Scheme so tests can locate native plugins (e.g. example_plugin.dll) colocated
 // with the exe.  cppScheme2-only extension: pyScheme has no single-binary identity,
 // and the native .dll plugin path this serves is itself cpp-only.
-static Value _prim_interpreter_executable_path(Context*, Environment*, std::vector<Value>&, const Value*)
+static std::string _self_exe_path_str()
    {
    char buf[4096];
 #ifdef _WIN32
    unsigned long len = GetModuleFileNameA(nullptr, buf, (unsigned long)sizeof(buf));
-   if (len > 0 && len < sizeof(buf))
-      return make_string(std::string(buf, len));
+   if (len > 0 && len < sizeof(buf)) return std::string(buf, len);
 #else
    ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf));
-   if (len > 0)
-      return make_string(std::string(buf, (size_t)len));
+   if (len > 0) return std::string(buf, (size_t)len);
 #endif
-   return make_boolean(false);
+   return std::string();
+   }
+
+static Value _prim_interpreter_executable_path(Context*, Environment*, std::vector<Value>&, const Value*)
+   {
+   std::string exe = _self_exe_path_str();
+   return exe.empty() ? make_boolean(false) : make_string(exe);
+   }
+
+// (interpreter-argv) -> the argv list that relaunches THIS interpreter, for
+// spawning self / sibling interpreters via run-process (e.g. the cli-tests and
+// cross-port differential suites).  cppScheme2 is a single exe, so the list has
+// one element: (<exe-path>).  A LIST (not a bare path) keeps parity with pyScheme,
+// whose relaunch is multi-token (python -m pyscheme).  #f if undeterminable.
+static Value _prim_interpreter_argv(Context*, Environment*, std::vector<Value>&, const Value*)
+   {
+   std::string exe = _self_exe_path_str();
+   if (exe.empty()) return make_boolean(false);
+   return alloc_cons(make_string(exe), NIL_VALUE);
    }
 
 // (run-process argv [stdin-string]) -> (values exit-code stdout stderr).
@@ -694,6 +710,13 @@ void register_meta()
                       "it cannot be determined.  cppScheme2 extension: lets a test locate native "
                       "plugins (e.g. example_plugin.dll) colocated with the exe.",
                       CATEGORY);
+
+   register_primitive("interpreter-argv", 0, 0, _prim_interpreter_argv,
+                      "(interpreter-argv)",
+                      "Return the argv list (of strings) that relaunches THIS interpreter, for "
+                      "spawning self / sibling interpreters via run-process.  cppScheme2: a one-element "
+                      "list (the exe path); pyScheme: (python -m pyscheme).  #f if undeterminable.  "
+                      "cppScheme2/pyScheme extension.", CATEGORY);
 
    register_primitive("run-process", 1, 2, _prim_run_process,
                       "(run-process argv [stdin-string])",
