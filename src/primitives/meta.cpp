@@ -15,12 +15,16 @@
 #include "../dir_list.h"
 #include "../unicode_tables.h"
 #include "../Utils.h"
+#include "../Listener.h"
+#include "../Context.h"
+#include "../Analyzer.h"
 #include <algorithm>
 #include <chrono>
 #include <ctime>
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
+#include <sstream>
 #include <string>
 #ifdef _WIN32
 // Declare only the functions we need to avoid pulling in <windows.h>, which would
@@ -568,6 +572,130 @@ static Value _prim_log_match_p(Context*, Environment*, std::vector<Value>& args,
    return make_boolean(m.output_ok && m.retval_ok && m.error_ok);
    }
 
+// Right-strip trailing whitespace (the .log runner rstrips captured output).
+static std::string _ec_rstrip(const std::string& s)
+   {
+   size_t end = s.size();
+   while (end > 0 && (s[end - 1] == ' ' || s[end - 1] == '\t' ||
+                      s[end - 1] == '\r' || s[end - 1] == '\n'))
+      --end;
+   return s.substr(0, end);
+   }
+
+// (eval-cycle input env [timeout-secs]) -> (values output retval error timed-out?)
+// Evaluate the Scheme source string INPUT as ONE REPL cycle in environment ENV (a
+// make-environment env; state persists across cycles), capturing exactly what the
+// existing .log test runner captures: standard output, the REPL-formatted return
+// value (write form; void -> ""; multiple values space-joined), and -- on error --
+// the SAME formatted error text the runner records (exception class + source
+// location + message, via Listener::format_error).  Optional 3rd arg = a timeout in
+// seconds (#f/omitted = none); on timeout the error names the timeout and the 4th
+// value is #t.  This is the host port's IN-PROCESS live runner for the interpreter
+// differ: it shares the runner's parse/expand/eval/format path so results are
+// byte-identical (parse->expand->cek_eval; analyze is a checking pass cek_eval does
+// not need, mirroring the eval primitive).  cppScheme2/pyScheme extension.
+static Value _prim_eval_cycle(Context* ctx, Environment*, std::vector<Value>& args, const Value* app)
+   {
+   if (!is_string(args[0]))
+      throw SchemeTypeError("eval-cycle: first argument must be a string", _src(app));
+   if (!is_environment(args[1]))
+      throw SchemeTypeError("eval-cycle: second argument must be an environment", _src(app));
+   Environment* target = as_environment(args[1]);
+   std::string source = as_string(args[0]);
+
+   bool have_timeout = false;
+   double timeout_secs = 0.0;
+   if (args.size() >= 3 && !(is_boolean(args[2]) && !as_boolean(args[2])))
+      {
+      if (!is_number(args[2]))
+         throw SchemeTypeError("eval-cycle: timeout must be a number of seconds or #f", _src(app));
+      timeout_secs = is_integer(args[2]) ? (double)as_integer(args[2]) : as_real(args[2]);
+      have_timeout = true;
+      }
+
+   // eval-cycle runs NESTED inside the differ's own evaluation, so save every bit of
+   // ctx we transiently repurpose and restore it afterwards -- the outer evaluation
+   // must be left pristine.
+   std::ostream* prev_out = ctx->outStrm;
+   SteadyTimePoint prev_deadline = ctx->timeout_at;
+   bool prev_timeout_active = ctx->timeout_active;
+   std::vector<ShadowEntry> saved_shadow = ctx->shadow_stack;
+   std::vector<Value> saved_handlers = ctx->handler_stack;
+
+   std::ostringstream out_capture;
+   ctx->outStrm = &out_capture;
+   ctx->shadow_stack.clear();
+   if (have_timeout)
+      {
+      ctx->timeout_at = SteadyClock::now() +
+          std::chrono::milliseconds((long long)(timeout_secs * 1000.0));
+      ctx->timeout_active = true;
+      }
+
+   std::string retval;
+   std::string errstr;
+   bool timed_out = false;
+   try
+      {
+      std::vector<Value> forms = scheme_parse(source, "");
+      GcRootVec forms_root(forms);
+      // Mirror Interpreter::rawEval: analyze (a checking pass -- its result is
+      // discarded; cek_eval runs the un-analyzed form) then accumulate user defines
+      // so cross-form arity checks fire, exactly as the .log runner does.  The static
+      // env is seeded with the primitive/special-form arities.
+      StaticEnv senv(primitive_arities());
+      Value last = NIL_VALUE;
+      bool have = false;
+      for (auto& form : forms)
+         {
+         Value expanded = expand(form);
+         analyze(expanded, senv);
+         extend_static_env_with_define(senv, expanded);
+         last = cek_eval(expanded, target, ctx);
+         have = true;
+         }
+      if (have && !is_void(last))
+         {
+         if (is_multi_values(last))
+            {
+            const std::vector<Value>& vs = as_multi_values_list(last);
+            for (size_t i = 0; i < vs.size(); ++i)
+               {
+               if (i)
+                  retval += ' ';
+               retval += scheme_pretty_print(vs[i]);
+               }
+            }
+         else
+            retval = scheme_pretty_print(last);
+         }
+      }
+   catch (ReplExitSignal&)
+      {
+      // A test that calls (exit): record a token instead of aborting the differ.
+      errstr = "(exit)";
+      }
+   catch (std::exception& e)
+      {
+      errstr = Listener::format_error(e);
+      if (errstr.find("Evaluation timed out.") != std::string::npos)
+         timed_out = true;
+      }
+
+   ctx->outStrm = prev_out;
+   ctx->timeout_at = prev_deadline;
+   ctx->timeout_active = prev_timeout_active;
+   ctx->shadow_stack = saved_shadow;
+   ctx->handler_stack = saved_handlers;
+
+   std::vector<Value> vals;
+   vals.push_back(make_string(_ec_rstrip(out_capture.str())));
+   vals.push_back(make_string(retval));
+   vals.push_back(make_string(errstr));
+   vals.push_back(make_boolean(timed_out));
+   return make_multi_values(std::move(vals), _src(app));
+   }
+
 static Value _prim_exit(Context* ctx, Environment*, std::vector<Value>& args, const Value*)
    {
    int code;
@@ -833,6 +961,18 @@ void register_meta()
                       "return alternatives; '%%% *' / '%%% %any-error%' accept any raised error; "
                       "'%%% %optional-error%' models R7RS \"it is an error\" (passes either way); a "
                       "true TIMED-OUT? always fails.  Args 1-6 are strings.  cppScheme2/pyScheme extension.",
+                      CATEGORY);
+
+   register_primitive("eval-cycle", 2, 3, _prim_eval_cycle,
+                      "(eval-cycle input env [timeout-secs])",
+                      "Evaluate the Scheme source string INPUT as one REPL cycle in environment ENV "
+                      "(typically a make-environment env; state persists across cycles).  Returns "
+                      "FOUR values: captured standard output, the REPL-formatted return value (write "
+                      "form; void -> \"\"; multiple values space-joined), the formatted error text "
+                      "(exception class + source location + message, exactly as the .log test runner "
+                      "records it) or \"\" if none, and a timed-out? boolean.  Optional 3rd arg = a "
+                      "timeout in seconds (#f or omitted = none).  The host port's in-process live "
+                      "runner for the interpreter differ.  cppScheme2/pyScheme extension.",
                       CATEGORY);
 
    register_primitive("exit", 0, 1, _prim_exit,
