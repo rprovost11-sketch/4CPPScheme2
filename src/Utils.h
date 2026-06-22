@@ -45,3 +45,52 @@ CPPSCHEME2_API ParenState paren_state(const std::string& text);
 CPPSCHEME2_API void writeln_multiFile(const std::string& output_string,
                                       const std::vector<std::ostream*>& file_list,
                                       bool flush = false);
+
+// ── Session-log parsing + match semantics ──────────────────────────────────────
+// A second, free-standing implementation of the .log parser and the test match
+// semantics, used to back the (parse-log-file ...) and (log-match? ...) primitives
+// (and through them the Scheme-side universal interpreter differ, which treats a
+// .log file as a reference interpreter).  Listener keeps its OWN copy
+// (Listener::parse_log / sessionLog_test) for the in-process test runner; these are
+// deliberately independent so differ work does not disturb the existing harness.
+// The two must stay behaviourally identical.
+
+// One parsed log entry: expression, output, return value, error, fold-case flag.
+struct CPPSCHEME2_API LogEntry
+   {
+   std::string expr;
+   std::string output;
+   std::string retval;
+   std::string error;
+   bool fold_case = false;
+   };
+
+// Parse a session log into a list of LogEntry structs.  Each entry begins with a
+// '>>> ' line; '... ' lines continue the expression; lines before '==> ' are
+// output; '==> ' gives the return value, '%%% ' the error; '#!fold-case' /
+// '#!no-fold-case' toggle case folding for following entries.
+CPPSCHEME2_API std::vector<LogEntry> parse_log(const std::string& text);
+
+// True if actual matches expected, honouring 'X or ==> Y' alternatives.
+CPPSCHEME2_API bool log_match_retval(const std::string& actual,
+                                     const std::string& expected);
+
+// Per-channel result of comparing one interpreter cycle's actual outcome to the
+// expected (golden) one.
+struct CPPSCHEME2_API LogMatch
+   {
+   bool output_ok;
+   bool retval_ok;
+   bool error_ok;
+   };
+
+// Apply the .log test match semantics.  '%%% *' / '%%% %any-error%' accept any
+// raised error; '%%% %optional-error%' models R7RS "it is an error" (passes whether
+// or not an error is raised); a timeout always fails.
+CPPSCHEME2_API LogMatch log_match(const std::string& expected_output,
+                                  const std::string& expected_retval,
+                                  const std::string& expected_error,
+                                  const std::string& actual_output,
+                                  const std::string& actual_retval,
+                                  const std::string& actual_error,
+                                  bool timed_out);

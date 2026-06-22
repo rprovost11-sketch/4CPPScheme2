@@ -212,3 +212,190 @@ void writeln_multiFile(const std::string& output_string,
          os.flush();
       }
    }
+
+// ── Session-log parsing + match semantics ──────────────────────────────────────
+// Independent of Listener::parse_log / sessionLog_test (see Utils.h); kept
+// behaviourally identical to them.
+
+// Right-strip trailing whitespace (mirror of Listener.cpp's file-local _rstrip).
+static std::string _u_rstrip(const std::string& s)
+   {
+   size_t end = s.size();
+   while (end > 0 && (s[end - 1] == ' ' || s[end - 1] == '\t' ||
+                      s[end - 1] == '\r' || s[end - 1] == '\n'))
+      --end;
+   return s.substr(0, end);
+   }
+
+// True if s starts with pfx (length plen).
+static bool _u_sw(const std::string& s, const char* pfx, size_t plen)
+   {
+   return s.size() >= plen && s.compare(0, plen, pfx, plen) == 0;
+   }
+
+// Strip leading+trailing whitespace.
+static std::string _u_strip(const std::string& s)
+   {
+   size_t s0 = s.find_first_not_of(" \t\r\n");
+   if (s0 == std::string::npos)
+      return {};
+   size_t s1 = s.find_last_not_of(" \t\r\n");
+   return s.substr(s0, s1 - s0 + 1);
+   }
+
+std::vector<LogEntry> parse_log(const std::string& text)
+   {
+   // Split text into lines keeping line endings (splitlines(keepends=True)).
+   std::vector<std::string> lines;
+   std::string cur;
+   for (char c : text)
+      {
+      cur += c;
+      if (c == '\n')
+         {
+         lines.push_back(cur);
+         cur.clear();
+         }
+      }
+   if (!cur.empty())
+      lines.push_back(cur);
+
+   auto rstrip_eq = [](const std::string& s, const char* expected, size_t elen) -> bool
+   {
+      size_t end = s.size();
+      while (end > 0 && (s[end - 1] == ' ' || s[end - 1] == '\t' ||
+                         s[end - 1] == '\r' || s[end - 1] == '\n'))
+         --end;
+      return end == elen && s.compare(0, end, expected, elen) == 0;
+   };
+
+   std::vector<LogEntry> entries;
+   int idx = 0;
+   int n = (int)lines.size();
+   bool fold_case = false;
+
+   while (idx < n)
+      {
+      while (idx < n && !_u_sw(lines[idx], ">>> ", 4))
+         {
+         if (rstrip_eq(lines[idx], "#!fold-case", 11))
+            fold_case = true;
+         else if (rstrip_eq(lines[idx], "#!no-fold-case", 14))
+            fold_case = false;
+         ++idx;
+         }
+      if (idx >= n)
+         break;
+
+      LogEntry entry;
+      entry.fold_case = fold_case;
+      entry.expr = lines[idx].substr(4);
+      ++idx;
+
+      while (idx < n && _u_sw(lines[idx], "... ", 4))
+         {
+         entry.expr += lines[idx].substr(4);
+         ++idx;
+         }
+
+      // Optional bare '...' line (old-style multi-line marker).
+      if (idx < n && rstrip_eq(lines[idx], "...", 3) && !_u_sw(lines[idx], "... ", 4))
+         ++idx;
+
+      while (idx < n)
+         {
+         const std::string& line = lines[idx];
+         if (_u_sw(line, "==> ", 4) || rstrip_eq(line, "==>", 3))
+            break;
+         if (_u_sw(line, "... ", 4) || _u_sw(line, ">>> ", 4) || _u_sw(line, "%%% ", 4))
+            break;
+         entry.output += line;
+         ++idx;
+         }
+
+      if (idx < n && (_u_sw(lines[idx], "==> ", 4) || rstrip_eq(lines[idx], "==>", 3)))
+         {
+         const std::string& line = lines[idx];
+         if (line.size() > 4)
+            entry.retval = line.substr(4);
+         ++idx;
+         while (idx < n)
+            {
+            const std::string& ln = lines[idx];
+            if (_u_sw(ln, "==> ", 4) || rstrip_eq(ln, "==>", 3))
+               break;
+            if (_u_sw(ln, "... ", 4) || _u_sw(ln, ">>> ", 4) || _u_sw(ln, "%%% ", 4))
+               break;
+            if (_u_sw(ln, "#!", 2))
+               break; // fold-case directive
+            if (!ln.empty() && ln[0] == ';')
+               entry.expr += ln;
+            else
+               entry.retval += ln;
+            ++idx;
+            }
+         }
+
+      if (idx < n && _u_sw(lines[idx], "%%% ", 4))
+         {
+         entry.error = lines[idx].substr(4);
+         ++idx;
+         while (idx < n && _u_sw(lines[idx], "%%% ", 4))
+            {
+            entry.error += lines[idx].substr(4);
+            ++idx;
+            }
+         }
+
+      if (!entry.expr.empty())
+         {
+         entry.output = _u_rstrip(entry.output);
+         entry.retval = _u_rstrip(entry.retval);
+         entry.error = _u_rstrip(entry.error);
+         entries.push_back(std::move(entry));
+         }
+      }
+   return entries;
+   }
+
+bool log_match_retval(const std::string& actual, const std::string& expected)
+   {
+   const std::string sep = " or ==> ";
+   std::string rem = expected;
+   while (true)
+      {
+      size_t idx = rem.find(sep);
+      std::string part = (idx == std::string::npos) ? rem : rem.substr(0, idx);
+      part = _u_strip(part);
+      if (actual == part)
+         return true;
+      if (idx == std::string::npos)
+         break;
+      rem = rem.substr(idx + sep.size());
+      }
+   return false;
+   }
+
+LogMatch log_match(const std::string& expected_output,
+                   const std::string& expected_retval,
+                   const std::string& expected_error,
+                   const std::string& actual_output,
+                   const std::string& actual_retval,
+                   const std::string& actual_error,
+                   bool timed_out)
+   {
+   std::string exp_out = _u_rstrip(expected_output);
+   std::string act_out = _u_rstrip(actual_output);
+   if (timed_out)
+      return {false, false, false};
+   if (_u_sw(expected_error, "%optional-error%", 16))
+      return {true, true, true};
+   bool error_ok;
+   if (expected_error == "*" || _u_sw(expected_error, "%any-error%", 11))
+      error_ok = !actual_error.empty();
+   else
+      error_ok = (actual_error == expected_error);
+   bool retval_ok = log_match_retval(actual_retval, expected_retval);
+   bool output_ok = (act_out == exp_out);
+   return {output_ok, retval_ok, error_ok};
+   }

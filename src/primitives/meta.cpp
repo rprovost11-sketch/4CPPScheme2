@@ -14,11 +14,13 @@
 #include "../process_exec.h"
 #include "../dir_list.h"
 #include "../unicode_tables.h"
+#include "../Utils.h"
 #include <algorithm>
 #include <chrono>
 #include <ctime>
 #include <cstdlib>
 #include <fstream>
+#include <iterator>
 #include <string>
 #ifdef _WIN32
 // Declare only the functions we need to avoid pulling in <windows.h>, which would
@@ -516,6 +518,56 @@ static Value _prim_run_process(Context*, Environment*, std::vector<Value>& args,
    return make_multi_values(std::move(vals), _src(app));
    }
 
+// (parse-log-file path) -> a list of entries parsed from the .log session-log file
+// at PATH.  Each entry is a 5-element list (input output retval error fold-case?):
+// the four strings recorded for one REPL cycle plus a boolean fold-case flag.
+// Treats a .log file as a reference interpreter for the Scheme-side universal
+// interpreter differ.  cppScheme2/pyScheme extension.
+static Value _prim_parse_log_file(Context*, Environment*, std::vector<Value>& args, const Value* app)
+   {
+   if (!is_string(args[0]))
+      throw SchemeTypeError("parse-log-file: argument must be a string", _src(app));
+   std::ifstream f(as_string(args[0]), std::ios::in);
+   if (!f)
+      throw SchemeTypeError("parse-log-file: cannot open file: " + as_string(args[0]), _src(app));
+   std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+   f.close();
+   std::vector<LogEntry> entries = parse_log(text);
+   Value result = NIL_VALUE;
+   for (auto it = entries.rbegin(); it != entries.rend(); ++it)
+      {
+      Value entry = NIL_VALUE;
+      entry = alloc_cons(make_boolean(it->fold_case), entry);
+      entry = alloc_cons(make_string(it->error), entry);
+      entry = alloc_cons(make_string(it->retval), entry);
+      entry = alloc_cons(make_string(it->output), entry);
+      entry = alloc_cons(make_string(it->expr), entry);
+      result = alloc_cons(entry, result);
+      }
+   return result;
+   }
+
+// (log-match? expected-output expected-retval expected-error
+//             actual-output actual-retval actual-error timed-out?)
+// -> #t if the actual output/return/error match the expected (golden) ones under
+// the .log test match semantics: '==> X or ==> Y' return alternatives; '%%% *' /
+// '%%% %any-error%' accept any raised error; '%%% %optional-error%' models R7RS
+// "it is an error" (passes whether or not an error is raised); a timeout always
+// fails.  Backs reference-mode comparison in the interpreter differ.
+// cppScheme2/pyScheme extension.
+static Value _prim_log_match_p(Context*, Environment*, std::vector<Value>& args, const Value* app)
+   {
+   for (int i = 0; i < 6; ++i)
+      if (!is_string(args[i]))
+         throw SchemeTypeError("log-match?: arguments 1-6 must be strings", _src(app));
+   // Scheme truthiness: only #f is false.
+   bool timed_out = !(is_boolean(args[6]) && !as_boolean(args[6]));
+   LogMatch m = log_match(as_string(args[0]), as_string(args[1]), as_string(args[2]),
+                          as_string(args[3]), as_string(args[4]), as_string(args[5]),
+                          timed_out);
+   return make_boolean(m.output_ok && m.retval_ok && m.error_ok);
+   }
+
 static Value _prim_exit(Context* ctx, Environment*, std::vector<Value>& args, const Value*)
    {
    int code;
@@ -764,6 +816,24 @@ void register_meta()
                       "THREE values: exit-code (a negated signal number on POSIX signal-kill, or #f "
                       "if it timed out), captured stdout string, captured stderr string.  "
                       "cppScheme2/pyScheme extension.", CATEGORY);
+
+   register_primitive("parse-log-file", 1, 1, _prim_parse_log_file,
+                      "(parse-log-file path)",
+                      "Parse the .log session-log file at PATH into a list of entries.  Each entry "
+                      "is a 5-element list (input output retval error fold-case?): the input "
+                      "expression, recorded output, return value and error message (strings) for one "
+                      "REPL cycle, plus a fold-case boolean.  Treats a .log file as a reference "
+                      "interpreter for the universal interpreter differ.  cppScheme2/pyScheme extension.",
+                      CATEGORY);
+
+   register_primitive("log-match?", 7, 7, _prim_log_match_p,
+                      "(log-match? exp-output exp-retval exp-error act-output act-retval act-error timed-out?)",
+                      "Return #t if the actual output/return/error (args 4-6) match the expected "
+                      "golden ones (args 1-3) under the .log test match semantics: '==> X or ==> Y' "
+                      "return alternatives; '%%% *' / '%%% %any-error%' accept any raised error; "
+                      "'%%% %optional-error%' models R7RS \"it is an error\" (passes either way); a "
+                      "true TIMED-OUT? always fails.  Args 1-6 are strings.  cppScheme2/pyScheme extension.",
+                      CATEGORY);
 
    register_primitive("exit", 0, 1, _prim_exit,
                       "", "(exit [obj]) exits the process.  R7RS 6.14.", CATEGORY);
