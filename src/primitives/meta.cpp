@@ -173,6 +173,26 @@ static Value _prim_make_environment(Context*, Environment* env, std::vector<Valu
    return make_environment(result);  // deliberately NOT frozen -> mutable
    }
 
+// (make-toplevel-environment) -> a fresh MUTABLE environment that behaves like a
+// freshly rebooted interpreter's global env.  It is a CHILD of the real global (so
+// builtins reached via the parent chain, e.g. `apply`, resolve and new defines stay
+// isolated); the global's OWN top-level bindings are copied in (so environment
+// introspection -- help / apropos, which read getGlobalEnv()._bindings -- sees them);
+// and it is rerooted to be its own global (so getGlobalEnv() returns IT, hence code
+// run in it sees IT as (interaction-environment)).  The differ's host runner uses one
+// per source so meta-circular tests -- e.g. (define x 1) then
+// (eval 'x (interaction-environment)) -- resolve against the SAME env, exactly like
+// the .log test runner.  cppScheme2/pyScheme extension.
+static Value _prim_make_toplevel_environment(Context*, Environment* env, std::vector<Value>&, const Value*)
+   {
+   Environment* g = env->getGlobalEnv();
+   Environment* fresh = gc_alloc_environment(g);          // child of global: chain + isolation
+   for (const auto& [sid, val] : g->_bindings)
+      fresh->bind(symbol_name(sid), val);                 // copy so help/apropos can introspect
+   fresh->reroot_as_global();                             // but is its own global
+   return make_environment(fresh);
+   }
+
 static Value _prim_null_environment(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
    if (!is_integer(args[0]))
@@ -851,6 +871,16 @@ void register_meta()
                       "bindings visible, new defines isolated).  With library-specs: the union of "
                       "their exports, not frozen.  Use with `eval` to run a program in isolation.  "
                       "cppScheme2/pyScheme extension.", CATEGORY);
+
+   register_primitive("make-toplevel-environment", 0, 0, _prim_make_toplevel_environment,
+                      "(make-toplevel-environment)",
+                      "Return a fresh MUTABLE environment that is its OWN global -- like "
+                      "make-environment but self-rooted, so code run in it sees IT as "
+                      "(interaction-environment).  Populated with every current global top-level "
+                      "binding, so all builtins are present.  Equivalent to a freshly rebooted "
+                      "interpreter's global env; used by the interpreter differ's host runner so "
+                      "meta-circular tests resolve against the same env.  cppScheme2/pyScheme extension.",
+                      CATEGORY);
 
    register_primitive("%make-record-type", 2, 2, _prim_make_record_type,
                       "", "Build a record-type descriptor.  Internal: used by define-record-type.", CATEGORY);

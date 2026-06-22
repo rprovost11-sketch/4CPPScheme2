@@ -135,6 +135,12 @@ struct CPPSCHEME2_API Environment
    void freeze();
    Environment* getGlobalEnv() const;
 
+   // Make this environment its own global root (getGlobalEnv() == this) while keeping
+   // its existing parent chain for lookups.  Used by make-toplevel-environment so an
+   // isolated top-level env reports ITSELF as the interaction-environment, yet still
+   // sees every inherited binding via its parent.
+   void reroot_as_global() { _global_env = this; }
+
    // Bind gs (a macro free-identifier gensym) in the global env to an AliasCell
    // indirecting to target in def_env (see struct AliasCell).
    void register_alias(uint32_t gs, uint32_t target, Environment* def_env,
