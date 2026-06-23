@@ -592,6 +592,25 @@ static Value _prim_log_match_p(Context*, Environment*, std::vector<Value>& args,
    return make_boolean(m.output_ok && m.retval_ok && m.error_ok);
    }
 
+// (log-match-detail exp-output exp-retval exp-error
+//                   act-output act-retval act-error timed-out?)
+// -> the 3-element list (output-ok? retval-ok? error-ok?) of per-channel match
+// results under the SAME .log semantics as log-match? (which is their AND), so a
+// caller can report WHICH channel diverged (e.g. a per-channel .run report).
+// cppScheme2/pyScheme extension.
+static Value _prim_log_match_detail(Context*, Environment*, std::vector<Value>& args, const Value* app)
+   {
+   for (int i = 0; i < 6; ++i)
+      if (!is_string(args[i]))
+         throw SchemeTypeError("log-match-detail: arguments 1-6 must be strings", _src(app));
+   bool timed_out = !(is_boolean(args[6]) && !as_boolean(args[6]));
+   LogMatch m = log_match(as_string(args[0]), as_string(args[1]), as_string(args[2]),
+                          as_string(args[3]), as_string(args[4]), as_string(args[5]),
+                          timed_out);
+   return list_from_items({make_boolean(m.output_ok), make_boolean(m.retval_ok),
+                           make_boolean(m.error_ok)});
+   }
+
 // Right-strip trailing whitespace (the .log runner rstrips captured output).
 static std::string _ec_rstrip(const std::string& s)
    {
@@ -991,6 +1010,14 @@ void register_meta()
                       "return alternatives; '%%% *' / '%%% %any-error%' accept any raised error; "
                       "'%%% %optional-error%' models R7RS \"it is an error\" (passes either way); a "
                       "true TIMED-OUT? always fails.  Args 1-6 are strings.  cppScheme2/pyScheme extension.",
+                      CATEGORY);
+
+   register_primitive("log-match-detail", 7, 7, _prim_log_match_detail,
+                      "(log-match-detail exp-output exp-retval exp-error act-output act-retval act-error timed-out?)",
+                      "Like log-match?, but return the per-channel list (output-ok? retval-ok? error-ok?) "
+                      "instead of their AND, so a caller can report WHICH channel diverged (e.g. a "
+                      "per-channel .run report).  Same .log match semantics and string arguments.  "
+                      "cppScheme2/pyScheme extension.",
                       CATEGORY);
 
    register_primitive("eval-cycle", 2, 3, _prim_eval_cycle,
