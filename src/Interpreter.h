@@ -18,7 +18,10 @@ class CPPSCHEME2_API Interpreter : public InterpreterBase
    // library_paths: extra -L/-I search-path directories from the command line,
    // prepended to SCHEME_LIBRARY_PATH when the current-library-path parameter is
    // built in reboot().
-   Interpreter(std::vector<std::string> library_paths = {});
+   // load_rc=false (the --no-rc CLI flag) boots a pristine global with no
+   // ~/.cppscheme2rc -- the state the .log test runner reboots into, so a
+   // subprocess interpreter can run the golden battery without rc pollution.
+   Interpreter(std::vector<std::string> library_paths = {}, bool load_rc = true);
    ~Interpreter();
 
    void reboot(std::ostream* outStrm = nullptr, bool load_rc = true) override;

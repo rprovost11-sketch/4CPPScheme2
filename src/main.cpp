@@ -33,7 +33,8 @@ static bool parse_args(int argc, char* argv[],
                        std::vector<std::string>& library_paths,
                        std::string& target, bool& have_target,
                        std::vector<std::string>& eval_exprs, bool& have_eval,
-                       std::string& scheme_tests, bool& have_scheme_tests)
+                       std::string& scheme_tests, bool& have_scheme_tests,
+                       bool& no_rc)
    {
 #ifdef _WIN32
    const char sep = ';';
@@ -128,6 +129,8 @@ static bool parse_args(int argc, char* argv[],
          scheme_tests = a.substr(15);
          have_scheme_tests = true;
          }
+      else if (a == "--no-rc")
+         no_rc = true;
       else if (a == "-" || a.empty() || a[0] != '-')
          {
          if (have_target)
@@ -165,8 +168,9 @@ int main(int argc, char* argv[])
    bool have_eval = false;
    std::string scheme_tests_cli;
    bool have_scheme_tests = false;
+   bool no_rc = false;
    if (!parse_args(argc, argv, library_paths, target, have_target, eval_exprs,
-                   have_eval, scheme_tests_cli, have_scheme_tests))
+                   have_eval, scheme_tests_cli, have_scheme_tests, no_rc))
       {
       std::cerr << "Usage: cppscheme2 [-L <dir" << char(
 #ifdef _WIN32
@@ -175,7 +179,7 @@ int main(int argc, char* argv[])
                        ':'
 #endif
                        ) << "...>] [-I <dir>]... [-T <scheme-tests-dir>] "
-                   "[-e <expr>]... [<directory> | <scheme-source-file>]\n";
+                   "[-e <expr>]... [--no-rc] [<directory> | <scheme-source-file>]\n";
       return 2;
       }
 
@@ -202,7 +206,7 @@ int main(int argc, char* argv[])
    if (have_target && std::filesystem::is_regular_file(target))
       {
          {
-         Interpreter interp(library_paths);
+         Interpreter interp(library_paths, !no_rc);
          try
             {
             interp.evalFile(target);
@@ -226,7 +230,7 @@ int main(int argc, char* argv[])
 #endif
       }
 
-   Interpreter interp(library_paths);
+   Interpreter interp(library_paths, !no_rc);
 
    // -e/--evaluate: evaluate each expression as a REPL transcript, then exit.
    // The banner is suppressed so the first line is the '>>> ' echo.  Hard-exit

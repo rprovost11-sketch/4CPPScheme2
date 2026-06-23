@@ -16,7 +16,7 @@
 #include <iostream>
 #include <string>
 
-Interpreter::Interpreter(std::vector<std::string> library_paths)
+Interpreter::Interpreter(std::vector<std::string> library_paths, bool load_rc)
    : _cli_library_paths(std::move(library_paths))
    {
    _ctx.tracer = &_tracer;
@@ -25,7 +25,7 @@ Interpreter::Interpreter(std::vector<std::string> library_paths)
    // Register _env as a GC root so it stays alive across cek_eval calls
    // (between calls, no trace hook protects it).
    gc_env_root_push(&_env);
-   reboot();
+   reboot(nullptr, load_rc);
    }
 
 Interpreter::~Interpreter()
