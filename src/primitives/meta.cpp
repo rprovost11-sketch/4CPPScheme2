@@ -15,6 +15,7 @@
 #include "../dir_list.h"
 #include "../unicode_tables.h"
 #include "../Utils.h"
+#include "../version.h"
 #include "../Listener.h"
 #include "../Context.h"
 #include "../Analyzer.h"
@@ -22,6 +23,7 @@
 #include <chrono>
 #include <ctime>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <sstream>
@@ -500,6 +502,24 @@ static Value _prim_directory_files(Context*, Environment*, std::vector<Value>& a
    return result;
    }
 
+// (create-directory path) -- create PATH and any missing parent directories;
+// idempotent (no error if it already exists).  Mirrors the test runner's
+// fs::create_directories so a pure-Scheme test (e.g. the differ) can make its own
+// output dir -- the differ's runs/ -- without depending on the runner having made
+// it first.  Returns unspecified.  Deliberately NOT SRFI 170 create-directory
+// (which errors if the dir exists and does not create parents).
+static Value _prim_create_directory(Context*, Environment*, std::vector<Value>& args, const Value* app)
+   {
+   if (!is_string(args[0]))
+      throw SchemeTypeError("create-directory: argument must be a string", _src(app));
+   std::error_code ec;
+   std::filesystem::create_directories(as_string(args[0]), ec);
+   if (ec)
+      throw SchemeTypeError("create-directory: cannot create directory: " + as_string(args[0]),
+                            _src(app));
+   return VOID_VALUE;
+   }
+
 static Value _prim_run_process(Context*, Environment*, std::vector<Value>& args, const Value* app)
    {
    std::vector<std::string> argv;
@@ -833,6 +853,15 @@ static Value _prim_unicode_version(Context*, Environment*, std::vector<Value>&, 
    return make_string(std::string(unicode::version()));
    }
 
+// (interpreter-version) -- the version string of THIS running interpreter
+// (cppScheme2's CPPSCHEME2_VERSION, lockstep with pyScheme's __version__).  Lets a
+// Scheme test stamp the interpreter version into an artifact -- e.g. the differ's
+// .run report filename -- parallel to interpreter-argv / interpreter-executable-path.
+static Value _prim_interpreter_version(Context*, Environment*, std::vector<Value>&, const Value*)
+   {
+   return make_string(std::string(CPPSCHEME2_VERSION));
+   }
+
 static Value _prim_runtime(Context*, Environment*, std::vector<Value>&, const Value*)
    {
    return make_real(static_cast<double>(std::clock()) / static_cast<double>(CLOCKS_PER_SEC));
@@ -976,6 +1005,12 @@ void register_meta()
                       "list (the exe path); pyScheme: (python -m pyscheme).  #f if undeterminable.  "
                       "cppScheme2/pyScheme extension.", CATEGORY);
 
+   register_primitive("interpreter-version", 0, 0, _prim_interpreter_version,
+                      "(interpreter-version)",
+                      "Return the version string of THIS interpreter (e.g. \"0.8.1\"), so a test "
+                      "can stamp it into an artifact such as the differ's .run report filename.  "
+                      "cppScheme2/pyScheme extension; kept lockstep across the ports.", CATEGORY);
+
    register_primitive("directory-files", 1, 1, _prim_directory_files,
                       "(directory-files path)",
                       "Return a sorted list of the bare filenames in directory PATH, excluding "
@@ -983,6 +1018,14 @@ void register_meta()
                       "with \"/\" to build a path (\"/\" works as an OS path separator on Windows "
                       "too).  Errors if PATH cannot be opened.  Models SRFI 170 directory-files.  "
                       "cppScheme2/pyScheme extension.", CATEGORY);
+
+   register_primitive("create-directory", 1, 1, _prim_create_directory,
+                      "(create-directory path)",
+                      "Create directory PATH and any missing parent dirs; idempotent (no error if "
+                      "it already exists).  Mirrors the test runner's create_directories so a "
+                      "pure-Scheme test can make its own output dir (e.g. the differ's runs/).  "
+                      "Returns unspecified.  cppScheme2/pyScheme extension (cf. SRFI 170, whose "
+                      "create-directory errors if the dir exists).", CATEGORY);
 
    register_primitive("run-process", 1, 3, _prim_run_process,
                       "(run-process argv [stdin-string [timeout-secs]])",

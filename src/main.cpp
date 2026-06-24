@@ -2,6 +2,7 @@
 // Direct port of pyscheme/__main__.py.
 #include "Interpreter.h"
 #include "Listener.h"
+#include "version.h"
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
@@ -240,7 +241,7 @@ int main(int argc, char* argv[])
       int status = 0;
          {
          Listener listener(
-             &interp, "cppscheme2", "0.8.1", "Ron Provost/Longo",
+             &interp, "cppscheme2", CPPSCHEME2_VERSION, "Ron Provost/Longo",
              "https://github.com/rprovost11/cppscheme2", scheme_tests_dir,
              scheme_tests_source, /*show_banner=*/false);
          status = listener.eval_and_exit(eval_exprs);
@@ -271,7 +272,7 @@ int main(int argc, char* argv[])
    Listener listener(
        &interp,
        "cppscheme2",
-       "0.8.1",
+       CPPSCHEME2_VERSION,
        "Ron Provost/Longo",
        "https://github.com/rprovost11/cppscheme2",
        scheme_tests_dir,
