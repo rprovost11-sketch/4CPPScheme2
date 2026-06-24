@@ -1260,7 +1260,7 @@ TestResult Listener::_runTestFiles(const std::vector<std::string>& filenames, co
          {
          fs::create_directories(runsDir);
          runFilename = (fs::path(runsDir) /
-                        (_timestamp_file() + "-CPPScheme2.run"))
+                        (_timestamp_file() + "-CPPScheme2-" + _version + ".run"))
                            .string();
          auto* rf = new std::ofstream(runFilename, std::ios::out);
          if (!rf->is_open())
@@ -1852,7 +1852,7 @@ void Listener::_cmd_suites(std::vector<std::string>& args)
          {
          fs::create_directories(runsDir);
          shared_filename =
-             (fs::path(runsDir) / (_timestamp_file() + "-CPPScheme2.run")).string();
+             (fs::path(runsDir) / (_timestamp_file() + "-CPPScheme2-" + _version + ".run")).string();
          auto* rf = new std::ofstream(shared_filename, std::ios::out);
          if (!rf->is_open())
             { delete rf; _shared_run_file = nullptr; _shared_run_filename = ""; shared_filename = ""; }
