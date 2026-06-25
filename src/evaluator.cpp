@@ -3345,6 +3345,12 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                             "empty list () is not a valid expression; use (quote ()) for the empty list",
                             src_of(datum));
                      Value expanded = expand(datum);
+                     // Run the analyze checking pass (as the .log runner /
+                     // eval-cycle / checked-eval do) so a malformed form raises a
+                     // clean SchemeAnalysisError instead of reaching cek_eval
+                     // unchecked -- which faulted with "bad variant access" on e.g.
+                     // (lambda (1) 1) / (if #t) / (let).  Matches pyScheme's eval.
+                     analyze(expanded, primitive_arities());
                      C = expanded;
                      E = target_env;
                      break;
