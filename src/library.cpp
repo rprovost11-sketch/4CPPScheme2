@@ -330,14 +330,18 @@ static const std::vector<std::string> _SCHEME_BASE_NAMES = {
     "vector-ref",
     "vector-set!",
     "vector?",
-    // define-record-type expands to these helper primitives; a library body that
-    // uses define-record-type needs them importable from (scheme base).
+    // Helper primitives that standard MACROS expand into as free references; a
+    // library body using these macros needs the helpers importable from (scheme
+    // base), else expansion fails with "unbound variable: %...".  define-record-type
+    // -> the %*record* set; guard -> %guard-eval; parameterize -> %with-parameters.
     "%make-record-type",
     "%make-record",
     "%make-record-accessor",
     "%make-record-mutator",
     "%record-of-type?",
     "%record-ref",
+    "%guard-eval",
+    "%with-parameters",
     // Control
     "apply",
     "call-with-values",
