@@ -755,6 +755,121 @@ static Value _prim_eval_cycle(Context* ctx, Environment*, std::vector<Value>& ar
    return make_multi_values(std::move(vals), _src(app));
    }
 
+// (checked-eval source env [timeout-secs]) -> (values output status payload)
+// Evaluate the Scheme source string SOURCE in environment ENV through the EXACT
+// checked pipeline the .log test runner uses (parse -> expand -> analyze ->
+// cek_eval, with cross-form static-env accumulation).  Returns THREE values:
+//   output  -- captured standard output (verbatim; the caller right-strips it)
+//   status  -- the symbol ok or error
+//   payload -- on ok, the LIST of the last form's result value(s) (empty list if
+//              no forms / zero values); on error, the runner-formatted error STRING
+//              (exception class + source location + message, exactly as
+//              Listener::format_error / the .log runner produce it).
+// The error is captured HERE, at the C++ boundary (no intervening Scheme frames),
+// and RETURNED rather than raised -- so its text carries no propagation backtrace
+// and is byte-identical to eval-cycle's.  The caller (scheme-eval-cycle) does the
+// presentation: right-strip output, format the value list (write / void -> "" /
+// multiple values space-joined), and detect the timeout marker.  This shrinks the
+// host primitive from "the whole REPL cycle" (eval-cycle) to "checked evaluation +
+// raw capture", moving the value-formatting logic into Scheme.  Distinct from the
+// plain `eval` primitive, which skips the analyze checking pass (and so crashes on
+// malformed special forms).  cppScheme2/pyScheme extension.
+static Value _prim_checked_eval(Context* ctx, Environment*, std::vector<Value>& args, const Value* app)
+   {
+   if (!is_string(args[0]))
+      throw SchemeTypeError("checked-eval: first argument must be a string", _src(app));
+   if (!is_environment(args[1]))
+      throw SchemeTypeError("checked-eval: second argument must be an environment", _src(app));
+   Environment* target = as_environment(args[1]);
+   std::string source = as_string(args[0]);
+
+   bool have_timeout = false;
+   double timeout_secs = 0.0;
+   if (args.size() >= 3 && !(is_boolean(args[2]) && !as_boolean(args[2])))
+      {
+      if (!is_number(args[2]))
+         throw SchemeTypeError("checked-eval: timeout must be a number of seconds or #f", _src(app));
+      timeout_secs = is_integer(args[2]) ? (double)as_integer(args[2]) : as_real(args[2]);
+      have_timeout = true;
+      }
+
+   // Capture EVERYTHING written to standard output (display AND primitives like
+   // help/trace that write straight to ctx->outStrm), exactly as eval-cycle does,
+   // by redirecting the output stream; save/restore the bits of ctx we repurpose.
+   std::ostream* prev_out = ctx->outStrm;
+   SteadyTimePoint prev_deadline = ctx->timeout_at;
+   bool prev_timeout_active = ctx->timeout_active;
+   std::vector<ShadowEntry> saved_shadow = ctx->shadow_stack;
+   std::vector<Value> saved_handlers = ctx->handler_stack;
+
+   std::ostringstream out_capture;
+   ctx->outStrm = &out_capture;
+   ctx->shadow_stack.clear();
+   if (have_timeout)
+      {
+      ctx->timeout_at = SteadyClock::now() +
+          std::chrono::milliseconds((long long)(timeout_secs * 1000.0));
+      ctx->timeout_active = true;
+      }
+
+   std::string errstr;
+   bool have_error = false;
+   Value last = VOID_VALUE;
+   bool have = false;
+   try
+      {
+      std::vector<Value> forms = scheme_parse(source, "");
+      GcRootVec forms_root(forms);
+      StaticEnv senv(primitive_arities());
+      for (auto& form : forms)
+         {
+         Value expanded = expand(form);
+         analyze(expanded, senv);
+         extend_static_env_with_define(senv, expanded);
+         last = cek_eval(expanded, target, ctx);
+         have = true;
+         }
+      }
+   catch (ReplExitSignal&)
+      {
+      errstr = "(exit)";
+      have_error = true;
+      }
+   catch (std::exception& e)
+      {
+      errstr = Listener::format_error(e);
+      have_error = true;
+      }
+
+   ctx->outStrm = prev_out;
+   ctx->timeout_at = prev_deadline;
+   ctx->timeout_active = prev_timeout_active;
+   ctx->shadow_stack = saved_shadow;
+   ctx->handler_stack = saved_handlers;
+
+   Value status;
+   Value payload;
+   if (have_error)
+      {
+      status = make_symbol("error", _src(app));
+      payload = make_string(errstr);
+      }
+   else
+      {
+      status = make_symbol("ok", _src(app));
+      // payload = the result value(s) as a list (empty if no forms / zero values).
+      if (!have)
+         payload = NIL_VALUE;
+      else if (is_multi_values(last))
+         payload = list_from_items(as_multi_values_list(last), _src(app));
+      else
+         payload = list_from_items({last}, _src(app));
+      }
+
+   std::vector<Value> vals{make_string(out_capture.str()), status, payload};
+   return make_multi_values(std::move(vals), _src(app));
+   }
+
 static Value _prim_exit(Context* ctx, Environment*, std::vector<Value>& args, const Value*)
    {
    int code;
@@ -1073,6 +1188,20 @@ void register_meta()
                       "records it) or \"\" if none, and a timed-out? boolean.  Optional 3rd arg = a "
                       "timeout in seconds (#f or omitted = none).  The host port's in-process live "
                       "runner for the interpreter differ.  cppScheme2/pyScheme extension.",
+                      CATEGORY);
+
+   register_primitive("checked-eval", 2, 3, _prim_checked_eval,
+                      "(checked-eval source env [timeout-secs])",
+                      "Evaluate the Scheme source string SOURCE in environment ENV through the exact "
+                      "checked pipeline the .log runner uses (parse -> expand -> analyze -> cek_eval, "
+                      "with cross-form static-env accumulation).  Returns THREE values: captured "
+                      "standard output (verbatim), the symbol ok or error, and a payload -- on ok the "
+                      "LIST of the last form's result value(s) (empty if no forms/zero values), on error "
+                      "the runner-formatted error string (class + location + message).  The error is "
+                      "captured at the C++ boundary and RETURNED (not raised), so its text carries no "
+                      "propagation backtrace.  The caller formats the value list and right-strips the "
+                      "output.  Unlike plain eval it does not skip the analyze checking pass.  "
+                      "cppScheme2/pyScheme extension.",
                       CATEGORY);
 
    register_primitive("exit", 0, 1, _prim_exit,
