@@ -997,6 +997,29 @@ static Value _prim_current_jiffy(Context*, Environment*, std::vector<Value>&, co
    return make_integer(static_cast<int64_t>(ms));
    }
 
+// (local-timezone-offset [epoch-seconds]) -> integer seconds east of UTC for the
+// local time zone at the given POSIX time (DST-aware), or now if omitted/#f.  The
+// one host capability SRFI 19 needs that R7RS lacks; exported from (scheme time) so
+// a define-library (e.g. (srfi 19)) can import it.  Portable mktime-difference idiom
+// (no tm_gmtoff, which MSVC lacks).  cppScheme2/pyScheme extension.
+static Value _prim_local_timezone_offset(Context*, Environment*, std::vector<Value>& args, const Value* app)
+   {
+   std::time_t t;
+   if (args.empty() || (is_boolean(args[0]) && !as_boolean(args[0])))
+      t = std::time(nullptr);
+   else if (is_integer(args[0]))
+      t = static_cast<std::time_t>(as_integer(args[0]));
+   else if (is_number(args[0]))
+      t = static_cast<std::time_t>(as_real(args[0]));
+   else
+      throw SchemeTypeError("local-timezone-offset: argument must be epoch seconds or #f", _src(app));
+   std::tm lt = *std::localtime(&t);   // copy before gmtime overwrites the static buffer
+   std::tm gt = *std::gmtime(&t);
+   gt.tm_isdst = lt.tm_isdst;           // keep both at the same DST state for the diff
+   long off = static_cast<long>(std::mktime(&lt) - std::mktime(&gt));
+   return make_integer(static_cast<int64_t>(off));
+   }
+
 static Value _prim_jiffies_per_second(Context*, Environment*, std::vector<Value>&, const Value*)
    {
    return make_integer(1000);
@@ -1230,6 +1253,13 @@ void register_meta()
 
    register_primitive("runtime", 0, 0, _prim_runtime,
                       "", "(runtime) returns CPU process time in seconds.  MIT Scheme compat.", CATEGORY);
+
+   register_primitive("local-timezone-offset", 0, 1, _prim_local_timezone_offset,
+                      "(local-timezone-offset [epoch-seconds])",
+                      "Return the local time zone's offset east of UTC, in integer seconds (DST-aware), "
+                      "at the given POSIX time (or now if omitted/#f).  The host capability SRFI 19 needs "
+                      "for local time; exported from (scheme time).  cppScheme2/pyScheme extension.",
+                      CATEGORY);
 
    register_primitive("current-second", 0, 0, _prim_current_second,
                       "", "(current-second) returns current UTC time as inexact real seconds since epoch.  R7RS 6.14.",
