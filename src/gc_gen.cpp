@@ -607,6 +607,7 @@ static void nursery_evacuate_and_forward(
       new_cell->cdr = old_cell->cdr;
       new_cell->src = old_cell->src; // transfer ownership
       old_cell->src = nullptr;       // prevent double-delete on reset
+      new_cell->immutable = old_cell->immutable; // preserve literal immutability
       new_cell->header.gen = 1;
       new_cell->header.next = g_old_head;
       g_old_head = &new_cell->header;
