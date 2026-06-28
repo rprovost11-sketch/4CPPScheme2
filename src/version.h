@@ -10,6 +10,6 @@
 #ifndef CPPSCHEME2_VERSION_H
 #define CPPSCHEME2_VERSION_H
 
-inline constexpr const char* CPPSCHEME2_VERSION = "0.8.3";
+inline constexpr const char* CPPSCHEME2_VERSION = "0.8.4";
 
 #endif  // CPPSCHEME2_VERSION_H
