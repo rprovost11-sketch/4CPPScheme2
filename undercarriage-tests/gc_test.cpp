@@ -210,6 +210,28 @@ TEST(rooted_cons_survives_minor_gc)
    CHECK_EQ((int)hdr->gen, 1);
    }
 
+TEST(immutable_flag_survives_minor_gc_promotion)
+   {
+   // Regression: nursery_evacuate_and_forward promoted a surviving cons cell
+   // into a fresh ConsCell but did not copy the `immutable` flag, so a quoted
+   // literal silently became mutable again after a minor GC promoted it --
+   // (set-car! '(1 2 3) 99) then succeeded instead of erroring (R7RS 4.1.2:
+   // quoted literals are immutable).  cppScheme2-only: CPython never moves
+   // objects, so pyScheme cannot lose the flag this way.
+   gc_test_reset();
+   GcRootGuard root(make_test_cons(Value{}, Value{}));
+   mark_literal_immutable(root.val);
+   CHECK(is_immutable(root.val));        // immutable while still in the nursery
+
+   force_minor_gc();                      // promote the rooted cell to old gen
+   check_invariants("after minor GC");
+
+   CHECK_EQ(gc_test_old_count(), 1u);
+   GcHeader* hdr = gc_value_header(root.val);
+   CHECK_EQ((int)hdr->gen, 1);            // confirm it really was promoted
+   CHECK(is_immutable(root.val));        // must survive promotion (the bug)
+   }
+
 TEST(linked_nursery_chain_evacuated_consistently)
    {
    gc_test_reset();
