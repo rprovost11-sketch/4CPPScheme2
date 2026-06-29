@@ -12,6 +12,7 @@
 #include "Tracer.h"
 #include "library.h"
 #include "plugin_loader.h"
+#include "common_dir.h"
 #include "gc.h"
 #include <algorithm>
 #include <chrono>
@@ -1012,18 +1013,32 @@ static std::vector<std::string> _env_library_path_parts()
    return parts;
    }
 
+// The shared SRFI/ directory from pyscheme-cppscheme2-common, if present, as a
+// one-element vector (else empty).  Appended to the library search path so
+// (srfi N) resolves without an explicit -L; user-supplied -L/SCHEME_LIBRARY_PATH
+// entries precede it and so win on conflicts.
+static std::vector<std::string> _srfi_library_part()
+   {
+   std::string srfi = common_subdir("SRFI");
+   if (srfi.empty())
+      return {};
+   return { srfi };
+   }
+
 // Default search path when no current-library-path parameter is in effect:
-// current directory first, then SCHEME_LIBRARY_PATH entries.
+// current directory, then SCHEME_LIBRARY_PATH entries, then the shared SRFI/ dir.
 static std::vector<std::string> _default_library_path()
    {
    std::vector<std::string> parts = {"."};
    for (const std::string& p : _env_library_path_parts())
       parts.push_back(p);
+   for (const std::string& p : _srfi_library_part())
+      parts.push_back(p);
    return parts;
    }
 
 // Initial library search path: current dir, then the CLI -L/-I paths (in
-// command-line order), then SCHEME_LIBRARY_PATH.
+// command-line order), then SCHEME_LIBRARY_PATH, then the shared SRFI/ dir.
 static std::vector<std::string> build_library_path_list(
     const std::vector<std::string>& cli_paths)
    {
@@ -1032,6 +1047,8 @@ static std::vector<std::string> build_library_path_list(
       if (!p.empty())
          parts.push_back(p);
    for (const std::string& p : _env_library_path_parts())
+      parts.push_back(p);
+   for (const std::string& p : _srfi_library_part())
       parts.push_back(p);
    return parts;
    }

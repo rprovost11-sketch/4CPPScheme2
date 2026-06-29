@@ -1944,6 +1944,31 @@ std::string Listener::_registry_path() const
 std::string Listener::_suite_abspath(const std::string& rel) const
    { return (fs::path(_scheme_tests_dir) / rel).lexically_normal().string(); }
 
+// The workspace directory holding the interpreter repos (4CPPScheme2 / 3PyScheme),
+// found by walking up from the scheme-tests directory.  Adapts to both the local
+// layout (scheme-tests nested under pyscheme-cppscheme2-common) and a flat CI
+// checkout (all repos siblings).  Substituted for {lisp-root} in a suite's
+// (run ...) and exported as $LISP_ROOT so a suite can reach the sibling cpp
+// executable without a layout-specific relative path.  Returns "" if not found.
+std::string Listener::_lisp_root() const
+   {
+   if (_scheme_tests_dir.empty())
+      return std::string();
+   std::error_code ec;
+   fs::path cur = fs::absolute(_scheme_tests_dir, ec);
+   for (int i = 0; i < 6; ++i)
+      {
+      if (fs::is_directory(cur / "4CPPScheme2", ec)
+          || fs::is_directory(cur / "3PyScheme", ec))
+         return cur.string();
+      fs::path parent = cur.parent_path();
+      if (parent == cur)
+         break;
+      cur = parent;
+      }
+   return std::string();
+   }
+
 std::string Listener::_self_exe_path() const
    {
 #ifdef _WIN32
@@ -2239,11 +2264,14 @@ Listener::SuiteRunResult Listener::_run_external_suite(const SuiteDef& s)
       return {disp, false, 0, 1, 0, "no (run ...) in registry"};
    std::string cwd = _suite_abspath(s.cwd);
    std::string exe = _self_exe_path();
+   std::string lisp_root = _lisp_root();
    std::vector<std::string> argv;
    for (std::string a : s.run)
       {
       size_t pos = a.find("{interp}");
       if (pos != std::string::npos) a.replace(pos, std::string("{interp}").size(), exe);
+      size_t lpos = a.find("{lisp-root}");
+      if (lpos != std::string::npos) a.replace(lpos, std::string("{lisp-root}").size(), lisp_root);
       argv.push_back(a);
       }
    if (argv[0].find('/') != std::string::npos || argv[0].find('\\') != std::string::npos)
@@ -2257,6 +2285,14 @@ Listener::SuiteRunResult Listener::_run_external_suite(const SuiteDef& s)
    for (size_t k = 0; k < argv.size(); ++k)
       { if (k) cmd += " "; cmd += "\"" + argv[k] + "\""; }
    cmd += " 2>&1";
+   if (!lisp_root.empty())
+      {
+#ifdef _WIN32
+      _putenv_s("LISP_ROOT", lisp_root.c_str());
+#else
+      setenv("LISP_ROOT", lisp_root.c_str(), 1);
+#endif
+      }
    int ec = -1;
    std::string out = _run_capture(cmd, ec);
    std::vector<std::string> lines;

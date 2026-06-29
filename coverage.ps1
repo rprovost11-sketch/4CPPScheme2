@@ -17,8 +17,9 @@ $cmake = "C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\Comm
 $root  = $PSScriptRoot
 $rel   = Join-Path $root "build\RelWithDebInfo"
 $cov   = Join-Path $root "build\coverage"
-$tests = "D:\SWDEV\Languages\Lisp\scheme-tests"   # or $env:SCHEME_TESTS_DIR
-$srfi  = "D:\SWDEV\Languages\Lisp\SRFI"           # so (srfi 64) resolves in macro suites
+$common = if ($env:SCHEME_COMMON_DIR) { $env:SCHEME_COMMON_DIR } else { "D:\SWDEV\Languages\Lisp\pyscheme-cppscheme2-common" }
+$tests = Join-Path $common "scheme-tests"
+$srfi  = Join-Path $common "SRFI"                  # so (srfi 64) resolves in macro suites
 
 if (-not $NoBuild) {
     & $cmake --build (Join-Path $root "build") --config RelWithDebInfo --target cppscheme2 gc_test

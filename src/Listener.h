@@ -269,6 +269,7 @@ class CPPSCHEME2_API Listener
    std::string _port_tag() const;
    std::string _registry_path() const;
    std::string _suite_abspath(const std::string& rel) const;
+   std::string _lisp_root() const;
    std::string _self_exe_path() const;
    std::vector<SuiteDef> _load_suites();
    // {suite-name: relpath} for log-kind suites; {} if the registry is unreadable.

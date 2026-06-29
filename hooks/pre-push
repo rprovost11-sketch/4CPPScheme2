@@ -7,7 +7,8 @@
 
 REPO="$(git rev-parse --show-toplevel)"
 LISP="$(dirname "$REPO")"
-TESTS="${SCHEME_TESTS_DIR:-$LISP/scheme-tests}"
+COMMON="${SCHEME_COMMON_DIR:-$LISP/pyscheme-cppscheme2-common}"
+TESTS="$COMMON/scheme-tests"
 EXE="$REPO/build/Release/cppscheme2.exe"
 GCT="$REPO/build/Release/gc_test.exe"
 

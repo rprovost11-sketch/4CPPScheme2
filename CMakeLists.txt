@@ -77,6 +77,8 @@ add_library(cppscheme2_core SHARED
     src/process_exec.cpp
     # Phase 21: directory listing (directory-files); windows.h-isolated
     src/dir_list.cpp
+    # Shared pyscheme-cppscheme2-common directory locator (mirrors common_dir.py)
+    src/common_dir.cpp
 )
 
 # Suppress warnings from vendored mini-gmp C source.

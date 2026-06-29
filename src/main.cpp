@@ -2,6 +2,7 @@
 // Direct port of pyscheme/__main__.py.
 #include "Interpreter.h"
 #include "Listener.h"
+#include "common_dir.h"
 #include "version.h"
 #include <cstdlib>
 #include <filesystem>
@@ -184,10 +185,10 @@ int main(int argc, char* argv[])
       return 2;
       }
 
-   // Resolve the scheme-tests root: the -T/--scheme-tests option overrides the
-   // SCHEME_TESTS_DIR environment variable; the ]scheme-tests listener command
-   // can override both at runtime.  Nothing is hardcoded -- if none is given the
-   // test commands explain how to set it.
+   // Resolve the scheme-tests root: the -T/--scheme-tests option overrides; the
+   // ]scheme-tests listener command can override at runtime.  Otherwise it comes
+   // from the scheme-tests/ subdirectory of the shared pyscheme-cppscheme2-common
+   // directory.  If none resolves, the test commands explain how to set it.
    std::string scheme_tests_dir;
    std::string scheme_tests_source = "unset";
    if (have_scheme_tests)
@@ -195,10 +196,11 @@ int main(int argc, char* argv[])
       scheme_tests_dir = scheme_tests_cli;
       scheme_tests_source = "--scheme-tests option";
       }
-   else if (const char* env = std::getenv("SCHEME_TESTS_DIR"); env && env[0])
+   else if (std::string common_tests = common_subdir("scheme-tests");
+            !common_tests.empty())
       {
-      scheme_tests_dir = env;
-      scheme_tests_source = "SCHEME_TESTS_DIR env";
+      scheme_tests_dir = common_tests;
+      scheme_tests_source = "pyscheme-cppscheme2-common";
       }
 
    // File mode: evaluate file, then hard-exit to bypass DLL static destructors.
