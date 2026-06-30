@@ -147,7 +147,8 @@ class CPPSCHEME2_API Listener
    static int s_history_max;
 
    InterpreterBase* _interp;
-   // The scheme-tests root (from -T/--scheme-tests, $SCHEME_TESTS_DIR, or the
+   // The scheme-tests root (from -T/--scheme-tests, the pyscheme-cppscheme2-common
+   // default via $SCHEME_COMMON_DIR/walk-up, or the
    // ]scheme-tests command; never hardcoded) and the four suite directories
    // derived from it (hardcoded relative subpaths -- a config file is the
    // eventual home).  All empty when no root is set.

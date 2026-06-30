@@ -10,6 +10,7 @@
 #include "Environment.h"
 #include "Interpreter.h"
 #include "Context.h"
+#include "common_dir.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -717,6 +718,19 @@ TEST(interpreter_multifile_stress)
 #include <fstream>
 #include <sstream>
 
+// Directory of the R7RS compliance .log corpus, resolved through the shared
+// pyscheme-cppscheme2-common locator (the corpus lives at
+// <common>/scheme-tests/log-tests/R7RS-Compliance-Tests/).  Returns "" if the
+// common dir cannot be found; callers degrade gracefully (the .log open fails
+// and yields no expressions), exactly as before the common-dir reorg.
+static std::string _compliance_dir()
+   {
+   std::string st = common_subdir("scheme-tests");
+   if (st.empty())
+      return std::string();
+   return st + "/log-tests/R7RS-Compliance-Tests/";
+   }
+
 static std::vector<std::string> _extract_compliance_exprs(const std::string& path)
    {
    std::vector<std::string> out;
@@ -759,7 +773,7 @@ TEST(reboot_after_one_compliance_file)
    gc_test_reset();
    Interpreter interp;
    auto exprs = _extract_compliance_exprs(
-       "D:/SWDEV/Languages/Lisp/R7RS-Compliance-Tests/4.1.3 - Procedure Calls.log");
+       _compliance_dir() + "4.1.3 - Procedure Calls.log");
    std::fprintf(stderr, "[reboot1] eval %zu exprs\n", exprs.size());
    std::fflush(stderr);
    for (const auto& e : exprs)
@@ -793,19 +807,20 @@ TEST(reboot_after_one_compliance_file)
 //       hook and reseats _LIBRARY_REGISTRY entries; old entries' env objects
 //       are unreachable but apparently something still references them).
 // Skipped to keep the test suite green.  Remove the early return to debug.
+// Filenames only; the directory is resolved at run time via _compliance_dir().
 static const char* g_compliance_files[] = {
-    "D:/SWDEV/Languages/Lisp/R7RS-Compliance-Tests/2.1 - Identifiers.log",
-    "D:/SWDEV/Languages/Lisp/R7RS-Compliance-Tests/2.2 - Whitespace and Comments.log",
-    "D:/SWDEV/Languages/Lisp/R7RS-Compliance-Tests/2.3 - Other Notations.log",
-    "D:/SWDEV/Languages/Lisp/R7RS-Compliance-Tests/2.4 - Datum Labels.log",
-    "D:/SWDEV/Languages/Lisp/R7RS-Compliance-Tests/3.1 - Variables and Keywords.log",
-    "D:/SWDEV/Languages/Lisp/R7RS-Compliance-Tests/3.2 - Disjointness of Types.log",
-    "D:/SWDEV/Languages/Lisp/R7RS-Compliance-Tests/3.4 - Storage Model.log",
-    "D:/SWDEV/Languages/Lisp/R7RS-Compliance-Tests/3.5 - Proper Tail Recursion.log",
-    "D:/SWDEV/Languages/Lisp/R7RS-Compliance-Tests/4.1.1 - Variable References.log",
-    "D:/SWDEV/Languages/Lisp/R7RS-Compliance-Tests/4.1.2 - Literal Expressions.log",
-    "D:/SWDEV/Languages/Lisp/R7RS-Compliance-Tests/4.1.3 - Procedure Calls.log",
-    "D:/SWDEV/Languages/Lisp/R7RS-Compliance-Tests/4.1.4 - Lambda Expressions.log",
+    "2.1 - Identifiers.log",
+    "2.2 - Whitespace and Comments.log",
+    "2.3 - Other Notations.log",
+    "2.4 - Datum Labels.log",
+    "3.1 - Variables and Keywords.log",
+    "3.2 - Disjointness of Types.log",
+    "3.4 - Storage Model.log",
+    "3.5 - Proper Tail Recursion.log",
+    "4.1.1 - Variable References.log",
+    "4.1.2 - Literal Expressions.log",
+    "4.1.3 - Procedure Calls.log",
+    "4.1.4 - Lambda Expressions.log",
 };
 
 static void compliance_multifile_run(int leak_type)
@@ -817,11 +832,13 @@ static void compliance_multifile_run(int leak_type)
       gc_test_set_leak_only_type(leak_type);
       }
    Interpreter interp;
-   for (const char* path : g_compliance_files)
+   std::string compdir = _compliance_dir();
+   for (const char* fname : g_compliance_files)
       {
+      std::string path = compdir + fname;
       interp.reboot(nullptr, false);
       auto exprs = _extract_compliance_exprs(path);
-      std::fprintf(stderr, "[compliance] file=%s exprs=%zu\n", path, exprs.size());
+      std::fprintf(stderr, "[compliance] file=%s exprs=%zu\n", path.c_str(), exprs.size());
       std::fflush(stderr);
       for (const auto& e : exprs)
          {
@@ -976,28 +993,31 @@ TEST(compliance_multifile_leak_mode)
 
 TEST(interpreter_compliance_multifile_stress)
    {
+   // Filenames only; the directory is resolved at run time via _compliance_dir().
    static const char* compliance_files[] = {
-       "D:/SWDEV/Languages/Lisp/R7RS-Compliance-Tests/2.1 - Identifiers.log",
-       "D:/SWDEV/Languages/Lisp/R7RS-Compliance-Tests/2.2 - Whitespace and Comments.log",
-       "D:/SWDEV/Languages/Lisp/R7RS-Compliance-Tests/2.3 - Other Notations.log",
-       "D:/SWDEV/Languages/Lisp/R7RS-Compliance-Tests/2.4 - Datum Labels.log",
-       "D:/SWDEV/Languages/Lisp/R7RS-Compliance-Tests/3.1 - Variables and Keywords.log",
-       "D:/SWDEV/Languages/Lisp/R7RS-Compliance-Tests/3.2 - Disjointness of Types.log",
-       "D:/SWDEV/Languages/Lisp/R7RS-Compliance-Tests/3.4 - Storage Model.log",
-       "D:/SWDEV/Languages/Lisp/R7RS-Compliance-Tests/3.5 - Proper Tail Recursion.log",
-       "D:/SWDEV/Languages/Lisp/R7RS-Compliance-Tests/4.1.1 - Variable References.log",
-       "D:/SWDEV/Languages/Lisp/R7RS-Compliance-Tests/4.1.2 - Literal Expressions.log",
-       "D:/SWDEV/Languages/Lisp/R7RS-Compliance-Tests/4.1.3 - Procedure Calls.log",
-       "D:/SWDEV/Languages/Lisp/R7RS-Compliance-Tests/4.1.4 - Lambda Expressions.log",
-       "D:/SWDEV/Languages/Lisp/R7RS-Compliance-Tests/4.2.1 - Conditionals.log",
+       "2.1 - Identifiers.log",
+       "2.2 - Whitespace and Comments.log",
+       "2.3 - Other Notations.log",
+       "2.4 - Datum Labels.log",
+       "3.1 - Variables and Keywords.log",
+       "3.2 - Disjointness of Types.log",
+       "3.4 - Storage Model.log",
+       "3.5 - Proper Tail Recursion.log",
+       "4.1.1 - Variable References.log",
+       "4.1.2 - Literal Expressions.log",
+       "4.1.3 - Procedure Calls.log",
+       "4.1.4 - Lambda Expressions.log",
+       "4.2.1 - Conditionals.log",
    };
    gc_test_reset();
    Interpreter interp;
-   for (const char* path : compliance_files)
+   std::string compdir = _compliance_dir();
+   for (const char* fname : compliance_files)
       {
+      std::string path = compdir + fname;
       interp.reboot(nullptr, false); // matches Listener::_runComplianceFiles
       auto exprs = _extract_compliance_exprs(path);
-      std::fprintf(stderr, "[compliance] file=%s exprs=%zu\n", path, exprs.size());
+      std::fprintf(stderr, "[compliance] file=%s exprs=%zu\n", path.c_str(), exprs.size());
       std::fflush(stderr);
       int expr_idx = 0;
       for (const auto& e : exprs)
