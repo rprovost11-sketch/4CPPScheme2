@@ -972,7 +972,37 @@ static void analyze_unquote_outside(const Value& sexpr, const StaticEnv& /*senv*
 
 // ── Public analyze ────────────────────────────────────────────────────────────
 
+// Definition context (R7RS 5.1 / 5.3).  A define may appear only at the top
+// level -- including inside a top-level begin -- or at the start of a body.
+// Body-leading defines never reach the Analyzer (the Expander rewrites them
+// into letrec*), so any define the Analyzer meets below the top level sits
+// in an expression context, e.g. (if c (define y 1)): conditionally creating
+// a variable.  That is rejected.  s_def_ctx is true while the form being
+// analyzed is in a definition context; each analyze() call clears it for its
+// subforms (a top-level begin passes it through) and restores it on exit, so
+// every external caller, which analyzes a top-level form, starts with true.
+static thread_local bool s_def_ctx = true;
+
+static Value analyze_form(const Value& sexpr, const StaticEnv& senv, bool def_ok);
+
 Value analyze(const Value& sexpr, const StaticEnv& senv)
+   {
+   bool def_ok = s_def_ctx;
+   s_def_ctx = def_ok && is_cons(sexpr) && is_symbol(car(sexpr)) &&
+               as_symbol(car(sexpr)) == "begin";
+   struct Restore
+      {
+      bool v;
+      ~Restore()
+         {
+         s_def_ctx = v;
+         }
+      };
+   Restore restore{def_ok};
+   return analyze_form(sexpr, senv, def_ok);
+   }
+
+static Value analyze_form(const Value& sexpr, const StaticEnv& senv, bool def_ok)
    {
    std::call_once(s_init_flag, init_special_forms);
 
@@ -1012,6 +1042,10 @@ Value analyze(const Value& sexpr, const StaticEnv& senv)
       auto it = s_special_forms.find(as_symbol(head));
       if (it != s_special_forms.end())
          {
+         if (!def_ok && it->first == "define")
+            throw SchemeSyntaxError(
+                "definition not allowed in an expression context",
+                src_of(sexpr));
          it->second(sexpr, senv);
          return sexpr;
          }

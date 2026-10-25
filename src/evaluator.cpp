@@ -2076,7 +2076,7 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                                  }
                               Environment* new_env = gc_alloc_environment(E);
                               for (auto& p : pairs)
-                                 new_env->bind_id(p.first, VOID_VALUE);
+                                 new_env->bind_id(p.first, UNASSIGNED_VALUE);
                               std::vector<std::pair<uint32_t, Value>> remaining(pairs.begin() + 1, pairs.end());
                               Frame f;
                               f.tag = FRAME_LETREC;

@@ -167,6 +167,7 @@ struct Value;
 // ── Sentinels for immediate (non-heap) Value arms ─────────────────────────────
 struct VoidTag
    {
+   bool unassigned = false; // true only in UNASSIGNED_VALUE
    }; // VOID arm
 struct EofTag
    {
@@ -760,6 +761,11 @@ CPPSCHEME2_API std::string strip_marks(const std::string& name);
 
 CPPSCHEME2_API extern const Value NIL_VALUE;
 CPPSCHEME2_API extern const Value VOID_VALUE;
+// Placeholder held by a letrec / letrec* (and so internal-define) variable
+// until its init has run.  A VOID whose tag is flagged: printers and is_void
+// see an ordinary void, while Environment::lookup tells it apart with
+// is_unassigned and reports a read before initialization (R7RS 4.2.2).
+CPPSCHEME2_API extern const Value UNASSIGNED_VALUE;
 CPPSCHEME2_API extern const Value EOF_VALUE;
 
 // ── Allocators ────────────────────────────────────────────────────────────────
@@ -850,6 +856,7 @@ void pool_return_char(SchemeChar* p);
 CPPSCHEME2_API bool is_cons(const Value& val);
 CPPSCHEME2_API bool is_nil(const Value& val);
 CPPSCHEME2_API bool is_void(const Value& val);
+CPPSCHEME2_API bool is_unassigned(const Value& val);
 CPPSCHEME2_API bool is_boolean(const Value& val);
 CPPSCHEME2_API bool is_integer(const Value& val);
 CPPSCHEME2_API bool is_real(const Value& val);

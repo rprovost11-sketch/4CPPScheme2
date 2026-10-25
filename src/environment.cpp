@@ -194,6 +194,9 @@ Value Environment::lookup_id(uint32_t sid) const
             auto r = ac->def_env->lookup_optional_id(ac->target);
             return r ? *r : ac->copy;
             }
+         if (is_unassigned(it->second))
+            throw SchemeUnboundError(
+                "variable used before its initialization: " + display_name(sid));
          return it->second;
          }
       scope = scope->_parent;

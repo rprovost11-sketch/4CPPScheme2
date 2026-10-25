@@ -86,6 +86,7 @@ std::string gensym_display_name(const std::string& name_in)
 
 const Value NIL_VALUE{};
 const Value VOID_VALUE{Value::Repr(VoidTag{})};
+const Value UNASSIGNED_VALUE{Value::Repr(VoidTag{true})};
 const Value EOF_VALUE{Value::Repr(EofTag{})};
 
 // ── Primitive (Builtin) owner list ────────────────────────────────────────────
@@ -649,6 +650,11 @@ bool is_nil(const Value& val)
 bool is_void(const Value& val)
    {
    return std::holds_alternative<VoidTag>(val.repr);
+   }
+bool is_unassigned(const Value& val)
+   {
+   const VoidTag* v = std::get_if<VoidTag>(&val.repr);
+   return v && v->unassigned;
    }
 bool is_boolean(const Value& val)
    {
