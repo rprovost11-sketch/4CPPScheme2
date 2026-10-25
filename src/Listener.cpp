@@ -2292,6 +2292,24 @@ Listener::SuiteRunResult Listener::_run_external_suite(const SuiteDef& s)
 #else
       setenv("LISP_ROOT", lisp_root.c_str(), 1);
 #endif
+      // A suite may launch the sibling pyScheme (`python -m pyscheme`); put
+      // its package on PYTHONPATH, as pyScheme's listener does for its own.
+      std::string py_path = (fs::path(lisp_root) / "3PyScheme").string();
+      const char* old_py_path = std::getenv("PYTHONPATH");
+      if (old_py_path && *old_py_path)
+         {
+#ifdef _WIN32
+         py_path += ";";
+#else
+         py_path += ":";
+#endif
+         py_path += old_py_path;
+         }
+#ifdef _WIN32
+      _putenv_s("PYTHONPATH", py_path.c_str());
+#else
+      setenv("PYTHONPATH", py_path.c_str(), 1);
+#endif
       }
    int ec = -1;
    std::string out = _run_capture(cmd, ec);
