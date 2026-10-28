@@ -233,7 +233,7 @@ Value lookup_macro(const Value& sym)
    // Strip hygiene marks for the lookup so a mark-painted macro / forward
    // reference still resolves by its base name (referential transparency).
    uint32_t sid = intern_symbol(strip_marks(symbol_name(as_symbol_id(sym))));
-   auto opt = g_runtime_env->lookup_optional_id(sid);
+   auto opt = g_runtime_env->lookup_optional(global_la_key(sid));
    if (opt && is_syntax_transformer(*opt))
       return *opt;
    return NIL_VALUE;
@@ -646,7 +646,7 @@ static void ensure_local_env(bool& env_created, Environment*& saved_outer)
       {
       saved_outer = g_runtime_env;
       env_created = true;
-      g_runtime_env = gc_alloc_environment(g_runtime_env);
+      g_runtime_env = gc_alloc_global_environment(g_runtime_env);
       }
    }
 
@@ -2175,7 +2175,7 @@ static Value expand_define_syntax(const Value& sexpr)
           "define-syntax: transformer must be (syntax-rules ...)", src_of(tr_expr));
    Value t = parse_syntax_rules(cdr(tr_expr), g_runtime_env, macro_name, src_of(tr_expr));
    if (g_runtime_env != nullptr)
-      g_runtime_env->bind(macro_name, t);
+      g_runtime_env->bind(global_la_key(intern_symbol(macro_name)), t);
    return VOID_VALUE;
    }
 
@@ -2189,7 +2189,7 @@ static Value expand_let_syntax(const Value& sexpr, bool is_letrec)
       throw SchemeSyntaxError("let-syntax: empty body", src_of(sexpr));
 
    Environment* outer_env = g_runtime_env;
-   Environment* child_env = gc_alloc_environment(outer_env);
+   Environment* child_env = gc_alloc_global_environment(outer_env);
 
    if (is_letrec)
       g_runtime_env = child_env;
@@ -2219,12 +2219,12 @@ static Value expand_let_syntax(const Value& sexpr, bool is_letrec)
       Value t = parse_syntax_rules(cdr(tr_expr), g_runtime_env, bname, src_of(tr_expr));
       if (is_letrec)
          {
-         child_env->bind(bname, t);
+         child_env->bind(global_la_key(intern_symbol(bname)), t);
          }
       else
          {
          std::string gs = hygiene_gensym(bname);
-         child_env->bind(gs, t);
+         child_env->bind(global_la_key(intern_symbol(gs)), t);
          let_rename_table[intern_symbol(bname)] = intern_symbol(gs);
          }
       transformers.push_back(t);
@@ -2235,13 +2235,15 @@ static Value expand_let_syntax(const Value& sexpr, bool is_letrec)
    if (is_letrec && !transformers.empty())
       {
       Environment* global_env = child_env->getGlobalEnv();
+      std::unordered_map<uint32_t, Value> own;
+      child_env->for_each_binding([&](uint32_t sid, const Value& val) { own[sid] = val; });
       for (const Value& t_obj : transformers)
          {
          for (const auto& [fid_sid, gs_sid] : as_syntax_transformer_free_id_map(t_obj))
             {
-            auto it = child_env->_bindings.find(fid_sid);
-            if (it != child_env->_bindings.end())
-               global_env->bind_id(gs_sid, it->second);
+            auto it = own.find(fid_sid);
+            if (it != own.end())
+               global_env->bind(global_la_key(gs_sid), it->second);
             }
          }
       }

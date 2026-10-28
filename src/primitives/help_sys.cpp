@@ -235,11 +235,11 @@ static std::unordered_map<std::string, std::vector<std::string>> _collect_primit
 static std::vector<std::string> _collect_closures(Environment* global_env)
    {
    std::vector<std::string> closures;
-   for (auto& [sid, val] : global_env->_bindings)
-      {
-      if (is_closure(val))
-         closures.push_back(symbol_name(sid));
-      }
+   global_env->for_each_binding([&](uint32_t sid, const Value& val)
+                                {
+                                if (is_closure(val))
+                                   closures.push_back(symbol_name(sid));
+                                });
    std::sort(closures.begin(), closures.end());
    return closures;
    }
@@ -444,14 +444,14 @@ static bool _show_topic(Context* ctx, const std::string& name)
 static std::vector<std::string> _collect_matching_names(Environment* global_env, const std::string& lo)
    {
    std::vector<std::string> result;
-   for (auto& [sid, val_] : global_env->_bindings)
-      {
-      std::string name = symbol_name(sid);
-      std::string lo_name = name;
-      std::transform(lo_name.begin(), lo_name.end(), lo_name.begin(), ::tolower);
-      if (lo_name.find(lo) != std::string::npos)
-         result.push_back(name);
-      }
+   global_env->for_each_binding([&](uint32_t sid, const Value&)
+                                {
+                                std::string name = symbol_name(sid);
+                                std::string lo_name = name;
+                                std::transform(lo_name.begin(), lo_name.end(), lo_name.begin(), ::tolower);
+                                if (lo_name.find(lo) != std::string::npos)
+                                   result.push_back(name);
+                                });
    std::sort(result.begin(), result.end());
    return result;
    }
@@ -550,14 +550,15 @@ static Value _prim_help(Context* ctx, Environment* env, std::vector<Value>& args
       {
       Environment* global_env = env->getGlobalEnv();
       std::string matched_name = "<anonymous>";
-      for (auto& [sid, val] : global_env->_bindings)
-         {
-         if (_val_equal(val, target))
-            {
-            matched_name = symbol_name(sid);
-            break;
-            }
-         }
+      bool matched = false;
+      global_env->for_each_binding([&](uint32_t sid, const Value& val)
+                                   {
+                                   if (!matched && _val_equal(val, target))
+                                      {
+                                      matched_name = symbol_name(sid);
+                                      matched = true;
+                                      }
+                                   });
       _show_closure_entry(ctx, matched_name, target);
       return VOID_VALUE;
       }
@@ -566,7 +567,7 @@ static Value _prim_help(Context* ctx, Environment* env, std::vector<Value>& args
       {
       const std::string& name = as_symbol(target);
       Environment* global_env = env->getGlobalEnv();
-      auto val_opt = global_env->lookup_optional(name);
+      auto val_opt = global_env->lookup_optional(global_la_key(intern_symbol(name)));
       if (!val_opt)
          {
          ctx->write("No binding for '" + name + "'.\n");

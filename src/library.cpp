@@ -178,8 +178,8 @@ std::unordered_map<std::string, Value> resolve_import_set(const Value& import_se
           "library not found: " + _render_name(import_set));
 
    std::unordered_map<std::string, Value> result;
-   for (const auto& [sid, val] : exports_env->_bindings)
-      result[symbol_name(sid)] = val;
+   exports_env->for_each_binding([&](uint32_t sid, const Value& val)
+                                 { result[symbol_name(sid)] = val; });
    return result;
    }
 
@@ -187,13 +187,13 @@ static void _register_filtered(Environment* global_env,
                                const std::string& key,
                                const std::vector<std::string>& names)
    {
-   Environment* exports_env = gc_alloc_environment(nullptr);
+   GlobalEnvironment* exports_env = gc_alloc_global_environment();
    size_t i = 0;
    while (i < names.size())
       {
-      const std::string& n = names[i];
-      if (global_env->_bindings.count(intern_symbol(n)) > 0)
-         exports_env->bind(n, global_env->lookup(n));
+      LAKey k = global_la_key(intern_symbol(names[i]));
+      if (global_env->lookup_optional(k))
+         exports_env->bind(k, global_env->lookup(k));
       i = i + 1;
       }
    exports_env->freeze();
@@ -645,7 +645,7 @@ void register_standard_libraries(Environment* global_env)
    // Empty env registration: library's forms are special syntax handled by
    // the evaluator / expander, so there are no procedures to export, but
    // import should still succeed.
-   Environment* _empty_lib = gc_alloc_environment(nullptr);
+   GlobalEnvironment* _empty_lib = gc_alloc_global_environment();
    _empty_lib->freeze();
    library_register("scheme.case-lambda", _empty_lib);
    _register_filtered(global_env, "scheme.r5rs", _SCHEME_R5RS_NAMES);

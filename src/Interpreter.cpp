@@ -54,7 +54,7 @@ void Interpreter::reboot(std::ostream* outStrm, bool load_rc)
    _ctx.debugger = new Debugger();
    _ctx.tracer->reset();
    reset_current_port_params();
-   _env = gc_alloc_environment(nullptr);
+   _env = gc_alloc_global_environment();
    install_primitives(_env);
    register_standard_libraries(_env);
    set_runtime_env(_env);
@@ -62,8 +62,8 @@ void Interpreter::reboot(std::ostream* outStrm, bool load_rc)
    // current-library-path parameter: the .sld search path, seeded from '.' +
    // CLI -L/-I paths + SCHEME_LIBRARY_PATH.  Bound in the global env so programs
    // can read it or rebind it via parameterize; set-library-path! replaces it.
-   _env->bind_id(intern_symbol("current-library-path"),
-                 make_library_path_param(_cli_library_paths));
+   _env->bind(global_la_key(intern_symbol("current-library-path")),
+              make_library_path_param(_cli_library_paths));
    _static_env = StaticEnv(primitive_arities());
    if (outStrm != nullptr)
       _ctx.outStrm = outStrm;

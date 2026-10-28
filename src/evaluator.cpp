@@ -208,16 +208,19 @@ static BetaResult beta_reduce_core(const std::vector<uint32_t>& params, const Va
       if (n_args < n_fixed)
          throw SchemeArityError(arity_mismatch_msg("", n_fixed, -1, n_args), src);
       }
-   Environment* new_env = gc_alloc_environment(clo_env);
-   for (int i = 0; i < n_fixed; ++i)
-      new_env->bind_id(params[i], arg_values[i]);
+   std::vector<uint32_t> names(params.begin(), params.end());
+   std::vector<Value> values(arg_values.begin(), arg_values.begin() + n_fixed);
    if (rest_id != UINT32_MAX)
       {
       Value rest_val = NIL_VALUE;
       for (int i = n_args - 1; i >= n_fixed; --i)
          rest_val = alloc_cons(arg_values[i], rest_val);
-      new_env->bind_id(rest_id, rest_val);
+      names.push_back(rest_id);
+      values.push_back(rest_val);
       }
+   Environment* new_env = gc_alloc_local_environment(
+       clo_env, std::make_shared<const std::vector<uint32_t>>(std::move(names)),
+       std::move(values));
    return {new_env, body};
    }
 
@@ -280,7 +283,7 @@ static bool is_aux_keyword(const Value& sym, const std::string& name, Environmen
       return false;
    if (!env)
       return true;
-   return !env->lookup_optional(name).has_value();
+   return !env->lookup_optional(global_la_key(intern_symbol(name))).has_value();
    }
 
 // ── classify_cond_clause ──────────────────────────────────────────────────────
@@ -1337,7 +1340,7 @@ static DefineLibrarySetup define_library_setup(const Value& C, Context* ctx)
       throw SchemeSyntaxError(
           std::string("define-library: ") + e.what(), src_of(C));
       }
-   dl.lib_env = gc_alloc_environment(nullptr);
+   dl.lib_env = gc_alloc_global_environment();
    Value d = decls_cons;
    while (is_cons(d))
       {
@@ -1357,21 +1360,21 @@ static void finalize_define_library(
     const std::vector<std::pair<uint32_t, Value>>& export_pairs,
     const std::string& key, const Value& name_src)
    {
-   Environment* exports_env = gc_alloc_environment(nullptr);
-   gc_env_root_push(&exports_env);
+   GlobalEnvironment* exports_env = gc_alloc_global_environment();
+   Environment* exports_root = exports_env;
+   gc_env_root_push(&exports_root);
    for (const auto& ep : export_pairs)
       {
-      uint32_t internal_sid = ep.first;
-      std::string external_name = as_symbol(ep.second);
-      if (lib_env->_bindings.count(internal_sid) == 0)
+      LAKey internal_key = global_la_key(ep.first);
+      if (!lib_env->lookup_optional(internal_key))
          {
-         gc_env_root_pop(&exports_env);
+         gc_env_root_pop(&exports_root);
          throw SchemeSyntaxError(
-             "define-library: exported name not defined: " + symbol_name(internal_sid),
+             "define-library: exported name not defined: " + symbol_name(ep.first),
              src_of(name_src));
          }
-      Value val = lib_env->_bindings.at(internal_sid);
-      exports_env->bind(external_name, val);
+      Value val = lib_env->lookup(internal_key);
+      exports_env->bind(global_la_key(as_symbol_id(ep.second)), val);
       // A macro's free-identifier aliases (gensyms bound to the library's
       // def-time values in lib_env, the library's parentless "global") are
       // part of its hygiene closure.  Carry them into the exports env so they
@@ -1383,17 +1386,18 @@ static void finalize_define_library(
          for (const auto& kv : t->free_id_map)
             {
             uint32_t gs_sid = kv.second;
-            // lookup_id resolves the AliasCell to the def-time value (mirrors
+            // lookup resolves the AliasCell to the def-time value (mirrors
             // pyScheme's lib_env.lookup(gs)), so the export carries a plain
             // value -- the alias degrades to its snapshot exactly as before.
-            if (lib_env->_bindings.count(gs_sid) && exports_env->_bindings.count(gs_sid) == 0)
-               exports_env->bind(symbol_name(gs_sid), lib_env->lookup_id(gs_sid));
+            LAKey gs_key = global_la_key(gs_sid);
+            if (lib_env->lookup_optional(gs_key) && !exports_env->lookup_optional(gs_key))
+               exports_env->bind(gs_key, lib_env->lookup(gs_key));
             }
          }
       }
    exports_env->freeze();
    library_register(key, exports_env);
-   gc_env_root_pop(&exports_env);
+   gc_env_root_pop(&exports_root);
    }
 
 // ── The CEK machine ───────────────────────────────────────────────────────────
@@ -1979,10 +1983,11 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                                     param_ids.push_back(p.first);
                                     init_exprs.push_back(p.second);
                                     }
-                                 Environment* loop_env = gc_alloc_environment(E);
-                                 loop_env->bind_id(loop_nm_id, VOID_VALUE);
+                                 Environment* loop_env = gc_alloc_local_environment(
+                                     E, std::make_shared<const std::vector<uint32_t>>(1, loop_nm_id),
+                                     {VOID_VALUE});
                                  Value closure = make_closure(param_ids, body_cons, loop_env, UINT32_MAX, "");
-                                 loop_env->bind_id(loop_nm_id, closure);
+                                 loop_env->bind(LAKey{0, 0, loop_nm_id}, closure);
                                  V = closure;
                                  Frame f;
                                  f.tag = FRAME_ARG;
@@ -2074,9 +2079,12 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                                     }
                                  continue;
                                  }
-                              Environment* new_env = gc_alloc_environment(E);
+                              std::vector<uint32_t> names;
                               for (auto& p : pairs)
-                                 new_env->bind_id(p.first, UNASSIGNED_VALUE);
+                                 names.push_back(p.first);
+                              Environment* new_env = gc_alloc_local_environment(
+                                  E, std::make_shared<const std::vector<uint32_t>>(std::move(names)),
+                                  std::vector<Value>(pairs.size(), UNASSIGNED_VALUE));
                               std::vector<std::pair<uint32_t, Value>> remaining(pairs.begin() + 1, pairs.end());
                               Frame f;
                               f.tag = FRAME_LETREC;
@@ -2157,7 +2165,7 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   uint32_t sym_id = as_symbol_id(C);
                   try
                      {
-                     V = E->lookup_id(sym_id);
+                     V = E->lookup(E->resolve(sym_id, 0));
                      }
                   catch (SchemeUnboundError& e)
                      {
@@ -2203,7 +2211,7 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   E = frame.env;
                   try
                      {
-                     E->bind_id(as_symbol_id(frame.v1), V);
+                     E->bind(global_la_key(as_symbol_id(frame.v1)), V);
                      }
                   catch (SchemeTypeError& e) // define into a frozen environment
                      {
@@ -2225,9 +2233,9 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   E = frame.env;
                   try
                      {
-                     E->set_id(as_symbol_id(frame.v1), V);
+                     E->set(E->resolve(as_symbol_id(frame.v1), 0), V);
                      }
-                  // set_id throws SchemeUnboundError (no binding) or
+                  // set throws SchemeUnboundError (no binding) or
                   // SchemeTypeError (frozen environment); both are positioned.
                   catch (PositionedSchemeError& e)
                      {
@@ -2551,7 +2559,7 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                      throw SchemeSyntaxError(frame.str1 + ie.what(), src_of(import_set));
                      }
                   for (const auto& [n, val] : bindings)
-                     im_env->bind(n, val);
+                     im_env->bind(global_la_key(intern_symbol(n)), val);
                   frame.depth = (int)im_i + 1;
                   frame.uid = 0;
                   K.push_back(std::move(frame));
@@ -2620,7 +2628,7 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                                         std::istreambuf_iterator<char>());
                      sld_file.close();
                      std::vector<Value> forms = scheme_parse(source, sld);
-                     Environment* fresh_env = gc_alloc_environment(nullptr);
+                     Environment* fresh_env = gc_alloc_global_environment();
                      Frame ef;
                      ef.tag = FRAME_EVAL_FORMS;
                      ef.list1 = std::move(forms);
@@ -3909,9 +3917,9 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   new_collected.push_back(V);
                   if (remaining.empty())
                      {
-                     Environment* new_env = gc_alloc_environment(saved_env);
-                     for (size_t i = 0; i < names_ids.size(); ++i)
-                        new_env->bind_id(names_ids[i], new_collected[i]);
+                     Environment* new_env = gc_alloc_local_environment(
+                         saved_env, std::make_shared<const std::vector<uint32_t>>(names_ids),
+                         std::move(new_collected));
                      E = new_env;
                      C = car(body);
                      if (is_cons(cdr(body)))
@@ -3945,8 +3953,8 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   auto& remaining = frame.pairs;
                   Value body = frame.v1;
                   Environment* saved_env = frame.env;
-                  Environment* new_env = gc_alloc_environment(saved_env);
-                  new_env->bind_id(name_id, V);
+                  Environment* new_env = gc_alloc_local_environment(
+                      saved_env, std::make_shared<const std::vector<uint32_t>>(1, name_id), {V});
                   if (remaining.empty())
                      {
                      E = new_env;
@@ -3982,7 +3990,7 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   auto& remaining = frame.pairs;
                   Value body = frame.v1;
                   Environment* saved_env = frame.env;
-                  saved_env->set_id(name_id, V);
+                  saved_env->set(saved_env->resolve(name_id, 0), V);
                   if (remaining.empty())
                      {
                      E = saved_env;

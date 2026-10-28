@@ -39,7 +39,6 @@ CPPSCHEME2_API RecordAccessor* gc_alloc_record_accessor(RecordType* rt, int idx,
                                                         std::string name);
 CPPSCHEME2_API RecordMutator* gc_alloc_record_mutator(RecordType* rt, int idx,
                                                       std::string name);
-CPPSCHEME2_API Environment* gc_alloc_environment(Environment* parent);
 CPPSCHEME2_API EnvBox* gc_alloc_env_box(Environment* env);
 
 // ── Root tracking ─────────────────────────────────────────────────────────────
@@ -154,6 +153,6 @@ CPPSCHEME2_API void gc_init();
 CPPSCHEME2_API void gc_shutdown();
 
 // ── Internal registration helper ─────────────────────────────────────────────
-// Called by gc_alloc_environment (implemented in Environment.cpp, where the
-// full Environment struct is visible) to register the new object with the GC.
+// Called by the environment allocators (implemented in Environment.cpp, where
+// the full classes are visible) to register the new object with the GC.
 CPPSCHEME2_API void gc_register_young(GcHeader* header);

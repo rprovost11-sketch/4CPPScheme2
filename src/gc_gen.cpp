@@ -86,7 +86,7 @@ static void gc_major_finish();
 static void minor_collect();
 static void mark_environment(Environment* env, bool minor_only);
 
-// ── GC registration helper (exported for gc_alloc_environment in Environment.cpp) ──
+// ── GC registration helper (exported for the environment allocators in Environment.cpp) ──
 
 static void register_young(GcHeader* header)
    {
@@ -123,9 +123,9 @@ void gc_copy_forward_env(Environment*& env_ptr)
    {
    if (!env_ptr)
       return;
-   GcHeader* hdr = reinterpret_cast<GcHeader*>(env_ptr);
+   GcHeader* hdr = &env_ptr->header;
    if (hdr->forward)
-      env_ptr = reinterpret_cast<Environment*>(hdr->forward);
+      env_ptr = Environment::from_header(hdr->forward);
    }
 
 // ── Shade helpers ─────────────────────────────────────────────────────────────
@@ -148,7 +148,7 @@ static void shade_gray_value(Value val)
 static void shade_gray_env(Environment* env)
    {
    if (env)
-      shade_gray(reinterpret_cast<GcHeader*>(env));
+      shade_gray(&env->header);
    }
 
 // ── for_each_child ────────────────────────────────────────────────────────────
@@ -311,7 +311,7 @@ static void for_each_child(GcHeader* header, V& v)
       break;
       }
    case GcType::Environment:
-      v.environment_node(reinterpret_cast<Environment*>(header));
+      v.environment_node(Environment::from_header(header));
       break;
    case GcType::EnvBox:
       v.envbox(reinterpret_cast<EnvBox*>(header));
@@ -414,7 +414,7 @@ static void mark_environment(Environment* env, bool minor_only)
    {
    if (!env)
       return;
-   mark_enqueue(reinterpret_cast<GcHeader*>(env), minor_only);
+   mark_enqueue(&env->header, minor_only);
    if (!g_mark_draining)
       mark_drain(minor_only);
    }
@@ -526,7 +526,7 @@ static size_t g_gc_leak_counts[32] = {0};
    X(Vector, SchemeVector) X(Bytevector, SchemeBytevector) X(Port, Port)        \
    X(Complex, SchemeComplex) X(ExactComplex, ExactComplex)                      \
    X(RecordAccessor, RecordAccessor)                                            \
-   X(RecordMutator, RecordMutator) X(Environment, Environment) X(EnvBox, EnvBox) \
+   X(RecordMutator, RecordMutator) X(EnvBox, EnvBox)                            \
    X(AliasCell, AliasCell)
 
 static void free_object(GcHeader* header)
@@ -548,6 +548,11 @@ static void free_object(GcHeader* header)
       break;
    GC_PLAIN_DELETE_TYPES(DEL_CASE)
 #undef DEL_CASE
+   case GcType::Environment:
+      // The header is not at offset 0 of a (polymorphic) Environment; the
+      // virtual destructor frees the right subclass.
+      delete Environment::from_header(header);
+      break;
    case GcType::Bignum:
       {
       auto* b = reinterpret_cast<SchemeBignum*>(header);
@@ -1081,7 +1086,8 @@ RecordMutator* gc_alloc_record_mutator(RecordType* rt, int idx, std::string name
    return rm;
    }
 
-// gc_alloc_environment is implemented in Environment.cpp (requires full struct definition).
+// gc_alloc_local_environment / gc_alloc_global_environment are implemented in
+// Environment.cpp (they need the full class definitions).
 
 // ── Root tracking ─────────────────────────────────────────────────────────────
 

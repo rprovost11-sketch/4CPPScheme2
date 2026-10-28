@@ -306,23 +306,23 @@ TEST(write_barrier_via_env_bind)
    {
    gc_test_reset();
    // Allocate env, promote to old-gen.
-   Environment* env = gc_alloc_environment(nullptr);
+   Environment* env = gc_alloc_global_environment();
    gc_env_root_push(&env);
    force_minor_gc();
-   GcHeader* env_hdr = reinterpret_cast<GcHeader*>(env);
+   GcHeader* env_hdr = &env->header;
    CHECK_EQ((int)env_hdr->gen, 1);
 
    // bind a fresh nursery value with no other root.
    Value fresh = make_test_cons(Value{}, Value{});
    GcHeader* fresh_hdr = gc_value_header(fresh);
-   env->bind("x", fresh);
+   env->bind(global_la_key(intern_symbol("x")), fresh);
    CHECK_EQ((int)fresh_hdr->gen, 0);
    CHECK(gc_test_in_remembered_set(env_hdr));
 
    force_minor_gc();
    check_invariants("after second minor GC");
 
-   Value looked_up = env->lookup("x");
+   Value looked_up = env->lookup(global_la_key(intern_symbol("x")));
    GcHeader* survived = gc_value_header(looked_up);
    CHECK(gc_test_in_heap(survived));
    CHECK_EQ((int)survived->gen, 1);
@@ -439,7 +439,7 @@ TEST(reboot_simulation_stress)
    constexpr int BINDS_PER = 32;
    constexpr int CONSES_PER = 64;
 
-   Environment* env = gc_alloc_environment(nullptr);
+   Environment* env = gc_alloc_global_environment();
    gc_env_root_push(&env);
 
    for (int cycle = 0; cycle < N_CYCLES; ++cycle)
@@ -448,7 +448,7 @@ TEST(reboot_simulation_stress)
          {
          Value v = make_test_cons(Value{}, Value{});
          std::string name = "v" + std::to_string(i);
-         env->bind(name, v);
+         env->bind(global_la_key(intern_symbol(name)), v);
          }
       for (int i = 0; i < CONSES_PER; ++i)
          make_test_cons(Value{}, Value{}); // unrooted churn
@@ -459,7 +459,7 @@ TEST(reboot_simulation_stress)
       check_invariants("post-major in cycle");
 
       // "Reboot": swap env to a fresh one.  Old env now unreachable.
-      env = gc_alloc_environment(nullptr);
+      env = gc_alloc_global_environment();
       }
    gc_env_root_pop(&env);
 

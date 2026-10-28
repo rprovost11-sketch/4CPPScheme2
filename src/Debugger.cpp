@@ -90,29 +90,31 @@ void Debugger::_collect_locals(Environment* env,
                                std::unordered_map<uint32_t, Value>& result)
    {
    Environment* current = env;
-   Environment* global_env = env->_global_env;
+   Environment* global_env = env->getGlobalEnv();
    while (current != nullptr && current != global_env)
       {
-      for (auto& [sid, val] : current->_bindings)
-         {
-         if (result.find(sid) == result.end())
-            result[sid] = val;
-         }
-      current = current->_parent;
+      current->for_each_binding([&](uint32_t sid, const Value& val)
+                                {
+                                if (result.find(sid) == result.end())
+                                   result[sid] = val;
+                                });
+      current = current->getParent();
       }
    }
 
 void Debugger::_print_scoped_locals(Environment* env, int max_depth)
    {
    Environment* current = env;
-   Environment* global_env = env->_global_env;
+   Environment* global_env = env->getGlobalEnv();
    int scope_num = 0;
    while (current != nullptr && current != global_env)
       {
       if (max_depth >= 0 && scope_num >= max_depth)
          break;
+      std::unordered_map<uint32_t, Value> in_scope;
+      current->for_each_binding([&](uint32_t sid, const Value& val) { in_scope[sid] = val; });
       std::vector<uint32_t> names_in_scope;
-      for (auto& [sid, val] : current->_bindings)
+      for (auto& [sid, val] : in_scope)
          {
          if (!_is_callable(val))
             names_in_scope.push_back(sid);
@@ -126,11 +128,11 @@ void Debugger::_print_scoped_locals(Environment* env, int max_depth)
          for (uint32_t sid : names_in_scope)
             {
             std::cout << symbol_name(sid) << ":   "
-                      << scheme_pretty_print(current->_bindings.at(sid)) << '\n';
+                      << scheme_pretty_print(in_scope.at(sid)) << '\n';
             }
          scope_num++;
          }
-      current = current->_parent;
+      current = current->getParent();
       }
    }
 
@@ -139,7 +141,7 @@ void Debugger::_print_named_vars(Environment* env,
    {
    for (const auto& name : names)
       {
-      auto val = env->lookup_optional(name);
+      auto val = env->lookup_optional(env->resolve(intern_symbol(name), 0));
       if (val)
          std::cout << name << ":   " << scheme_pretty_print(*val) << '\n';
       else
@@ -495,7 +497,7 @@ void Debugger::_prune_stale_inner(Environment* env)
    std::vector<std::pair<const ConsCell*, std::string>> stale;
    for (auto& [ptr, entry] : _inner_targets)
       {
-      auto current = env->lookup_optional(entry.fn_name);
+      auto current = env->lookup_optional(env->resolve(intern_symbol(entry.fn_name), 0));
       bool same = current && _value_identity_equal(*current, entry.fn_obj);
       if (!same)
          stale.push_back({ptr, entry.display});
@@ -576,7 +578,7 @@ void Debugger::_set_inner_breakpoint(const std::string& spec, const std::string&
       return;
       }
 
-   auto fn_opt = env->lookup_optional(fn_name);
+   auto fn_opt = env->lookup_optional(env->resolve(intern_symbol(fn_name), 0));
    if (!fn_opt)
       {
       std::cout << fn_name << " is not defined.\n";
@@ -1147,7 +1149,7 @@ void Debugger::_cmd_body(const std::string&, const std::string& rest,
       if (e != std::string::npos)
          fn_name = fn_name.substr(0, e + 1);
       }
-   auto fn_opt = env->lookup_optional(fn_name);
+   auto fn_opt = env->lookup_optional(env->resolve(intern_symbol(fn_name), 0));
    if (!fn_opt)
       {
       std::cout << fn_name << " is not defined.\n";

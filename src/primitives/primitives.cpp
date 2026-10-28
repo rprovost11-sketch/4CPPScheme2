@@ -224,5 +224,5 @@ void install_primitives(Environment* env)
       s_installed = true;
       }
    for (auto& e : s_registry)
-      env->bind(e.name, make_primitive(e.name, e.fn));
+      env->bind(global_la_key(intern_symbol(e.name)), make_primitive(e.name, e.fn));
    }

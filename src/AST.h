@@ -315,12 +315,12 @@ struct NativeClosure
 // Port of Environment.py _AliasCell.  A syntax-rules template's free reference to
 // a binding that existed at macro definition time is emitted as a fresh gensym
 // (so a same-named use-site binding cannot capture it -- hygiene); that gensym is
-// bound, in the global env's _bindings, to one of these instead of to a copy of
+// bound, in the global env, to one of these instead of to a copy of
 // the referent's value.  Resolving prefers the LIVE def-site binding (`target` in
 // `def_env`), so set! through the macro writes through and later mutations are
 // seen; if def_env no longer resolves target at eval time (a transient body-scan
 // scope, as for library-internal helpers), it falls back to `copy`, the def-time
-// snapshot.  Stored as a Value in _bindings so it rides through the library
+// snapshot.  Stored as a binding's Value so it rides through the library
 // export/import machinery unchanged (lookup resolves it to a plain value).
 // Never escapes to user code: the lookup/set paths resolve it in place.
 struct AliasCell

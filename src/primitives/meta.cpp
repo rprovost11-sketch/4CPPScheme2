@@ -110,7 +110,7 @@ static Value _prim_environment(Context*, Environment*, std::vector<Value>& args,
    // Port of meta.py _prim_environment.
    // (environment <library-spec>...) returns a frozen env containing the
    // union of the named libraries' exports.
-   Environment* result = gc_alloc_environment(nullptr);
+   GlobalEnvironment* result = gc_alloc_global_environment();
    for (const Value& spec : args)
       {
       if (!is_cons(spec))
@@ -131,8 +131,8 @@ static Value _prim_environment(Context*, Environment*, std::vector<Value>& args,
              "environment: library not found: " + scheme_pretty_print(spec),
              _src(app));
          }
-      for (const auto& [sid, val] : lib_env->_bindings)
-         result->bind(symbol_name(sid), val);
+      lib_env->for_each_binding([&](uint32_t sid, const Value& val)
+                                { result->bind(global_la_key(sid), val); });
       }
    result->freeze();
    return make_environment(result);
@@ -150,8 +150,8 @@ static Value _prim_environment(Context*, Environment*, std::vector<Value>& args,
 static Value _prim_make_environment(Context*, Environment* env, std::vector<Value>& args, const Value* app)
    {
    if (args.empty())
-      return make_environment(gc_alloc_environment(env->getGlobalEnv()));
-   Environment* result = gc_alloc_environment(nullptr);
+      return make_environment(gc_alloc_global_environment(env->getGlobalEnv()));
+   GlobalEnvironment* result = gc_alloc_global_environment();
    for (const Value& spec : args)
       {
       if (!is_cons(spec))
@@ -169,8 +169,8 @@ static Value _prim_make_environment(Context*, Environment* env, std::vector<Valu
       if (!lib_env)
          throw SchemeTypeError(
              "make-environment: library not found: " + scheme_pretty_print(spec), _src(app));
-      for (const auto& [sid, val] : lib_env->_bindings)
-         result->bind(symbol_name(sid), val);
+      lib_env->for_each_binding([&](uint32_t sid, const Value& val)
+                                { result->bind(global_la_key(sid), val); });
       }
    return make_environment(result);  // deliberately NOT frozen -> mutable
    }
@@ -179,7 +179,7 @@ static Value _prim_make_environment(Context*, Environment* env, std::vector<Valu
 // freshly rebooted interpreter's global env.  It is a CHILD of the real global (so
 // builtins reached via the parent chain, e.g. `apply`, resolve and new defines stay
 // isolated); the global's OWN top-level bindings are copied in (so environment
-// introspection -- help / apropos, which read getGlobalEnv()._bindings -- sees them);
+// introspection -- help / apropos, which walk getGlobalEnv()'s bindings -- sees them);
 // and it is rerooted to be its own global (so getGlobalEnv() returns IT, hence code
 // run in it sees IT as (interaction-environment)).  The differ's host runner uses one
 // per source so meta-circular tests -- e.g. (define x 1) then
@@ -188,10 +188,10 @@ static Value _prim_make_environment(Context*, Environment* env, std::vector<Valu
 static Value _prim_make_toplevel_environment(Context*, Environment* env, std::vector<Value>&, const Value*)
    {
    Environment* g = env->getGlobalEnv();
-   Environment* fresh = gc_alloc_environment(g);          // child of global: chain + isolation
-   for (const auto& [sid, val] : g->_bindings)
-      fresh->bind(symbol_name(sid), val);                 // copy so help/apropos can introspect
-   fresh->reroot_as_global();                             // but is its own global
+   GlobalEnvironment* fresh = gc_alloc_global_environment(g); // child of global: chain + isolation
+   g->for_each_binding([&](uint32_t sid, const Value& val)     // copy so help/apropos can introspect
+                       { fresh->bind(global_la_key(sid), val); });
+   fresh->reroot_as_global();                                  // but is its own global
    return make_environment(fresh);
    }
 
@@ -203,7 +203,7 @@ static Value _prim_null_environment(Context*, Environment*, std::vector<Value>& 
    // nor another value supported by the implementation, an error is signaled.
    if (as_integer(args[0]) != 5)
       throw SchemeTypeError("null-environment: unsupported version (only 5 is supported)", _src(app));
-   Environment* e = gc_alloc_environment(nullptr);
+   GlobalEnvironment* e = gc_alloc_global_environment();
    e->freeze();
    return make_environment(e);
    }

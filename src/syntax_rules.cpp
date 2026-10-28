@@ -1143,7 +1143,7 @@ Value parse_syntax_rules(Value tail, Environment* def_env, const std::string& na
       {
       for (uint32_t fid : free_ids)
          {
-         if (def_env->lookup_optional_id(fid).has_value())
+         if (def_env->lookup_optional(global_la_key(fid)).has_value())
             {
             uint32_t gs_id = intern_symbol(hygiene_gensym(symbol_name(fid)));
             free_id_map[fid] = gs_id;
@@ -1192,12 +1192,12 @@ Value parse_syntax_rules(Value tail, Environment* def_env, const std::string& na
    // aliasing it to itself would build a cyclic AliasCell, so leave it.
    if (!free_id_map.empty() && def_env)
       {
-      Environment* global_env = def_env->getGlobalEnv();
+      GlobalEnvironment* global_env = def_env->getGlobalEnv();
       for (auto& [fid, gs_id] : free_id_map)
          {
          if (symbol_name(fid).rfind(GENSYM_PREFIX, 0) == 0)
             continue;
-         global_env->register_alias(gs_id, fid, def_env, def_env->lookup_id(fid));
+         global_env->register_alias(gs_id, fid, def_env, def_env->lookup(global_la_key(fid)));
          }
       }
 
