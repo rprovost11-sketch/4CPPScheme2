@@ -2,10 +2,12 @@
 // Evaluator.h -- CEK machine evaluator.
 // Direct port of pyscheme/Evaluator.py.
 #include "AST.h"
+#include "Analyzer.h"
 #include "Context.h"
 #include "Environment.h"
 #include "scheme_export.h"
 #include <exception>
+#include <memory>
 #include <string>
 #include <unordered_set>
 #include <utility>
@@ -102,8 +104,10 @@ constexpr int FRAME_ENSURE_LOADED = 38;          // load-path search + .sld eval
 //   FRAME_ERROR_UNWIND:         list1=afters, depth=index, exc=original exception_ptr
 //                                 (re-raised once the afters are exhausted)
 //   FRAME_EVAL_FORMS:           list1=forms (parsed, unexpanded), env=eval_env,
-//                                 depth=index (each form expanded then evaluated;
-//                                 result discarded; yields VOID when exhausted)
+//                                 depth=index, senv=static_env, uid=do_analyze(0/1)
+//                                 (each form expanded, analyzed if do_analyze, then
+//                                 evaluated; result discarded; yields VOID when
+//                                 exhausted)
 //   FRAME_LIB_FINALIZE:         env=lib_env, v1=def_lib_form (for error src),
 //                                 pairs=export_names ((internal_sid, external symbol
 //                                 Value)), str1=key
@@ -135,6 +139,10 @@ struct Frame
    // collected after-thunks have run (propagate semantics).  Null for all other
    // frames.  Not GC-relevant (holds a C++ exception, not a Value).
    std::exception_ptr exc;
+   // FRAME_EVAL_FORMS only: the static (arity) env the Analyzer accumulates the
+   // loaded file's defines into.  Shared so a copied frame (call/cc) keeps the
+   // same one.  Null for all other frames.  Not GC-relevant (holds no Values).
+   std::shared_ptr<StaticEnv> senv;
    };
 
 using KStack = std::vector<Frame>;

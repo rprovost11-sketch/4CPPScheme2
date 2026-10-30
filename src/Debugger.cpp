@@ -293,7 +293,8 @@ std::string Debugger::_ann_flat(const Value& cell, const AnnMap& annotations)
    Value cur = cell;
    while (is_cons(cur))
       {
-      parts.push_back(_ann_flat(car(cur), annotations));
+      if (!is_scope_names(car(cur)))
+         parts.push_back(_ann_flat(car(cur), annotations));
       cur = cdr(cur);
       }
    std::string inner;
@@ -1480,7 +1481,8 @@ void Debugger::print_watch(Environment* env, Context* ctx)
          for (auto& form : forms)
             {
             Value expanded = expand(form);
-            analyze(expanded);
+            std::vector<CompileScope> links;
+            expanded = analyze(expanded, primitive_arities(), scope_of_env(env, links));
             if (ctx->lEval)
                result = ctx->lEval(env, expanded);
             }
@@ -1515,7 +1517,8 @@ void Debugger::safe_eval(Context* ctx, Environment* env, const std::string& sour
       for (auto& form : forms)
          {
          Value expanded = expand(form);
-         analyze(expanded);
+         std::vector<CompileScope> links;
+         expanded = analyze(expanded, primitive_arities(), scope_of_env(env, links));
          if (ctx->lEval)
             result = ctx->lEval(env, expanded);
          }
@@ -1544,7 +1547,8 @@ void Debugger::safe_inspect(Context* ctx, Environment* env, const std::string& s
       for (auto& form : forms)
          {
          Value expanded = expand(form);
-         analyze(expanded);
+         std::vector<CompileScope> links;
+         expanded = analyze(expanded, primitive_arities(), scope_of_env(env, links));
          if (ctx->lEval)
             result = ctx->lEval(env, expanded);
          }
@@ -1570,7 +1574,8 @@ void Debugger::debug_eval(Context* ctx, Environment* env, const std::string& sou
       for (auto& form : forms)
          {
          Value expanded = expand(form);
-         analyze(expanded);
+         std::vector<CompileScope> links;
+         expanded = analyze(expanded, primitive_arities(), scope_of_env(env, links));
          if (ctx->lEval)
             result = ctx->lEval(env, expanded);
          }
@@ -1818,7 +1823,8 @@ void Debugger::on_expr(const Value& C, Environment* E, const KStack& K, Context*
          for (auto& form : forms)
             {
             Value expanded = expand(form);
-            analyze(expanded);
+            std::vector<CompileScope> links;
+            expanded = analyze(expanded, primitive_arities(), scope_of_env(E, links));
             if (ctx->lEval)
                result = ctx->lEval(E, expanded);
             }

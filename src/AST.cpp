@@ -317,19 +317,64 @@ Value make_string(const std::string& s, SourceInfo* src)
 
 Value make_symbol(const std::string& name, SourceInfo* src)
    {
-   return Value{Value::Repr(SymbolAtom{intern_symbol(name), src})};
+   return Value{Value::Repr(SymbolAtom{intern_symbol(name), SYMBOL_UNRESOLVED, 0, src})};
    }
 
 Value make_symbol_id(uint32_t sid, SourceInfo* src)
    {
-   return Value{Value::Repr(SymbolAtom{sid, src})};
+   return Value{Value::Repr(SymbolAtom{sid, SYMBOL_UNRESOLVED, 0, src})};
+   }
+
+Value resolve_symbol(const Value& sym, int depth, int index)
+   {
+   const SymbolAtom& sa = std::get<SymbolAtom>(sym.repr);
+   if (depth > INT16_MAX || index > UINT16_MAX)
+      return sym;
+   return Value{Value::Repr(SymbolAtom{sa.id, (int16_t)depth, (uint16_t)index, sa.src})};
+   }
+
+bool symbol_la_address(const Value& sym, int& depth, int& index)
+   {
+   const SymbolAtom& sa = std::get<SymbolAtom>(sym.repr);
+   if (sa.depth == SYMBOL_UNRESOLVED)
+      return false;
+   depth = sa.depth;
+   index = sa.index;
+   return true;
+   }
+
+Value make_scope_names(std::vector<ScopeNames> scopes)
+   {
+   ScopeNamesNode* node = gc_alloc_scope_names();
+   node->scopes = std::move(scopes);
+   return Value{Value::Repr(node)};
+   }
+
+bool is_scope_names(const Value& val)
+   {
+   return std::holds_alternative<ScopeNamesNode*>(val.repr);
+   }
+
+const std::vector<ScopeNames>& as_scope_names(const Value& val)
+   {
+   return std::get<ScopeNamesNode*>(val.repr)->scopes;
+   }
+
+ScopeNames closure_scope_names(const std::vector<uint32_t>& params, uint32_t rest_name_id)
+   {
+   std::vector<uint32_t> names(params.begin(), params.end());
+   if (rest_name_id != UINT32_MAX)
+      names.push_back(rest_name_id);
+   return std::make_shared<const std::vector<uint32_t>>(std::move(names));
    }
 
 Value make_closure(std::vector<uint32_t> params, Value body,
                    Environment* env, uint32_t rest_name_id,
-                   std::string docstring)
+                   std::string docstring, ScopeNames scope_names)
    {
    SchemeClosure* cl = gc_alloc_closure();
+   cl->scope_names = scope_names ? std::move(scope_names)
+                                 : closure_scope_names(params, rest_name_id);
    cl->params = std::move(params);
    cl->body = std::move(body);
    cl->env = env;
@@ -907,6 +952,11 @@ const std::string& as_closure_docstring(const Value& val)
    return std::get<SchemeClosure*>(val.repr)->docstring;
    }
 
+const ScopeNames& as_closure_scope_names(const Value& val)
+   {
+   return std::get<SchemeClosure*>(val.repr)->scope_names;
+   }
+
 const std::string& as_primitive_name(const Value& val)
    {
    return std::get<Builtin*>(val.repr)->name;
@@ -1255,6 +1305,34 @@ void set_cdr(Value& cons_val, Value new_cdr)
    gc_write_barrier(&cell->header, gc_value_header(cell->cdr));
    }
 
+// ── Node identity ─────────────────────────────────────────────────────────────
+// Port of Python's `is` on two code nodes: the same heap object, or the same
+// immediate atom field for field (a resolved symbol differs from the plain one).
+// The Analyzer uses it to reuse every cell its rewrite left unchanged.
+
+bool value_identical(const Value& a, const Value& b)
+   {
+   if (a.repr.index() != b.repr.index())
+      return false;
+   return std::visit([&](auto&& x) -> bool
+                     {
+      using T = std::decay_t<decltype(x)>;
+      const T& y = std::get<T>(b.repr);
+      (void)y;
+      bool same = true; // EofTag: no fields
+      if constexpr (std::is_pointer_v<T>)
+         same = (x == y);
+      else if constexpr (std::is_same_v<T, SymbolAtom>)
+         same = x.id == y.id && x.depth == y.depth && x.index == y.index && x.src == y.src;
+      else if constexpr (std::is_same_v<T, BoolAtom>)
+         same = x.value == y.value && x.src == y.src;
+      else if constexpr (std::is_same_v<T, NilAtom>)
+         same = x.src == y.src;
+      else if constexpr (std::is_same_v<T, VoidTag>)
+         same = x.unassigned == y.unassigned;
+      return same; }, a.repr);
+   }
+
 // ── Value equality ────────────────────────────────────────────────────────────
 // Port of AST.py eqv_atom.
 
@@ -1376,7 +1454,7 @@ std::string format_with_caret(const std::string& msg, SourceInfo* src)
    X(Continuation) X(SyntaxTransformer) X(SchemeVector) X(SchemeBytevector) \
    X(Port) X(SchemeComplex) X(ExactComplex) X(SchemeRational) X(SchemeBignum) \
    X(SchemeInteger) X(SchemeReal) X(SchemeChar) X(RecordAccessor)         \
-   X(RecordMutator) X(NativeClosure) X(AliasCell)
+   X(RecordMutator) X(NativeClosure) X(AliasCell) X(ScopeNamesNode)
 
 // Expands to the GcHeader* for a named GC-managed pointer type, or nullptr.
 #define HDR_CASE(Type)                           \

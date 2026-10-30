@@ -3,6 +3,8 @@
 #include "Environment.h"
 #include "PrettyPrinter.h"
 #include <cassert>
+#include <cstdio>
+#include <cstdlib>
 
 // ── Module-private helpers ────────────────────────────────────────────────────
 // Port of Environment.py _display_name (delegates to AST gensym_display_name).
@@ -209,8 +211,48 @@ LocalEnvironment* LocalEnvironment::owner(int depth)
    return scope;
    }
 
+// ── LA check ──────────────────────────────────────────────────────────────────
+// Port of Environment.py _install_la_check.  SCHEME_LA_CHECK set: prove the
+// Analyzer's frame model against the run-time chain.  Every lookup / set a
+// local scope receives must carry the LA key resolve finds by name from that
+// scope, and a dict scope must only ever receive a global key -- a wrong key
+// there would otherwise go unnoticed, since a dict scope reads only the name.
+// A mismatch prints the two keys and aborts, which no Scheme handler catches.
+// Off by default; for running the test battery under.
+
+static const bool g_la_check = std::getenv("SCHEME_LA_CHECK") != nullptr;
+
+[[noreturn]] static void la_check_fail(const std::string& what)
+   {
+   std::fprintf(stderr, "LA check: %s\n", what.c_str());
+   std::fflush(stderr);
+   std::abort();
+   }
+
+static std::string la_key_text(const LAKey& k)
+   {
+   return "(" + std::to_string(k.depth) + ", " + std::to_string(k.index) + ", " +
+          display_name(k.sid) + ")";
+   }
+
+static void la_check_local(const LocalEnvironment* scope, const LAKey& la_key)
+   {
+   LAKey want = scope->resolve(la_key.sid, 0);
+   if (want.depth != la_key.depth || want.index != la_key.index)
+      la_check_fail("LA key " + la_key_text(la_key) + ", but the scope resolves it to " +
+                    la_key_text(want));
+   }
+
+static void la_check_dict(const LAKey& la_key)
+   {
+   if (la_key.depth != GLOBAL_DEPTH)
+      la_check_fail("local LA key " + la_key_text(la_key) + " reached a dict scope");
+   }
+
 Value LocalEnvironment::lookup(const LAKey& la_key) const
    {
+   if (g_la_check)
+      la_check_local(this, la_key);
    if (la_key.depth == GLOBAL_DEPTH)
       return _dict_env->lookup(la_key);
    const Value& v = owner(la_key.depth)->_values[la_key.index];
@@ -228,6 +270,8 @@ std::optional<Value> LocalEnvironment::lookup_optional(const LAKey& la_key) cons
 
 Value LocalEnvironment::set(const LAKey& la_key, Value value)
    {
+   if (g_la_check)
+      la_check_local(this, la_key);
    if (la_key.depth == GLOBAL_DEPTH)
       return _dict_env->set(la_key, value);
    LocalEnvironment* scope = owner(la_key.depth);
@@ -295,6 +339,8 @@ GlobalEnvironment::GlobalEnvironment(Environment* parent)
 
 Value GlobalEnvironment::lookup(const LAKey& la_key) const
    {
+   if (g_la_check)
+      la_check_dict(la_key);
    auto it = _bindings.find(la_key.sid);
    if (it == _bindings.end())
       {
@@ -325,6 +371,8 @@ std::optional<Value> GlobalEnvironment::lookup_optional(const LAKey& la_key) con
 
 Value GlobalEnvironment::set(const LAKey& la_key, Value value)
    {
+   if (g_la_check)
+      la_check_dict(la_key);
    auto it = _bindings.find(la_key.sid);
    if (it == _bindings.end())
       {

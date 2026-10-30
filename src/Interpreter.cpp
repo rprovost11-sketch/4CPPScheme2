@@ -113,8 +113,7 @@ std::optional<Value> Interpreter::rawEval(
       std::optional<Value> last;
       for (auto& form : forms)
          {
-         Value expanded = expand(form);
-         analyze(expanded, _static_env);
+         Value expanded = analyze(expand(form), _static_env);
          extend_static_env_with_define(_static_env, expanded);
          last = cek_eval(expanded, _env, &_ctx);
          }

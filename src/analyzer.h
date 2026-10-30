@@ -1,5 +1,5 @@
 #pragma once
-// Analyzer.h -- semantic validator.
+// Analyzer.h -- semantic validator and lexical addresser.
 // Direct port of pyscheme/Analyzer.py.
 #include "AST.h"
 #include "Environment.h"
@@ -7,6 +7,7 @@
 #include <string>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 // Static arity environment: name -> optional(lo, hi).
 // hi == -1 means variadic (no upper bound).  nullopt means arity unknown
@@ -34,11 +35,29 @@ class CPPSCHEME2_API SchemeAnalysisError : public PositionedSchemeError
 // ── Public API ────────────────────────────────────────────────────────────────
 // Port of Analyzer.py analyze() and extend_static_env_with_define().
 
-// Validate sexpr in place.  Returns sexpr unchanged on success;
-// throws SchemeAnalysisError or SchemeArityError on failure.
+// A compile-time scope chain (port of the Python (names, outer) pair): one
+// run-time local scope's names, in slot order, and the chain outside it.  A
+// null chain means the code runs in a dict scope (top level, library, eval
+// environment).
+struct CompileScope
+   {
+   ScopeNames names;
+   const CompileScope* outer = nullptr;
+   };
+
+// Validate sexpr and resolve its variable references against scope.  Returns
+// the rewritten tree (see Analyzer.py "Lexical addressing"); the input is
+// never edited.  Throws SchemeAnalysisError or SchemeArityError on failure.
 // No-senv overload seeds from the registered primitive arities.
 CPPSCHEME2_API Value analyze(const Value& sexpr);
-CPPSCHEME2_API Value analyze(const Value& sexpr, const StaticEnv& senv);
+CPPSCHEME2_API Value analyze(const Value& sexpr, const StaticEnv& senv,
+                             const CompileScope* scope = nullptr);
+
+// The scope chain for code that will run in the run-time env env, read off
+// the live chain up to the nearest dict scope; links owns it.  Returns its
+// innermost scope, or nullptr when env is itself a dict scope.
+CPPSCHEME2_API const CompileScope* scope_of_env(Environment* env,
+                                                std::vector<CompileScope>& links);
 
 // Update senv from a top-level (define name value) form.
 CPPSCHEME2_API void extend_static_env_with_define(StaticEnv& senv, const Value& sexpr);

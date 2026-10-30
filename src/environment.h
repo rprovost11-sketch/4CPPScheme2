@@ -163,9 +163,8 @@ inline LAKey global_la_key(uint32_t sid)
    return LAKey{GLOBAL_DEPTH, 0, sid};
    }
 
-// The Analyzer's names for one local scope: static, shared by every
-// LocalEnvironment built for that scope, index-aligned with its values.
-using ScopeNames = std::shared_ptr<const std::vector<uint32_t>>;
+// ScopeNames, the Analyzer's names for one local scope, is in AST.h (closures
+// and the scope-names node hold them too).
 
 // Callback for for_each_binding: (sid, value as stored).
 using BindingVisitor = std::function<void(uint32_t, const Value&)>;

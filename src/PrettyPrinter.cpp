@@ -250,7 +250,9 @@ std::string scheme_render_structure(
          Value cur = x;
          while (is_cons(cur))
             {
-            elems.push_back(car(cur));
+            // An analyzed let form's scope-names node is not source text.
+            if (!is_scope_names(car(cur)))
+               elems.push_back(car(cur));
             cur = cdr(cur);
             }
          // push in reverse so tasks pop in print order: ( e0 e1 ... [. tail] )
@@ -576,7 +578,8 @@ static std::string shared_render(const Value& root, const LabelMap& labels,
                found_tail = true;
                break;
                }
-            items.push_back(car(cur));
+            if (!is_scope_names(car(cur)))
+               items.push_back(car(cur));
             cur = cdr(cur);
             if (is_cons(cur) &&
                 seen.count(reinterpret_cast<uintptr_t>(gc_value_header(cur))))

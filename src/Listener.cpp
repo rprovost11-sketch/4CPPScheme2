@@ -119,6 +119,39 @@ static std::string _timestamp_file()
    return buf;
    }
 
+// Local wall-clock time now, formatted by strftime fmt (suite timing lines).
+static std::string _clock_str(const char* fmt)
+   {
+   auto now = std::chrono::system_clock::now();
+   auto tt = std::chrono::system_clock::to_time_t(now);
+   std::tm tm_info = {};
+#ifdef _WIN32
+   localtime_s(&tm_info, &tt);
+#else
+   localtime_r(&tt, &tm_info);
+#endif
+   char buf[32];
+   std::strftime(buf, sizeof(buf), fmt, &tm_info);
+   return buf;
+   }
+
+// Elapsed seconds as '14s' / '2m 14s' / '1h 05m 09s' (suite timing lines).
+static std::string _fmt_elapsed(double secs)
+   {
+   long total = (long)(secs + 0.5);
+   long h = total / 3600;
+   long m = (total % 3600) / 60;
+   long s = total % 60;
+   char buf[32];
+   if (h > 0)
+      std::snprintf(buf, sizeof(buf), "%ldh %02ldm %02lds", h, m, s);
+   else if (m > 0)
+      std::snprintf(buf, sizeof(buf), "%ldm %02lds", m, s);
+   else
+      std::snprintf(buf, sizeof(buf), "%lds", s);
+   return buf;
+   }
+
 static std::string _expanduser(const std::string& path)
    {
    if (path.empty() || path[0] != '~')
@@ -1828,10 +1861,18 @@ void Listener::_cmd_suites(std::vector<std::string>& args)
    std::string RED = color ? ansi::RED : "";
    std::string RESET = color ? ansi::RESET : "";
 
+   using SteadyClock = std::chrono::steady_clock;
+   auto seconds_since = [](SteadyClock::time_point t0)
+      { return std::chrono::duration<double>(SteadyClock::now() - t0).count(); };
+   std::string start_date = _clock_str("%Y-%m-%d");
+   std::string start_stamp = _clock_str("%Y-%m-%d %H:%M:%S");
+   auto start_t = SteadyClock::now();
+
    std::string planStr;
    for (size_t i = 0; i < runnable.size(); ++i)
       planStr += (i ? std::string(", ") : std::string("")) + runnable[i].label;
-   std::cout << '\n' << BOLD << "; running suites: " << planStr << RESET << '\n';
+   std::cout << '\n' << BOLD << "; running suites: " << planStr << RESET
+             << "   (started " << start_stamp << ")\n";
    for (const auto& sk : skipped)
       std::cout << "  (skipping " << sk.first << " -- " << sk.second
                 << "-only on this port)\n";
@@ -1864,16 +1905,20 @@ void Listener::_cmd_suites(std::vector<std::string>& args)
       }
 
    std::vector<SuiteRunResult> results;
+   std::vector<double> elapsed;  // seconds per suite, parallel to results
    try
       {
       for (const SuiteDef& s : runnable)
          {
          std::cout << BOLD << "-- " << s.label << " (" << (s.kind.empty() ? "?" : s.kind)
-                   << ") --" << RESET << '\n';
+                   << ") --" << RESET << "  [" << _clock_str("%H:%M:%S") << "]\n";
+         auto suite_t = SteadyClock::now();
          if (s.kind == "log") results.push_back(_run_log_suite(s));
          else if (s.kind == "scheme") results.push_back(_run_scheme_suite(s));
          else if (s.kind == "external") results.push_back(_run_external_suite(s));
          else results.push_back({s.name, false, 0, 1, 0, "unknown kind '" + s.kind + "'"});
+         elapsed.push_back(seconds_since(suite_t));
+         std::cout << "    (finished in " << _fmt_elapsed(elapsed.back()) << ")\n";
          std::cout << '\n';
          }
       }
@@ -1892,21 +1937,46 @@ void Listener::_cmd_suites(std::vector<std::string>& args)
    int total_pass = 0, total_fail = 0, total_xpass = 0;
    for (const SuiteRunResult& r : results)
       { total_pass += r.npass; total_fail += r.nfail; total_xpass += r.nxpass; }
+   // Finish line: the date is repeated only when the run crossed midnight.
+   const char* end_fmt = _clock_str("%Y-%m-%d") == start_date ? "%H:%M:%S"
+                                                               : "%Y-%m-%d %H:%M:%S";
+   std::string timing_line = "  started " + start_stamp + ", finished "
+                             + _clock_str(end_fmt) + ", total "
+                             + _fmt_elapsed(seconds_since(start_t));
 
    std::cout << BOLD << "===== SUITES COMPLETE =====" << RESET << '\n';
-   for (const SuiteRunResult& r : results)
+   for (size_t i = 0; i < results.size(); ++i)
       {
-      std::string detail;
+      const SuiteRunResult& r = results[i];
+      // plain = the detail's visible text, for padding the time column
+      std::string plain, detail;
       if (!r.ok)
-         detail = RED + std::string("FAILED") + (r.note.empty() ? "" : " -- " + r.note) + RESET;
+         {
+         plain = std::string("FAILED") + (r.note.empty() ? "" : " -- " + r.note);
+         detail = RED + plain + RESET;
+         }
       else if (r.nxpass > 0)
-         detail = GREEN + std::string("passed") + RESET + " " + BOLD + "("
-                  + std::to_string(r.nxpass) + " now-passing expect-fail -- promote it)" + RESET;
+         {
+         std::string note = "(" + std::to_string(r.nxpass)
+                            + " now-passing expect-fail -- promote it)";
+         plain = "passed " + note;
+         detail = GREEN + std::string("passed") + RESET + " " + BOLD + note + RESET;
+         }
       else if (r.npass > 0)
-         detail = GREEN + std::to_string(r.npass) + " passed" + RESET;
+         {
+         plain = std::to_string(r.npass) + " passed";
+         detail = GREEN + plain + RESET;
+         }
       else
-         detail = GREEN + std::string("ok") + RESET;
-      std::cout << "  " << _ljust(r.name, 24) << ' ' << detail << '\n';
+         {
+         plain = "ok";
+         detail = GREEN + plain + RESET;
+         }
+      std::string time_str = _fmt_elapsed(elapsed[i]);
+      std::cout << "  " << _ljust(r.name, 24) << ' ' << detail
+                << std::string(plain.size() < 16 ? 16 - plain.size() : 0, ' ')
+                << std::string(time_str.size() < 10 ? 10 - time_str.size() : 0, ' ')
+                << time_str << '\n';
       }
    if (total_fail == 0)
       std::cout << BOLD << GREEN << "  ALL SUITES PASSED" << RESET << '\n';
@@ -1915,18 +1985,24 @@ void Listener::_cmd_suites(std::vector<std::string>& args)
    if (total_xpass > 0)
       std::cout << BOLD << "  (" << total_xpass
                 << " known-open expect-fail case(s) now pass -- update the pins)" << RESET << '\n';
+   std::cout << timing_line << '\n';
 
    if (shared)
       {
       *shared << "\n===== SUITES COMPLETE =====\n";
-      for (const SuiteRunResult& r : results)
+      for (size_t i = 0; i < results.size(); ++i)
          {
+         const SuiteRunResult& r = results[i];
          std::string detail = !r.ok ? "FAILED"
              : (r.npass > 0 ? std::to_string(r.npass) + " passed" : std::string("ok"));
-         *shared << "  " << _ljust(r.name, 24) << ' ' << detail << '\n';
+         std::string time_str = _fmt_elapsed(elapsed[i]);
+         *shared << "  " << _ljust(r.name, 24) << ' ' << _ljust(detail, 16)
+                 << std::string(time_str.size() < 10 ? 10 - time_str.size() : 0, ' ')
+                 << time_str << '\n';
          }
       *shared << (total_fail == 0 ? "  ALL SUITES PASSED\n"
                                   : "  SUITE FAILURES: " + std::to_string(total_fail) + "\n");
+      *shared << timing_line << '\n';
       shared->close();
       delete shared;
       std::cout << '\n' << "Test output: " << shared_filename << '\n';

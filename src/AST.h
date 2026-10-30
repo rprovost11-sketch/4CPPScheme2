@@ -10,6 +10,7 @@
 #include "scheme_export.h"
 #include "mini-gmp/mini-gmp.h"
 #include <cstdint>
+#include <memory>
 #include <variant>
 #include <string>
 #include <vector>
@@ -91,6 +92,7 @@ enum class GcType : uint8_t
    Char,    // boxed character (char32_t)
    NativeClosure, // GC-managed native thunk: stateless fn + traced Value captures
    AliasCell, // macro free-identifier indirection: target sid + def env + copy
+   ScopeNames, // the Analyzer's scope-names node in a let-family form (not a value)
    };
 
 // ── GC intrusive header ───────────────────────────────────────────────────────
@@ -161,6 +163,7 @@ struct Environment;
 struct EnvBox;
 struct Builtin;
 struct NativeClosure;
+struct ScopeNamesNode;
 struct AliasCell;
 struct Value;
 
@@ -185,11 +188,24 @@ struct BoolAtom
    bool value = false;
    SourceInfo* src = nullptr;
    };
+// A symbol the Analyzer has resolved as a variable reference also carries its
+// LA key's depth and index (Python: the fourth slot of AST.resolve_symbol).
+// They sit in what was padding between id and src, so a Value is no bigger;
+// depth == SYMBOL_UNRESOLVED marks a plain symbol.  A depth or index too big
+// for these fields leaves the symbol unresolved (looked up by name).
+constexpr int16_t SYMBOL_UNRESOLVED = -2;
 struct SymbolAtom
    {
    uint32_t id = 0;
+   int16_t depth = SYMBOL_UNRESOLVED; // LA key depth; GLOBAL_DEPTH (-1) = a global
+   uint16_t index = 0;                // LA key slot within the owning local scope
    SourceInfo* src = nullptr;
    };
+static_assert(sizeof(SymbolAtom) == 16, "the LA address must fit SymbolAtom's padding");
+
+// The Analyzer's names for one local scope: static, shared by every
+// LocalEnvironment built for that scope, index-aligned with its values.
+using ScopeNames = std::shared_ptr<const std::vector<uint32_t>>;
 
 // ── THE Value type ────────────────────────────────────────────────────────────
 // Variant-based implementation.  Direct port of AST.py's tagged-tuple design.
@@ -231,7 +247,8 @@ struct Value
        SchemeBignum*,      // BIGNUM         (tag=27)
        Builtin*,           // PRIMITIVE      (tag=11)
        NativeClosure*,     // native thunk with GC-traced captures (internal)
-       AliasCell*          // macro free-identifier indirection (internal)
+       AliasCell*,         // macro free-identifier indirection (internal)
+       ScopeNamesNode*     // Analyzer's scope-names node in a let form (internal)
        >;
    Repr repr;
 
@@ -335,6 +352,23 @@ struct AliasCell
    AliasCell& operator=(const AliasCell&) = delete;
    };
 
+// ── Scope-names node ───────────────────────────────────────────────────────────
+// Port of AST.py make_scope_names / SCOPE_NAMES.  The Analyzer puts one right
+// after the head of a let-family form: the scopes the form creates at run time,
+// in order (let / letrec: one; let*: one per binding; named let: the loop-name
+// scope, then the loop procedure's parameters), so the Evaluator need not
+// rebuild the names on every run.  Never a value; printers skip it.  Holds no
+// Values, so the GC has nothing to trace in it.
+struct ScopeNamesNode
+   {
+   GcHeader header{GcType::ScopeNames};
+   std::vector<ScopeNames> scopes;
+
+   ScopeNamesNode() = default;
+   ScopeNamesNode(const ScopeNamesNode&) = delete;
+   ScopeNamesNode& operator=(const ScopeNamesNode&) = delete;
+   };
+
 // ── Dynamic-wind frame ────────────────────────────────────────────────────────
 // One entry on the dynamic-wind stack.  Both fields are Scheme callables.
 // Port of the (before_thunk, after_thunk) pairs in Evaluator.py's wind stack.
@@ -409,6 +443,7 @@ struct SchemeClosure
    GcHeader header{GcType::Closure};
    std::vector<uint32_t> params;
    uint32_t rest_name_id; // UINT32_MAX = no rest param
+   ScopeNames scope_names; // call scope's names (closure_scope_names), made once
    Value body;
    Environment* env;
    std::string docstring;
@@ -427,6 +462,7 @@ struct CaseClosure
       std::vector<uint32_t> params;
       uint32_t rest_name_id; // UINT32_MAX = no rest param
       Value body;
+      ScopeNames scope_names; // call scope's names (closure_scope_names)
       };
    std::vector<Clause> clauses;
    Environment* env;
@@ -794,9 +830,27 @@ CPPSCHEME2_API char32_t utf8_next(const std::string& s, size_t& pos);
 CPPSCHEME2_API void utf8_encode(std::string& out, char32_t c);
 CPPSCHEME2_API Value make_symbol(const std::string& name, SourceInfo* src = nullptr);
 CPPSCHEME2_API Value make_symbol_id(uint32_t sid, SourceInfo* src = nullptr);
+// A variable reference the Analyzer has resolved: sym carrying its LA key's
+// depth and index (see SymbolAtom).  Returns sym unchanged, unresolved, when
+// they do not fit.
+CPPSCHEME2_API Value resolve_symbol(const Value& sym, int depth, int index);
+// True, with depth and index set, if sym is a resolved symbol.
+CPPSCHEME2_API bool symbol_la_address(const Value& sym, int& depth, int& index);
+// The scope-names node (see struct ScopeNamesNode).
+CPPSCHEME2_API Value make_scope_names(std::vector<ScopeNames> scopes);
+// Python `is` on two code nodes (see AST.cpp).
+CPPSCHEME2_API bool value_identical(const Value& a, const Value& b);
+CPPSCHEME2_API bool is_scope_names(const Value& val);
+CPPSCHEME2_API const std::vector<ScopeNames>& as_scope_names(const Value& val);
+// A procedure's call-scope names: the fixed parameters, then the rest parameter.
+CPPSCHEME2_API ScopeNames closure_scope_names(const std::vector<uint32_t>& params,
+                                              uint32_t rest_name_id);
+// scope_names: the call scope's names when the caller already has them;
+// otherwise computed here, once, rather than on every call.
 CPPSCHEME2_API Value make_closure(std::vector<uint32_t> params, Value body,
                                   Environment* env, uint32_t rest_name_id,
-                                  std::string docstring);
+                                  std::string docstring,
+                                  ScopeNames scope_names = nullptr);
 CPPSCHEME2_API Value make_primitive(const std::string& name, BuiltinFn fn);
 // Build a GC-managed native closure (stateless fn + traced Value captures).
 CPPSCHEME2_API Value make_native_closure(const std::string& name, NativeFn fn,
@@ -921,6 +975,7 @@ CPPSCHEME2_API Value as_closure_body(const Value& val);
 CPPSCHEME2_API Environment* as_closure_env(const Value& val);
 CPPSCHEME2_API uint32_t as_closure_rest_name(const Value& val); // UINT32_MAX=none
 CPPSCHEME2_API const std::string& as_closure_docstring(const Value& val);
+CPPSCHEME2_API const ScopeNames& as_closure_scope_names(const Value& val);
 
 CPPSCHEME2_API const std::string& as_primitive_name(const Value& val);
 CPPSCHEME2_API const BuiltinFn& as_primitive_fn(const Value& val);

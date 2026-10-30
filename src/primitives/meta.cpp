@@ -651,8 +651,7 @@ static std::string _ec_rstrip(const std::string& s)
 // seconds (#f/omitted = none); on timeout the error names the timeout and the 4th
 // value is #t.  This is the host port's IN-PROCESS live runner for the interpreter
 // differ: it shares the runner's parse/expand/eval/format path so results are
-// byte-identical (parse->expand->cek_eval; analyze is a checking pass cek_eval does
-// not need, mirroring the eval primitive).  cppScheme2/pyScheme extension.
+// byte-identical (parse->expand->analyze->cek_eval, mirroring the eval primitive).  cppScheme2/pyScheme extension.
 static Value _prim_eval_cycle(Context* ctx, Environment*, std::vector<Value>& args, const Value* app)
    {
    if (!is_string(args[0]))
@@ -698,8 +697,8 @@ static Value _prim_eval_cycle(Context* ctx, Environment*, std::vector<Value>& ar
       {
       std::vector<Value> forms = scheme_parse(source, "");
       GcRootVec forms_root(forms);
-      // Mirror Interpreter::rawEval: analyze (a checking pass -- its result is
-      // discarded; cek_eval runs the un-analyzed form) then accumulate user defines
+      // Mirror Interpreter::rawEval: analyze (validating, and resolving the
+      // form's variables; cek_eval runs the rewritten form) then accumulate user defines
       // so cross-form arity checks fire, exactly as the .log runner does.  The static
       // env is seeded with the primitive/special-form arities.
       StaticEnv senv(primitive_arities());
@@ -707,8 +706,8 @@ static Value _prim_eval_cycle(Context* ctx, Environment*, std::vector<Value>& ar
       bool have = false;
       for (auto& form : forms)
          {
-         Value expanded = expand(form);
-         analyze(expanded, senv);
+         std::vector<CompileScope> links;
+         Value expanded = analyze(expand(form), senv, scope_of_env(target, links));
          extend_static_env_with_define(senv, expanded);
          last = cek_eval(expanded, target, ctx);
          have = true;
@@ -823,8 +822,8 @@ static Value _prim_checked_eval(Context* ctx, Environment*, std::vector<Value>& 
       StaticEnv senv(primitive_arities());
       for (auto& form : forms)
          {
-         Value expanded = expand(form);
-         analyze(expanded, senv);
+         std::vector<CompileScope> links;
+         Value expanded = analyze(expand(form), senv, scope_of_env(target, links));
          extend_static_env_with_define(senv, expanded);
          last = cek_eval(expanded, target, ctx);
          have = true;

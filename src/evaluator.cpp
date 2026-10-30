@@ -183,6 +183,7 @@ static Value make_case_closure_from_form(const Value& cl_cons, Environment* env)
             cl.rest_name_id = as_symbol_id(p);
          }
       cl.body = cdr(clause);
+      cl.scope_names = closure_scope_names(cl.params, cl.rest_name_id);
       clauses.push_back(std::move(cl));
       cur = cdr(cur);
       }
@@ -191,8 +192,9 @@ static Value make_case_closure_from_form(const Value& cl_cons, Environment* env)
 
 // ── beta_reduce_core ──────────────────────────────────────────────────────────
 
-static BetaResult beta_reduce_core(const std::vector<uint32_t>& params, const Value& body,
-                                   Environment* clo_env, uint32_t rest_id,
+// names is the call scope's ScopeNames, computed once when the closure was made.
+static BetaResult beta_reduce_core(const std::vector<uint32_t>& params, const ScopeNames& names,
+                                   const Value& body, Environment* clo_env, uint32_t rest_id,
                                    const std::vector<Value>& arg_values, const Value* app_node)
    {
    int n_fixed = (int)params.size();
@@ -208,19 +210,15 @@ static BetaResult beta_reduce_core(const std::vector<uint32_t>& params, const Va
       if (n_args < n_fixed)
          throw SchemeArityError(arity_mismatch_msg("", n_fixed, -1, n_args), src);
       }
-   std::vector<uint32_t> names(params.begin(), params.end());
    std::vector<Value> values(arg_values.begin(), arg_values.begin() + n_fixed);
    if (rest_id != UINT32_MAX)
       {
       Value rest_val = NIL_VALUE;
       for (int i = n_args - 1; i >= n_fixed; --i)
          rest_val = alloc_cons(arg_values[i], rest_val);
-      names.push_back(rest_id);
       values.push_back(rest_val);
       }
-   Environment* new_env = gc_alloc_local_environment(
-       clo_env, std::make_shared<const std::vector<uint32_t>>(std::move(names)),
-       std::move(values));
+   Environment* new_env = gc_alloc_local_environment(clo_env, names, std::move(values));
    return {new_env, body};
    }
 
@@ -240,12 +238,14 @@ static BetaResult apply_value(const Value& V, const std::vector<Value>& arg_valu
          if (c.rest_name_id == UINT32_MAX)
             {
             if (n_fixed == n_args)
-               return beta_reduce_core(c.params, c.body, clo_env, UINT32_MAX, arg_values, app_node);
+               return beta_reduce_core(c.params, c.scope_names, c.body, clo_env, UINT32_MAX,
+                                       arg_values, app_node);
             }
          else
             {
             if (n_args >= n_fixed)
-               return beta_reduce_core(c.params, c.body, clo_env, c.rest_name_id, arg_values, app_node);
+               return beta_reduce_core(c.params, c.scope_names, c.body, clo_env, c.rest_name_id,
+                                       arg_values, app_node);
             }
          }
       SourceInfo* src = app_node ? src_of(*app_node) : nullptr;
@@ -257,7 +257,7 @@ static BetaResult apply_value(const Value& V, const std::vector<Value>& arg_valu
       SourceInfo* src = app_node ? src_of(*app_node) : nullptr;
       throw SchemeTypeError("application of non-procedure: " + scheme_pretty_print(V), src);
       }
-   return beta_reduce_core(as_closure_params(V), as_closure_body(V),
+   return beta_reduce_core(as_closure_params(V), as_closure_scope_names(V), as_closure_body(V),
                            as_closure_env(V), as_closure_rest_name(V), arg_values, app_node);
    }
 
@@ -686,6 +686,8 @@ static EnterResult enter_proc(const Value& fn_value, std::vector<Value>& args,
          ef.list1 = std::move(ls.forms);
          ef.env = ls.eval_env;
          ef.depth = 0;
+         ef.uid = 1; // do_analyze
+         ef.senv = std::make_shared<StaticEnv>();
          EnterResult r;
          r.kind = EnterResult::IsFrame;
          r.frame = std::move(ef);
@@ -1968,13 +1970,23 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                               }
                            case SF_LET:
                               {
-                              if (is_symbol(car(cdr(C))))
+                              // (let [<scope-names>] [name] bindings body...)  The
+                              // scope-names node is the Analyzer's; without it
+                              // (unanalyzed code) the names are built here.
+                              Value let_rest = cdr(C);
+                              Value scopes_node = NIL_VALUE;
+                              if (is_scope_names(car(let_rest)))
+                                 {
+                                 scopes_node = car(let_rest);
+                                 let_rest = cdr(let_rest);
+                                 }
+                              if (is_symbol(car(let_rest)))
                                  {
                                  // named let
-                                 Value loop_name_sym = car(cdr(C));
+                                 Value loop_name_sym = car(let_rest);
                                  uint32_t loop_nm_id = as_symbol_id(loop_name_sym);
-                                 Value bindings_cons = car(cdr(cdr(C)));
-                                 Value body_cons = cdr(cdr(cdr(C)));
+                                 Value bindings_cons = car(cdr(let_rest));
+                                 Value body_cons = cdr(cdr(let_rest));
                                  auto pairs = collect_let_bindings(bindings_cons);
                                  std::vector<uint32_t> param_ids;
                                  std::vector<Value> init_exprs;
@@ -1983,10 +1995,22 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                                     param_ids.push_back(p.first);
                                     init_exprs.push_back(p.second);
                                     }
-                                 Environment* loop_env = gc_alloc_local_environment(
-                                     E, std::make_shared<const std::vector<uint32_t>>(1, loop_nm_id),
-                                     {VOID_VALUE});
-                                 Value closure = make_closure(param_ids, body_cons, loop_env, UINT32_MAX, "");
+                                 ScopeNames loop_names;
+                                 ScopeNames param_names;
+                                 if (is_scope_names(scopes_node))
+                                    {
+                                    loop_names = as_scope_names(scopes_node)[0];
+                                    param_names = as_scope_names(scopes_node)[1];
+                                    }
+                                 else
+                                    {
+                                    loop_names = std::make_shared<const std::vector<uint32_t>>(1, loop_nm_id);
+                                    param_names = closure_scope_names(param_ids, UINT32_MAX);
+                                    }
+                                 Environment* loop_env =
+                                     gc_alloc_local_environment(E, loop_names, {VOID_VALUE});
+                                 Value closure = make_closure(param_ids, body_cons, loop_env, UINT32_MAX, "",
+                                                              param_names);
                                  loop_env->bind(LAKey{0, 0, loop_nm_id}, closure);
                                  V = closure;
                                  Frame f;
@@ -1997,8 +2021,8 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                                  K.push_back(std::move(f));
                                  goto eval_break;
                                  }
-                              Value bindings_cons = car(cdr(C));
-                              Value body_cons = cdr(cdr(C));
+                              Value bindings_cons = car(let_rest);
+                              Value body_cons = cdr(let_rest);
                               auto pairs = collect_let_bindings(bindings_cons);
                               if (pairs.empty())
                                  {
@@ -2013,7 +2037,7 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                                     }
                                  continue;
                                  }
-                              std::vector<uint32_t> names;
+                              std::vector<uint32_t> names; // unanalyzed form only
                               std::vector<Value> val_exprs;
                               for (auto& p : pairs)
                                  {
@@ -2023,7 +2047,9 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                               std::vector<Value> remaining(val_exprs.begin() + 1, val_exprs.end());
                               Frame f;
                               f.tag = FRAME_LET;
-                              f.ids = std::move(names);
+                              f.v2 = scopes_node; // the scope names, else NIL and ids
+                              if (!is_scope_names(scopes_node))
+                                 f.ids = std::move(names);
                               f.list1 = {};
                               f.list2 = std::move(remaining);
                               f.v1 = body_cons;
@@ -2034,8 +2060,18 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                               }
                            case SF_LET_STAR:
                               {
-                              Value bindings_cons = car(cdr(C));
-                              Value body_cons = cdr(cdr(C));
+                              // (let* [<scope-names>] bindings body...): one scope per
+                              // binding.  The frame carries the node in v2 and the
+                              // binding's position in depth.
+                              Value let_rest = cdr(C);
+                              Value scopes_node = NIL_VALUE;
+                              if (is_scope_names(car(let_rest)))
+                                 {
+                                 scopes_node = car(let_rest);
+                                 let_rest = cdr(let_rest);
+                                 }
+                              Value bindings_cons = car(let_rest);
+                              Value body_cons = cdr(let_rest);
                               auto pairs = collect_let_bindings(bindings_cons);
                               if (pairs.empty())
                                  {
@@ -2054,6 +2090,8 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                               Frame f;
                               f.tag = FRAME_LET_STAR;
                               f.uid = pairs[0].first;
+                              f.v2 = scopes_node;
+                              f.depth = 0;
                               f.pairs = std::move(remaining);
                               f.v1 = body_cons;
                               f.env = E;
@@ -2063,8 +2101,17 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                               }
                            case SF_LETREC:
                               {
-                              Value bindings_cons = car(cdr(C));
-                              Value body_cons = cdr(cdr(C));
+                              // (letrec [<scope-names>] bindings body...).  The frame
+                              // carries the binding's position in depth: its slot.
+                              Value let_rest = cdr(C);
+                              Value scopes_node = NIL_VALUE;
+                              if (is_scope_names(car(let_rest)))
+                                 {
+                                 scopes_node = car(let_rest);
+                                 let_rest = cdr(let_rest);
+                                 }
+                              Value bindings_cons = car(let_rest);
+                              Value body_cons = cdr(let_rest);
                               auto pairs = collect_let_bindings(bindings_cons);
                               if (pairs.empty())
                                  {
@@ -2079,16 +2126,23 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                                     }
                                  continue;
                                  }
-                              std::vector<uint32_t> names;
-                              for (auto& p : pairs)
-                                 names.push_back(p.first);
+                              ScopeNames names;
+                              if (is_scope_names(scopes_node))
+                                 names = as_scope_names(scopes_node)[0];
+                              else
+                                 {
+                                 std::vector<uint32_t> ids;
+                                 for (auto& p : pairs)
+                                    ids.push_back(p.first);
+                                 names = std::make_shared<const std::vector<uint32_t>>(std::move(ids));
+                                 }
                               Environment* new_env = gc_alloc_local_environment(
-                                  E, std::make_shared<const std::vector<uint32_t>>(std::move(names)),
-                                  std::vector<Value>(pairs.size(), UNASSIGNED_VALUE));
+                                  E, names, std::vector<Value>(pairs.size(), UNASSIGNED_VALUE));
                               std::vector<std::pair<uint32_t, Value>> remaining(pairs.begin() + 1, pairs.end());
                               Frame f;
                               f.tag = FRAME_LETREC;
                               f.uid = pairs[0].first;
+                              f.depth = 0;
                               f.pairs = std::move(remaining);
                               f.v1 = body_cons;
                               f.env = new_env;
@@ -2165,7 +2219,13 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   uint32_t sym_id = as_symbol_id(C);
                   try
                      {
-                     V = E->lookup(E->resolve(sym_id, 0));
+                     // A resolved symbol carries its LA address (AST resolve_symbol);
+                     // a plain one is resolved here.
+                     int la_depth, la_index;
+                     if (symbol_la_address(C, la_depth, la_index))
+                        V = E->lookup(LAKey{la_depth, la_index, sym_id});
+                     else
+                        V = E->lookup(E->resolve(sym_id, 0));
                      }
                   catch (SchemeUnboundError& e)
                      {
@@ -2233,7 +2293,12 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   E = frame.env;
                   try
                      {
-                     E->set(E->resolve(as_symbol_id(frame.v1), 0), V);
+                     int la_depth, la_index;
+                     uint32_t set_id = as_symbol_id(frame.v1);
+                     if (symbol_la_address(frame.v1, la_depth, la_index))
+                        E->set(LAKey{la_depth, la_index, set_id}, V);
+                     else
+                        E->set(E->resolve(set_id, 0), V);
                      }
                   // set throws SchemeUnboundError (no binding) or
                   // SchemeTypeError (frozen environment); both are positioned.
@@ -2472,11 +2537,12 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   {
                   // Evaluates a list of top-level forms in sequence ON THE MAIN K
                   // STACK (load / library loading), instead of a re-entrant
-                  // cek_eval per form.  Each form is expanded then evaluated; its
-                  // result is discarded.  (C++ does not run the Analyzer pass on
-                  // these paths -- matching the old _prim_load / _try_load /
-                  // define-library cek_eval(expand(form)) calls.)  Yields VOID when
-                  // the forms are exhausted.
+                  // cek_eval per form.  Each form is expanded and evaluated; its
+                  // result is discarded.  uid (do_analyze) gates the Analyzer pass
+                  // (load analyzes + accumulates defines into senv; define-library's
+                  // begin/decl forms are not analyzed, matching the old
+                  // cek_eval(expand(form)) path).  Yields VOID when the forms are
+                  // exhausted.
                   size_t ef_i = (size_t)frame.depth;
                   if (ef_i >= frame.list1.size())
                      {
@@ -2485,10 +2551,20 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                      }
                   GcRootGuard raw(frame.list1[ef_i]); // rooted across expand
                   Environment* ef_env = frame.env;
-                  Frame nf = std::move(frame);        // preserves list1/env
+                  std::shared_ptr<StaticEnv> ef_static = frame.senv;
+                  bool ef_do_analyze = (frame.uid != 0);
+                  Frame nf = std::move(frame);        // preserves list1/env/senv
                   nf.depth = (int)ef_i + 1;
                   K.push_back(std::move(nf));
-                  C = expand(raw.val);
+                  Value expanded = expand(raw.val);
+                  if (ef_do_analyze)
+                     {
+                     std::vector<CompileScope> ef_links;
+                     expanded = analyze(expanded, *ef_static,
+                                        scope_of_env(ef_env, ef_links));
+                     extend_static_env_with_define(*ef_static, expanded);
+                     }
+                  C = expanded;
                   E = ef_env;
                   break;
                   }
@@ -3370,13 +3446,15 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                             "empty list () is not a valid expression; use (quote ()) for the empty list",
                             src_of(datum));
                      Value expanded = expand(datum);
-                     // Run the analyze checking pass (as the .log runner /
-                     // eval-cycle / checked-eval do) so a malformed form raises a
-                     // clean SchemeAnalysisError instead of reaching cek_eval
-                     // unchecked -- which faulted with "bad variant access" on e.g.
-                     // (lambda (1) 1) / (if #t) / (let).  Matches pyScheme's eval.
-                     analyze(expanded, primitive_arities());
-                     C = expanded;
+                     // Run the Analyzer (as the .log runner / eval-cycle /
+                     // checked-eval do) so a malformed form raises a clean
+                     // SchemeAnalysisError instead of reaching cek_eval unchecked
+                     // -- which faulted with "bad variant access" on e.g.
+                     // (lambda (1) 1) / (if #t) / (let) -- and its variables are
+                     // resolved.  Matches pyScheme's eval.
+                     std::vector<CompileScope> eval_links;
+                     C = analyze(expanded, primitive_arities(),
+                                 scope_of_env(target_env, eval_links));
                      E = target_env;
                      break;
                      }
@@ -3510,6 +3588,8 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                      ef.list1 = std::move(ls.forms);
                      ef.env = ls.eval_env;
                      ef.depth = 0;
+                     ef.uid = 1; // do_analyze
+                     ef.senv = std::make_shared<StaticEnv>();
                      K.push_back(std::move(ef));
                      continue;
                      }
@@ -3917,9 +3997,12 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   new_collected.push_back(V);
                   if (remaining.empty())
                      {
-                     Environment* new_env = gc_alloc_local_environment(
-                         saved_env, std::make_shared<const std::vector<uint32_t>>(names_ids),
-                         std::move(new_collected));
+                     ScopeNames names =
+                         is_scope_names(frame.v2)
+                             ? as_scope_names(frame.v2)[0]
+                             : std::make_shared<const std::vector<uint32_t>>(names_ids);
+                     Environment* new_env =
+                         gc_alloc_local_environment(saved_env, names, std::move(new_collected));
                      E = new_env;
                      C = car(body);
                      if (is_cons(cdr(body)))
@@ -3935,6 +4018,7 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   std::vector<Value> new_remaining(remaining.begin() + 1, remaining.end());
                   Frame nf;
                   nf.tag = FRAME_LET;
+                  nf.v2 = frame.v2;
                   nf.ids = names_ids;
                   nf.list1 = std::move(new_collected);
                   nf.list2 = std::move(new_remaining);
@@ -3953,8 +4037,11 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   auto& remaining = frame.pairs;
                   Value body = frame.v1;
                   Environment* saved_env = frame.env;
-                  Environment* new_env = gc_alloc_local_environment(
-                      saved_env, std::make_shared<const std::vector<uint32_t>>(1, name_id), {V});
+                  ScopeNames step_names =
+                      is_scope_names(frame.v2)
+                          ? as_scope_names(frame.v2)[frame.depth]
+                          : std::make_shared<const std::vector<uint32_t>>(1, name_id);
+                  Environment* new_env = gc_alloc_local_environment(saved_env, step_names, {V});
                   if (remaining.empty())
                      {
                      E = new_env;
@@ -3974,6 +4061,8 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   Frame nf;
                   nf.tag = FRAME_LET_STAR;
                   nf.uid = next_pair.first;
+                  nf.v2 = frame.v2;
+                  nf.depth = frame.depth + 1;
                   nf.pairs = std::move(new_remaining);
                   nf.v1 = body;
                   nf.env = new_env;
@@ -3990,7 +4079,7 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   auto& remaining = frame.pairs;
                   Value body = frame.v1;
                   Environment* saved_env = frame.env;
-                  saved_env->set(saved_env->resolve(name_id, 0), V);
+                  saved_env->set(LAKey{0, frame.depth, name_id}, V);
                   if (remaining.empty())
                      {
                      E = saved_env;
@@ -4010,6 +4099,7 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   Frame nf;
                   nf.tag = FRAME_LETREC;
                   nf.uid = next_pair.first;
+                  nf.depth = frame.depth + 1;
                   nf.pairs = std::move(new_remaining);
                   nf.v1 = body;
                   nf.env = saved_env;

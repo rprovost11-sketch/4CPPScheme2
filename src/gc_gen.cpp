@@ -205,6 +205,8 @@ static void for_each_child(GcHeader* header, V& v)
       v.env(ac->def_env);
       break;
       }
+   case GcType::ScopeNames:
+      break; // symbol ids only, no Values
    case GcType::CaseClosure:
       {
       auto* cc = reinterpret_cast<CaseClosure*>(header);
@@ -527,7 +529,7 @@ static size_t g_gc_leak_counts[32] = {0};
    X(Complex, SchemeComplex) X(ExactComplex, ExactComplex)                      \
    X(RecordAccessor, RecordAccessor)                                            \
    X(RecordMutator, RecordMutator) X(EnvBox, EnvBox)                            \
-   X(AliasCell, AliasCell)
+   X(AliasCell, AliasCell) X(ScopeNames, ScopeNamesNode)
 
 static void free_object(GcHeader* header)
    {
@@ -968,6 +970,13 @@ AliasCell* gc_alloc_alias_cell()
    auto* ac = new AliasCell{};
    register_young(&ac->header);
    return ac;
+   }
+
+ScopeNamesNode* gc_alloc_scope_names()
+   {
+   auto* node = new ScopeNamesNode{};
+   register_young(&node->header);
+   return node;
    }
 
 Promise* gc_alloc_promise(Value payload, bool is_done, bool iterative)

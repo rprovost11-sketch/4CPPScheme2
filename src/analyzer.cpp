@@ -1,10 +1,11 @@
-// Analyzer.cpp -- semantic validator.
+// Analyzer.cpp -- semantic validator and lexical addresser.
 // Direct port of pyscheme/Analyzer.py.
 #include "Analyzer.h"
 #include "Parser.h"   // SchemeSyntaxError
 #include "expander.h" // lookup_macro
 #include <algorithm>
 #include <cctype>
+#include <deque>
 #include <functional>
 #include <mutex>
 #include <string>
@@ -70,34 +71,35 @@ const StaticEnv& primitive_arities()
 
 // ── Special-form dispatch ─────────────────────────────────────────────────────
 
-using AnalysisHandler = std::function<void(const Value&, const StaticEnv&)>;
+using AnalysisHandler =
+    std::function<Value(const Value&, const StaticEnv&, const CompileScope*)>;
 static std::once_flag s_init_flag;
 static std::unordered_map<std::string, AnalysisHandler> s_special_forms;
 
 // Forward declarations for all special-form handlers
-static void analyze_lambda(const Value& sexpr, const StaticEnv& senv);
-static void analyze_case_lambda(const Value& sexpr, const StaticEnv& senv);
-static void analyze_define(const Value& sexpr, const StaticEnv& senv);
-static void analyze_set(const Value& sexpr, const StaticEnv& senv);
-static void analyze_if(const Value& sexpr, const StaticEnv& senv);
-static void analyze_begin(const Value& sexpr, const StaticEnv& senv);
-static void analyze_let(const Value& sexpr, const StaticEnv& senv);
-static void analyze_let_star(const Value& sexpr, const StaticEnv& senv);
-static void analyze_letrec(const Value& sexpr, const StaticEnv& senv);
-static void analyze_letrec_star(const Value& sexpr, const StaticEnv& senv);
-static void analyze_cond(const Value& sexpr, const StaticEnv& senv);
-static void analyze_case(const Value& sexpr, const StaticEnv& senv);
-static void analyze_do(const Value& sexpr, const StaticEnv& senv);
-static void analyze_include(const Value& sexpr, const StaticEnv& senv);
-static void analyze_cond_expand(const Value& sexpr, const StaticEnv& senv);
-static void analyze_and(const Value& sexpr, const StaticEnv& senv);
-static void analyze_or(const Value& sexpr, const StaticEnv& senv);
-static void analyze_when(const Value& sexpr, const StaticEnv& senv);
-static void analyze_unless(const Value& sexpr, const StaticEnv& senv);
-static void analyze_quote(const Value& sexpr, const StaticEnv& senv);
-static void analyze_delay(const Value& sexpr, const StaticEnv& senv);
-static void analyze_library_form(const Value& sexpr, const StaticEnv& senv);
-static void analyze_unquote_outside(const Value& sexpr, const StaticEnv& senv);
+static Value analyze_lambda(const Value& sexpr, const StaticEnv& senv, const CompileScope* scope);
+static Value analyze_case_lambda(const Value& sexpr, const StaticEnv& senv, const CompileScope* scope);
+static Value analyze_define(const Value& sexpr, const StaticEnv& senv, const CompileScope* scope);
+static Value analyze_set(const Value& sexpr, const StaticEnv& senv, const CompileScope* scope);
+static Value analyze_if(const Value& sexpr, const StaticEnv& senv, const CompileScope* scope);
+static Value analyze_begin(const Value& sexpr, const StaticEnv& senv, const CompileScope* scope);
+static Value analyze_let(const Value& sexpr, const StaticEnv& senv, const CompileScope* scope);
+static Value analyze_let_star(const Value& sexpr, const StaticEnv& senv, const CompileScope* scope);
+static Value analyze_letrec(const Value& sexpr, const StaticEnv& senv, const CompileScope* scope);
+static Value analyze_letrec_star(const Value& sexpr, const StaticEnv& senv, const CompileScope* scope);
+static Value analyze_cond(const Value& sexpr, const StaticEnv& senv, const CompileScope* scope);
+static Value analyze_case(const Value& sexpr, const StaticEnv& senv, const CompileScope* scope);
+static Value analyze_do(const Value& sexpr, const StaticEnv& senv, const CompileScope* scope);
+static Value analyze_include(const Value& sexpr, const StaticEnv& senv, const CompileScope* scope);
+static Value analyze_cond_expand(const Value& sexpr, const StaticEnv& senv, const CompileScope* scope);
+static Value analyze_and(const Value& sexpr, const StaticEnv& senv, const CompileScope* scope);
+static Value analyze_or(const Value& sexpr, const StaticEnv& senv, const CompileScope* scope);
+static Value analyze_when(const Value& sexpr, const StaticEnv& senv, const CompileScope* scope);
+static Value analyze_unless(const Value& sexpr, const StaticEnv& senv, const CompileScope* scope);
+static Value analyze_quote(const Value& sexpr, const StaticEnv& senv, const CompileScope* scope);
+static Value analyze_delay(const Value& sexpr, const StaticEnv& senv, const CompileScope* scope);
+static Value analyze_library_form(const Value& sexpr, const StaticEnv& senv, const CompileScope* scope);
+static Value analyze_unquote_outside(const Value& sexpr, const StaticEnv& senv, const CompileScope* scope);
 
 static void init_special_forms()
    {
@@ -183,6 +185,11 @@ static std::string render(const Value& sexpr)
       bool first = true;
       while (is_cons(cur))
          {
+         if (is_scope_names(car(cur)))
+            {
+            cur = cdr(cur);
+            continue;
+            }
          if (!first)
             result += " ";
          result += render(car(cur));
@@ -357,19 +364,158 @@ void extend_static_env_with_define(StaticEnv& senv, const Value& sexpr)
    senv.erase(name);
    }
 
+// ── Lexical addressing ────────────────────────────────────────────────────────
+// Port of Analyzer.py's lexical-addressing section; see the table there of
+// the scopes the Evaluator builds, which these handlers push in step.  A
+// scope chain is nullptr when the code runs in a dict scope, else one local
+// scope's names and its outer chain (CompileScope, in Analyzer.h).  The
+// handlers keep each CompileScope on the C++ stack for the duration of the
+// recursion into the subforms that run in it.
+
+static LAKey resolve_in(const CompileScope* scope, uint32_t sid)
+   {
+   int depth = 0;
+   while (scope != nullptr)
+      {
+      const std::vector<uint32_t>& names = *scope->names;
+      for (size_t i = 0; i < names.size(); i++)
+         if (names[i] == sid)
+            return LAKey{depth, (int)i, sid};
+      scope = scope->outer;
+      depth++;
+      }
+   return global_la_key(sid);
+   }
+
+// sym resolved against scope: the same symbol carrying its LA address.
+static Value ref(const Value& sym, const CompileScope* scope)
+   {
+   LAKey k = resolve_in(scope, as_symbol_id(sym));
+   return resolve_symbol(sym, k.depth, k.index);
+   }
+
+const CompileScope* scope_of_env(Environment* env, std::vector<CompileScope>& links)
+   {
+   links.clear();
+   for (Environment* e = env; dynamic_cast<LocalEnvironment*>(e) != nullptr;
+        e = e->getParent())
+      {
+      std::vector<uint32_t> names;
+      e->for_each_binding([&](uint32_t sid, const Value&)
+                          { names.push_back(sid); });
+      links.push_back(CompileScope{
+          std::make_shared<const std::vector<uint32_t>>(std::move(names)), nullptr});
+      }
+   // links is complete, so the addresses are stable from here on.
+   for (size_t i = 0; i + 1 < links.size(); i++)
+      links[i].outer = &links[i + 1];
+   return links.empty() ? nullptr : &links[0];
+   }
+
+// ── Rebuilding ────────────────────────────────────────────────────────────────
+// The Analyzer returns a rewritten copy of the tree, never edits it: macro
+// expansion can share one subtree between two expansions in different
+// scopes.  A subtree nothing changed in is reused as it is.  Analysis never
+// triggers a collection, so the fresh cells need no rooting here.
+
+// cell itself if neither field changed, else a fresh cell with its src.
+static Value rebuild(const Value& cell, const Value& car_v, const Value& cdr_v)
+   {
+   if (value_identical(car_v, car(cell)) && value_identical(cdr_v, cdr(cell)))
+      return cell;
+   return alloc_cons(car_v, cdr_v, src_of(cell));
+   }
+
+// The proper list cell with its i-th element replaced by items[i].
+static Value rebuild_list(const Value& cell, const std::vector<Value>& items)
+   {
+   std::vector<Value> cells;
+   Value cur = cell;
+   while (is_cons(cur))
+      {
+      cells.push_back(cur);
+      cur = cdr(cur);
+      }
+   Value result = cur;
+   for (size_t i = cells.size(); i-- > 0;)
+      result = rebuild(cells[i], items[i], result);
+   return result;
+   }
+
+// Analyze each element of a list as an expression, in order; return the
+// rebuilt list.  An improper tail is kept as it is.
+static Value analyze_seq(const Value& cell, const StaticEnv& senv, const CompileScope* scope)
+   {
+   std::vector<Value> items;
+   Value cur = cell;
+   while (is_cons(cur))
+      {
+      items.push_back(analyze(car(cur), senv, scope));
+      cur = cdr(cur);
+      }
+   return rebuild_list(cell, items);
+   }
+
+// An already analyzed let-family form with its scope-names node dropped, so
+// analyzing it again builds a fresh node.
+static Value strip_scope_names(const Value& sexpr)
+   {
+   if (is_cons(cdr(sexpr)) && is_scope_names(car(cdr(sexpr))))
+      return alloc_cons(car(sexpr), cdr(cdr(sexpr)), src_of(sexpr));
+   return sexpr;
+   }
+
+// (head <scope-names> . rest) for the let-family form sexpr.
+static Value with_scope_names(const Value& sexpr, std::vector<ScopeNames> scopes,
+                              const Value& rest)
+   {
+   return alloc_cons(car(sexpr),
+                     alloc_cons(make_scope_names(std::move(scopes)), rest),
+                     src_of(sexpr));
+   }
+
+// The binding list with each (name init) rebuilt around inits[i].
+static Value rebuild_bindings(const Value& bindings_sexpr, const std::vector<Value>& inits)
+   {
+   std::vector<Value> new_bindings;
+   Value cur = bindings_sexpr;
+   size_t i = 0;
+   while (is_cons(cur))
+      {
+      Value b = car(cur);
+      new_bindings.push_back(rebuild(b, car(b), rebuild(cdr(b), inits[i], cdr(cdr(b)))));
+      cur = cdr(cur);
+      i++;
+      }
+   return rebuild_list(bindings_sexpr, new_bindings);
+   }
+
+static ScopeNames name_sids(const std::vector<std::pair<std::string, Value>>& pairs)
+   {
+   std::vector<uint32_t> sids;
+   sids.reserve(pairs.size());
+   for (const auto& p : pairs)
+      sids.push_back(intern_symbol(p.first));
+   return std::make_shared<const std::vector<uint32_t>>(std::move(sids));
+   }
+
 // ── Lambda shape validator ────────────────────────────────────────────────────
 
-static void analyze_lambda_shape(const Value& params_sexpr, const Value& body_cons,
-                                 const std::string& form_name, SourceInfo* outer_src,
-                                 const StaticEnv& senv)
+// Validate the formals + body of a lambda-shaped form and return the analyzed
+// body.
+static Value analyze_lambda_shape(const Value& params_sexpr, const Value& body_cons,
+                                  const std::string& form_name, SourceInfo* outer_src,
+                                  const StaticEnv& senv, const CompileScope* scope)
    {
    struct ParamEntry
       {
       std::string name;
+      uint32_t id;
       SourceInfo* src;
       };
    std::vector<ParamEntry> fixed;
    std::string rest_name;
+   uint32_t rest_id = UINT32_MAX;
    SourceInfo* rest_src = nullptr;
    bool has_rest = false;
 
@@ -377,6 +523,7 @@ static void analyze_lambda_shape(const Value& params_sexpr, const Value& body_co
       {
       has_rest = true;
       rest_name = as_symbol(params_sexpr);
+      rest_id = as_symbol_id(params_sexpr);
       rest_src = src_of(params_sexpr);
       }
    else if (is_nil(params_sexpr))
@@ -394,7 +541,7 @@ static void analyze_lambda_shape(const Value& params_sexpr, const Value& body_co
                 "expected an identifier in " + form_name +
                     " parameter list, got " + render(p),
                 src_of(p));
-         fixed.push_back({as_symbol(p), src_of(p)});
+         fixed.push_back({as_symbol(p), as_symbol_id(p), src_of(p)});
          cur = cdr(cur);
          }
       if (is_nil(cur))
@@ -405,6 +552,7 @@ static void analyze_lambda_shape(const Value& params_sexpr, const Value& body_co
          {
          has_rest = true;
          rest_name = as_symbol(cur);
+         rest_id = as_symbol_id(cur);
          rest_src = src_of(cur);
          }
       else
@@ -436,9 +584,13 @@ static void analyze_lambda_shape(const Value& params_sexpr, const Value& body_co
           "rest parameter name conflicts with fixed parameter: " + rest_name, rest_src);
 
    std::vector<std::string> shadowed;
+   std::vector<uint32_t> fixed_ids;
    shadowed.reserve(fixed.size() + (has_rest ? 1 : 0));
    for (const auto& pe : fixed)
+      {
       shadowed.push_back(pe.name);
+      fixed_ids.push_back(pe.id);
+      }
    if (has_rest)
       shadowed.push_back(rest_name);
    StaticEnv body_env = shadow_env(senv, shadowed);
@@ -446,12 +598,8 @@ static void analyze_lambda_shape(const Value& params_sexpr, const Value& body_co
    if (proper_list_length(body_cons) <= 0)
       throw SchemeAnalysisError(form_name + " body cannot be empty", outer_src);
 
-   Value cur = body_cons;
-   while (is_cons(cur))
-      {
-      analyze(car(cur), body_env);
-      cur = cdr(cur);
-      }
+   CompileScope body_scope{closure_scope_names(fixed_ids, rest_id), scope};
+   return analyze_seq(body_cons, body_env, &body_scope);
    }
 
 // ── Let-binding helper ────────────────────────────────────────────────────────
@@ -496,20 +644,27 @@ static void check_unique_let_names(const std::vector<std::pair<std::string, Valu
    }
 
 // ── Special-form handler implementations ─────────────────────────────────────
+// Each handler validates shape, recurses into sub-expressions with the scope
+// chain they will run in, and returns the rewritten form.
 
-static void analyze_lambda(const Value& sexpr, const StaticEnv& senv)
+static Value analyze_lambda(const Value& sexpr, const StaticEnv& senv,
+                            const CompileScope* scope)
    {
    if (proper_list_length(sexpr) < 3)
       throw SchemeAnalysisError(
           "lambda requires a parameter list and at least one body expression",
           src_of(sexpr));
-   analyze_lambda_shape(car(cdr(sexpr)), cdr(cdr(sexpr)), "lambda", src_of(sexpr), senv);
+   Value body = analyze_lambda_shape(car(cdr(sexpr)), cdr(cdr(sexpr)), "lambda",
+                                     src_of(sexpr), senv, scope);
+   return rebuild(sexpr, car(sexpr), rebuild(cdr(sexpr), car(cdr(sexpr)), body));
    }
 
-static void analyze_case_lambda(const Value& sexpr, const StaticEnv& senv)
+static Value analyze_case_lambda(const Value& sexpr, const StaticEnv& senv,
+                                 const CompileScope* scope)
    {
    // Zero clauses is permitted by R7RS §4.2.9; the resulting procedure raises
    // a SchemeArityError on any call (no matching clause).
+   std::vector<Value> new_clauses;
    Value cur = cdr(sexpr);
    while (is_cons(cur))
       {
@@ -522,12 +677,16 @@ static void analyze_case_lambda(const Value& sexpr, const StaticEnv& senv)
              "case-lambda clause must have formals and a non-empty body, got " +
                  render(clause),
              src_of(clause));
-      analyze_lambda_shape(car(clause), cdr(clause), "case-lambda", src_of(clause), senv);
+      Value body = analyze_lambda_shape(car(clause), cdr(clause), "case-lambda",
+                                        src_of(clause), senv, scope);
+      new_clauses.push_back(rebuild(clause, car(clause), body));
       cur = cdr(cur);
       }
+   return rebuild(sexpr, car(sexpr), rebuild_list(cdr(sexpr), new_clauses));
    }
 
-static void analyze_define(const Value& sexpr, const StaticEnv& senv)
+static Value analyze_define(const Value& sexpr, const StaticEnv& senv,
+                            const CompileScope* scope)
    {
    int n = proper_list_length(sexpr) - 1;
    if (n != 2)
@@ -539,60 +698,67 @@ static void analyze_define(const Value& sexpr, const StaticEnv& senv)
    std::string name = require_symbol(name_sexpr, "define");
    // Pre-bind name's arity so recursive references in lambda body can be checked.
    auto arity = peek_lambda_arity(value_sexpr);
+   Value value;
    if (arity)
       {
       StaticEnv value_env = senv;
       value_env[name] = arity;
-      analyze(value_sexpr, value_env);
+      value = analyze(value_sexpr, value_env, scope);
       }
    else
       {
-      analyze(value_sexpr, senv);
+      value = analyze(value_sexpr, senv, scope);
       }
+   // The name is not resolved: define always binds into the dict scope.
+   Value tail = cdr(cdr(sexpr));
+   return rebuild(sexpr, car(sexpr),
+                  rebuild(cdr(sexpr), name_sexpr, rebuild(tail, value, cdr(tail))));
    }
 
-static void analyze_set(const Value& sexpr, const StaticEnv& senv)
+static Value analyze_set(const Value& sexpr, const StaticEnv& senv,
+                         const CompileScope* scope)
    {
    int n = proper_list_length(sexpr) - 1;
    if (n != 2)
       throw SchemeAnalysisError(
           "set! requires a name and a value (got " + std::to_string(n) + " arguments)",
           src_of(sexpr));
-   require_symbol(car(cdr(sexpr)), "set!");
-   analyze(car(cdr(cdr(sexpr))), senv);
+   Value name_sexpr = car(cdr(sexpr));
+   require_symbol(name_sexpr, "set!");
+   Value tail = cdr(cdr(sexpr));
+   Value value = analyze(car(tail), senv, scope);
+   return rebuild(sexpr, car(sexpr),
+                  rebuild(cdr(sexpr), ref(name_sexpr, scope),
+                          rebuild(tail, value, cdr(tail))));
    }
 
-static void analyze_if(const Value& sexpr, const StaticEnv& senv)
+static Value analyze_if(const Value& sexpr, const StaticEnv& senv, const CompileScope* scope)
    {
    int n = proper_list_length(sexpr) - 1;
    if (n != 2 && n != 3)
       throw SchemeAnalysisError(
           "if requires 2 or 3 arguments (test, then, optional else), got " + std::to_string(n),
           src_of(sexpr));
-   analyze(car(cdr(sexpr)), senv);
-   analyze(car(cdr(cdr(sexpr))), senv);
-   if (n == 3)
-      analyze(car(cdr(cdr(cdr(sexpr)))), senv);
+   return rebuild(sexpr, car(sexpr), analyze_seq(cdr(sexpr), senv, scope));
    }
 
-static void analyze_begin(const Value& sexpr, const StaticEnv& senv)
+static Value analyze_begin(const Value& sexpr, const StaticEnv& senv,
+                           const CompileScope* scope)
    {
-   Value cur = cdr(sexpr);
-   while (is_cons(cur))
-      {
-      analyze(car(cur), senv);
-      cur = cdr(cur);
-      }
+   return rebuild(sexpr, car(sexpr), analyze_seq(cdr(sexpr), senv, scope));
    }
 
-static void analyze_named_let(const Value& sexpr, const StaticEnv& senv)
+static Value analyze_named_let(const Value& sexpr, const StaticEnv& senv,
+                               const CompileScope* scope)
    {
    if (proper_list_length(sexpr) < 4)
       throw SchemeAnalysisError(
           "named let requires a name, a binding list, and at least one body expression",
           src_of(sexpr));
-   std::string name = as_symbol(car(cdr(sexpr)));
-   auto pairs = parse_let_bindings(car(cdr(cdr(sexpr))), "named let");
+   Value name_sym = car(cdr(sexpr));
+   std::string name = as_symbol(name_sym);
+   Value bindings_sexpr = car(cdr(cdr(sexpr)));
+   auto pairs = parse_let_bindings(bindings_sexpr, "named let");
    std::vector<std::string> params;
    for (const auto& p : pairs)
       params.push_back(p.first);
@@ -605,9 +771,16 @@ static void analyze_named_let(const Value& sexpr, const StaticEnv& senv)
              src_of(car(cdr(cdr(sexpr)))));
       seen.insert(p);
       }
-   // Inits evaluate in enclosing env.
+   // The Evaluator evaluates the inits inside the scope that holds the loop
+   // name, so they are resolved there.  They cannot see the name itself: the
+   // Expander renames the binding (R7RS 4.2.4).  Arity-wise they are still
+   // checked against the enclosing static env, as before.
+   ScopeNames loop_sids =
+       std::make_shared<const std::vector<uint32_t>>(1, as_symbol_id(name_sym));
+   CompileScope loop_scope{loop_sids, scope};
+   std::vector<Value> inits;
    for (const auto& p : pairs)
-      analyze(p.second, senv);
+      inits.push_back(analyze(p.second, senv, &loop_scope));
    // Body sees name with fixed arity and params shadowed.
    StaticEnv name_env = senv;
    name_env[name] = std::make_pair((int)params.size(), (int)params.size());
@@ -615,28 +788,32 @@ static void analyze_named_let(const Value& sexpr, const StaticEnv& senv)
    Value body_cons = cdr(cdr(cdr(sexpr)));
    if (proper_list_length(body_cons) <= 0)
       throw SchemeAnalysisError("named let body cannot be empty", src_of(sexpr));
-   Value cur = body_cons;
-   while (is_cons(cur))
-      {
-      analyze(car(cur), body_env);
-      cur = cdr(cur);
-      }
+   ScopeNames param_sids = name_sids(pairs);
+   CompileScope body_scope{param_sids, &loop_scope};
+   Value body = analyze_seq(body_cons, body_env, &body_scope);
+   return with_scope_names(
+       sexpr, {loop_sids, param_sids},
+       alloc_cons(name_sym,
+                  alloc_cons(rebuild_bindings(bindings_sexpr, inits), body,
+                             src_of(cdr(cdr(sexpr)))),
+                  src_of(cdr(sexpr))));
    }
 
-static void analyze_let(const Value& sexpr, const StaticEnv& senv)
+static Value analyze_let(const Value& sexpr_in, const StaticEnv& senv,
+                         const CompileScope* scope)
    {
+   Value sexpr = strip_scope_names(sexpr_in);
    if (proper_list_length(sexpr) < 3)
       throw SchemeAnalysisError(
           "let requires a binding list and at least one body expression", src_of(sexpr));
    if (is_symbol(car(cdr(sexpr))))
-      {
-      analyze_named_let(sexpr, senv);
-      return;
-      }
-   auto pairs = parse_let_bindings(car(cdr(sexpr)), "let");
+      return analyze_named_let(sexpr, senv, scope);
+   Value bindings_sexpr = car(cdr(sexpr));
+   auto pairs = parse_let_bindings(bindings_sexpr, "let");
    check_unique_let_names(pairs, "let", sexpr);
+   std::vector<Value> inits;
    for (const auto& p : pairs)
-      analyze(p.second, senv);
+      inits.push_back(analyze(p.second, senv, scope));
    std::vector<std::string> names;
    for (const auto& p : pairs)
       names.push_back(p.first);
@@ -644,77 +821,109 @@ static void analyze_let(const Value& sexpr, const StaticEnv& senv)
    Value body_cons = cdr(cdr(sexpr));
    if (proper_list_length(body_cons) <= 0)
       throw SchemeAnalysisError("let body cannot be empty", src_of(sexpr));
-   Value cur = body_cons;
-   while (is_cons(cur))
+   std::vector<ScopeNames> scopes;
+   CompileScope body_scope{nullptr, scope};
+   const CompileScope* inner = scope;
+   if (!pairs.empty())
       {
-      analyze(car(cur), body_env);
-      cur = cdr(cur);
+      body_scope.names = name_sids(pairs);
+      scopes.push_back(body_scope.names);
+      inner = &body_scope;
       }
+   Value body = analyze_seq(body_cons, body_env, inner);
+   return with_scope_names(
+       sexpr, std::move(scopes),
+       alloc_cons(rebuild_bindings(bindings_sexpr, inits), body, src_of(cdr(sexpr))));
    }
 
-static void analyze_let_star(const Value& sexpr, const StaticEnv& senv)
+static Value analyze_let_star(const Value& sexpr_in, const StaticEnv& senv,
+                              const CompileScope* scope)
    {
+   Value sexpr = strip_scope_names(sexpr_in);
    if (proper_list_length(sexpr) < 3)
       throw SchemeAnalysisError(
           "let* requires a binding list and at least one body expression", src_of(sexpr));
-   auto pairs = parse_let_bindings(car(cdr(sexpr)), "let*");
+   Value bindings_sexpr = car(cdr(sexpr));
+   auto pairs = parse_let_bindings(bindings_sexpr, "let*");
    StaticEnv current_env = senv;
+   // One scope per binding; a deque keeps each one's address stable while
+   // the later ones point at it.
+   std::deque<CompileScope> chain;
+   const CompileScope* current_scope = scope;
+   std::vector<Value> inits;
+   std::vector<ScopeNames> scopes;
    for (const auto& p : pairs)
       {
-      analyze(p.second, current_env);
+      inits.push_back(analyze(p.second, current_env, current_scope));
       current_env = shadow_env(current_env, {p.first});
+      ScopeNames sids = std::make_shared<const std::vector<uint32_t>>(1, intern_symbol(p.first));
+      scopes.push_back(sids);
+      chain.push_back(CompileScope{sids, current_scope});
+      current_scope = &chain.back();
       }
    Value body_cons = cdr(cdr(sexpr));
    if (proper_list_length(body_cons) <= 0)
       throw SchemeAnalysisError("let* body cannot be empty", src_of(sexpr));
-   Value cur = body_cons;
-   while (is_cons(cur))
-      {
-      analyze(car(cur), current_env);
-      cur = cdr(cur);
-      }
+   Value body = analyze_seq(body_cons, current_env, current_scope);
+   return with_scope_names(
+       sexpr, std::move(scopes),
+       alloc_cons(rebuild_bindings(bindings_sexpr, inits), body, src_of(cdr(sexpr))));
    }
 
-static void analyze_letrec_family(const Value& sexpr, const StaticEnv& senv,
-                                  const std::string& name)
+static Value analyze_letrec_family(const Value& sexpr_in, const StaticEnv& senv,
+                                   const std::string& name, const CompileScope* scope)
    {
+   Value sexpr = strip_scope_names(sexpr_in);
    if (proper_list_length(sexpr) < 3)
       throw SchemeAnalysisError(
           name + " requires a binding list and at least one body expression", src_of(sexpr));
-   auto pairs = parse_let_bindings(car(cdr(sexpr)), name);
+   Value bindings_sexpr = car(cdr(sexpr));
+   auto pairs = parse_let_bindings(bindings_sexpr, name);
    check_unique_let_names(pairs, name, sexpr);
    std::vector<std::string> names;
    for (const auto& p : pairs)
       names.push_back(p.first);
    StaticEnv inner_env = shadow_env(senv, names);
+   std::vector<ScopeNames> scopes;
+   CompileScope inner_scope{nullptr, scope};
+   const CompileScope* inner = scope;
+   if (!pairs.empty())
+      {
+      inner_scope.names = name_sids(pairs);
+      scopes.push_back(inner_scope.names);
+      inner = &inner_scope;
+      }
+   std::vector<Value> inits;
    for (const auto& p : pairs)
-      analyze(p.second, inner_env);
+      inits.push_back(analyze(p.second, inner_env, inner));
    Value body_cons = cdr(cdr(sexpr));
    if (proper_list_length(body_cons) <= 0)
       throw SchemeAnalysisError(name + " body cannot be empty", src_of(sexpr));
-   Value cur = body_cons;
-   while (is_cons(cur))
-      {
-      analyze(car(cur), inner_env);
-      cur = cdr(cur);
-      }
+   Value body = analyze_seq(body_cons, inner_env, inner);
+   return with_scope_names(
+       sexpr, std::move(scopes),
+       alloc_cons(rebuild_bindings(bindings_sexpr, inits), body, src_of(cdr(sexpr))));
    }
 
-static void analyze_letrec(const Value& sexpr, const StaticEnv& senv)
+static Value analyze_letrec(const Value& sexpr, const StaticEnv& senv,
+                            const CompileScope* scope)
    {
-   analyze_letrec_family(sexpr, senv, "letrec");
+   return analyze_letrec_family(sexpr, senv, "letrec", scope);
    }
-static void analyze_letrec_star(const Value& sexpr, const StaticEnv& senv)
+static Value analyze_letrec_star(const Value& sexpr, const StaticEnv& senv,
+                                 const CompileScope* scope)
    {
-   analyze_letrec_family(sexpr, senv, "letrec*");
+   return analyze_letrec_family(sexpr, senv, "letrec*", scope);
    }
 
-static void analyze_cond(const Value& sexpr, const StaticEnv& senv)
+static Value analyze_cond(const Value& sexpr, const StaticEnv& senv,
+                          const CompileScope* scope)
    {
    if (proper_list_length(sexpr) < 2)
       throw SchemeAnalysisError("cond must have at least one clause", src_of(sexpr));
    auto clauses = cons_to_list(cdr(sexpr));
    int total = (int)clauses.size();
+   std::vector<Value> new_clauses;
    for (int i = 0; i < total; i++)
       {
       Value clause = clauses[i];
@@ -737,42 +946,56 @@ static void analyze_cond(const Value& sexpr, const StaticEnv& senv)
          if (proper_list_length(body_cons) <= 0)
             throw SchemeAnalysisError(
                 "cond 'else' clause must have at least one expression", src_of(clause));
-         Value cur = body_cons;
-         while (is_cons(cur))
-            {
-            analyze(car(cur), senv);
-            cur = cdr(cur);
-            }
+         new_clauses.push_back(rebuild(clause, head, analyze_seq(body_cons, senv, scope)));
          }
       else if (head_is_arrow)
          {
-         analyze(car(clause), senv);           // test
-         analyze(car(cdr(cdr(clause))), senv); // proc
-         }
-      else if (clen == 1)
-         {
-         analyze(car(clause), senv);
+         Value test = analyze(car(clause), senv, scope);
+         Value arrow_cell = cdr(clause);
+         Value proc_cell = cdr(arrow_cell);
+         Value proc = analyze(car(proc_cell), senv, scope);
+         new_clauses.push_back(rebuild(
+             clause, test,
+             rebuild(arrow_cell, car(arrow_cell), rebuild(proc_cell, proc, cdr(proc_cell)))));
          }
       else
          {
-         analyze(car(clause), senv);
-         Value cur = cdr(clause);
-         while (is_cons(cur))
-            {
-            analyze(car(cur), senv);
-            cur = cdr(cur);
-            }
+         // (<test>) or (<test> <expr>...)
+         new_clauses.push_back(analyze_seq(clause, senv, scope));
          }
       }
+   return rebuild(sexpr, car(sexpr), rebuild_list(cdr(sexpr), new_clauses));
    }
 
-static void analyze_case(const Value& sexpr, const StaticEnv& senv)
+// The clause rebuilt around its analyzed body: (=> proc) when arrow_ok and
+// the body starts with =>, else a sequence of expressions.
+static Value analyze_case_body(const Value& clause, const Value& body_cons,
+                               const StaticEnv& senv, const CompileScope* scope,
+                               bool arrow_ok, const char* msg)
+   {
+   if (arrow_ok && is_cons(body_cons) && is_symbol(car(body_cons)) &&
+       as_symbol(car(body_cons)) == "=>")
+      {
+      if (!is_cons(cdr(body_cons)) || !is_nil(cdr(cdr(body_cons))))
+         throw SchemeAnalysisError(msg, src_of(clause));
+      Value proc_cell = cdr(body_cons);
+      Value proc = analyze(car(proc_cell), senv, scope);
+      return rebuild(clause, car(clause),
+                     rebuild(body_cons, car(body_cons),
+                             rebuild(proc_cell, proc, cdr(proc_cell))));
+      }
+   return rebuild(clause, car(clause), analyze_seq(body_cons, senv, scope));
+   }
+
+static Value analyze_case(const Value& sexpr, const StaticEnv& senv,
+                          const CompileScope* scope)
    {
    if (proper_list_length(sexpr) < 3)
       throw SchemeAnalysisError("case requires a key and at least one clause", src_of(sexpr));
-   analyze(car(cdr(sexpr)), senv);
+   Value key = analyze(car(cdr(sexpr)), senv, scope);
    auto clauses = cons_to_list(cdr(cdr(sexpr)));
    int total = (int)clauses.size();
+   std::vector<Value> new_clauses;
    for (int i = 0; i < total; i++)
       {
       Value clause = clauses[i];
@@ -788,25 +1011,10 @@ static void analyze_case(const Value& sexpr, const StaticEnv& senv)
          if (i != total - 1)
             throw SchemeAnalysisError(
                 "case 'else' clause must be the last clause", src_of(clause));
-         Value body_cons = cdr(clause);
-         if (is_cons(body_cons) && is_symbol(car(body_cons)) &&
-             as_symbol(car(body_cons)) == "=>" && senv.count("=>") == 0)
-            {
-            if (!is_cons(cdr(body_cons)) || !is_nil(cdr(cdr(body_cons))))
-               throw SchemeAnalysisError(
-                   "case 'else =>' clause must have exactly one expression",
-                   src_of(clause));
-            analyze(car(cdr(body_cons)), senv);
-            }
-         else
-            {
-            Value cur = body_cons;
-            while (is_cons(cur))
-               {
-               analyze(car(cur), senv);
-               cur = cdr(cur);
-               }
-            }
+         // (else => proc-expr) or (else <expr>...)
+         new_clauses.push_back(analyze_case_body(
+             clause, cdr(clause), senv, scope, senv.count("=>") == 0,
+             "case 'else =>' clause must have exactly one expression"));
          }
       else
          {
@@ -815,29 +1023,18 @@ static void analyze_case(const Value& sexpr, const StaticEnv& senv)
                 "case clause head must be a list of datums, got " + render(head), src_of(head));
          if (proper_list_length(head) < 0)
             throw SchemeAnalysisError("case datum list must be a proper list", src_of(head));
-         Value body_cons = cdr(clause);
-         if (is_cons(body_cons) && is_symbol(car(body_cons)) &&
-             as_symbol(car(body_cons)) == "=>")
-            {
-            if (!is_cons(cdr(body_cons)) || !is_nil(cdr(cdr(body_cons))))
-               throw SchemeAnalysisError(
-                   "case '=>' clause must have exactly one expression", src_of(clause));
-            analyze(car(cdr(body_cons)), senv);
-            }
-         else
-            {
-            Value cur = body_cons;
-            while (is_cons(cur))
-               {
-               analyze(car(cur), senv);
-               cur = cdr(cur);
-               }
-            }
+         // ((<datum>...) => proc-expr) or ((<datum>...) <expr>...)
+         new_clauses.push_back(analyze_case_body(
+             clause, cdr(clause), senv, scope, true,
+             "case '=>' clause must have exactly one expression"));
          }
       }
+   return rebuild(sexpr, car(sexpr),
+                  rebuild(cdr(sexpr), key, rebuild_list(cdr(cdr(sexpr)), new_clauses)));
    }
 
-static void analyze_do(const Value& sexpr, const StaticEnv& /*senv*/)
+static Value analyze_do(const Value& sexpr, const StaticEnv& /*senv*/,
+                        const CompileScope* /*scope*/)
    {
    if (proper_list_length(sexpr) < 3)
       throw SchemeAnalysisError("do requires a binding list and a test clause", src_of(sexpr));
@@ -868,9 +1065,11 @@ static void analyze_do(const Value& sexpr, const StaticEnv& /*senv*/)
           "do test clause must be a list starting with a test expression", src_of(test_sexpr));
    if (proper_list_length(test_sexpr) < 1)
       throw SchemeAnalysisError("do test clause must be a proper list", src_of(test_sexpr));
+   return sexpr;
    }
 
-static void analyze_include(const Value& sexpr, const StaticEnv& /*senv*/)
+static Value analyze_include(const Value& sexpr, const StaticEnv& /*senv*/,
+                             const CompileScope* /*scope*/)
    {
    int n = proper_list_length(sexpr) - 1;
    if (n < 1)
@@ -885,9 +1084,11 @@ static void analyze_include(const Value& sexpr, const StaticEnv& /*senv*/)
              "include arguments must be string literals, got " + render(arg), src_of(arg));
       cur = cdr(cur);
       }
+   return sexpr;
    }
 
-static void analyze_cond_expand(const Value& sexpr, const StaticEnv& /*senv*/)
+static Value analyze_cond_expand(const Value& sexpr, const StaticEnv& /*senv*/,
+                                 const CompileScope* /*scope*/)
    {
    if (proper_list_length(sexpr) < 2)
       throw SchemeAnalysisError("cond-expand requires at least one clause", src_of(sexpr));
@@ -899,71 +1100,68 @@ static void analyze_cond_expand(const Value& sexpr, const StaticEnv& /*senv*/)
    throw SchemeAnalysisError("cond-expand: no clause matched", src_of(sexpr));
    }
 
-static void analyze_and(const Value& sexpr, const StaticEnv& senv)
+static Value analyze_and(const Value& sexpr, const StaticEnv& senv, const CompileScope* scope)
    {
-   Value cur = cdr(sexpr);
-   while (is_cons(cur))
-      {
-      analyze(car(cur), senv);
-      cur = cdr(cur);
-      }
+   return rebuild(sexpr, car(sexpr), analyze_seq(cdr(sexpr), senv, scope));
    }
 
-static void analyze_or(const Value& sexpr, const StaticEnv& senv)
+static Value analyze_or(const Value& sexpr, const StaticEnv& senv, const CompileScope* scope)
    {
-   Value cur = cdr(sexpr);
-   while (is_cons(cur))
-      {
-      analyze(car(cur), senv);
-      cur = cdr(cur);
-      }
+   return rebuild(sexpr, car(sexpr), analyze_seq(cdr(sexpr), senv, scope));
    }
 
-static void analyze_when_unless(const Value& sexpr, const StaticEnv& senv,
-                                const std::string& name)
+static Value analyze_when_unless(const Value& sexpr, const StaticEnv& senv,
+                                 const std::string& name, const CompileScope* scope)
    {
    if (proper_list_length(sexpr) < 3)
       throw SchemeAnalysisError(
           name + " requires a test and at least one body expression", src_of(sexpr));
-   analyze(car(cdr(sexpr)), senv);
-   Value cur = cdr(cdr(sexpr));
-   while (is_cons(cur))
-      {
-      analyze(car(cur), senv);
-      cur = cdr(cur);
-      }
+   return rebuild(sexpr, car(sexpr), analyze_seq(cdr(sexpr), senv, scope));
    }
 
-static void analyze_when(const Value& sexpr, const StaticEnv& senv)
+static Value analyze_when(const Value& sexpr, const StaticEnv& senv, const CompileScope* scope)
    {
-   analyze_when_unless(sexpr, senv, "when");
+   return analyze_when_unless(sexpr, senv, "when", scope);
    }
-static void analyze_unless(const Value& sexpr, const StaticEnv& senv)
+static Value analyze_unless(const Value& sexpr, const StaticEnv& senv,
+                            const CompileScope* scope)
    {
-   analyze_when_unless(sexpr, senv, "unless");
+   return analyze_when_unless(sexpr, senv, "unless", scope);
    }
 
-static void analyze_quote(const Value& sexpr, const StaticEnv& /*senv*/)
+static Value analyze_quote(const Value& sexpr, const StaticEnv& /*senv*/,
+                           const CompileScope* /*scope*/)
    {
    int n = proper_list_length(sexpr) - 1;
    if (n != 1)
       throw SchemeAnalysisError(
           "quote requires exactly 1 argument, got " + std::to_string(n), src_of(sexpr));
+   // Quoted data is literal - do NOT walk or analyze its contents.
+   return sexpr;
    }
 
-static void analyze_delay(const Value& sexpr, const StaticEnv& senv)
+static Value analyze_delay(const Value& sexpr, const StaticEnv& senv, const CompileScope* scope)
    {
    std::string name = as_symbol(car(sexpr));
    int n = proper_list_length(sexpr) - 1;
    if (n != 1)
       throw SchemeAnalysisError(
           name + " requires exactly 1 argument, got " + std::to_string(n), src_of(sexpr));
-   analyze(car(cdr(sexpr)), senv);
+   // The expression runs when the promise's thunk (no parameters) is called:
+   // in an empty scope under this one.
+   CompileScope thunk_scope{std::make_shared<const std::vector<uint32_t>>(), scope};
+   Value expr = analyze(car(cdr(sexpr)), senv, &thunk_scope);
+   return rebuild(sexpr, car(sexpr), rebuild(cdr(sexpr), expr, cdr(cdr(sexpr))));
    }
 
-static void analyze_library_form(const Value& /*sexpr*/, const StaticEnv& /*senv*/) {}
+static Value analyze_library_form(const Value& sexpr, const StaticEnv& /*senv*/,
+                                  const CompileScope* /*scope*/)
+   {
+   return sexpr;
+   }
 
-static void analyze_unquote_outside(const Value& sexpr, const StaticEnv& /*senv*/)
+static Value analyze_unquote_outside(const Value& sexpr, const StaticEnv& /*senv*/,
+                                     const CompileScope* /*scope*/)
    {
    std::string head_name = as_symbol(car(sexpr));
    throw SchemeAnalysisError(
@@ -983,9 +1181,10 @@ static void analyze_unquote_outside(const Value& sexpr, const StaticEnv& /*senv*
 // every external caller, which analyzes a top-level form, starts with true.
 static thread_local bool s_def_ctx = true;
 
-static Value analyze_form(const Value& sexpr, const StaticEnv& senv, bool def_ok);
+static Value analyze_form(const Value& sexpr, const StaticEnv& senv, bool def_ok,
+                          const CompileScope* scope);
 
-Value analyze(const Value& sexpr, const StaticEnv& senv)
+Value analyze(const Value& sexpr, const StaticEnv& senv, const CompileScope* scope)
    {
    bool def_ok = s_def_ctx;
    s_def_ctx = def_ok && is_cons(sexpr) && is_symbol(car(sexpr)) &&
@@ -999,10 +1198,11 @@ Value analyze(const Value& sexpr, const StaticEnv& senv)
          }
       };
    Restore restore{def_ok};
-   return analyze_form(sexpr, senv, def_ok);
+   return analyze_form(sexpr, senv, def_ok, scope);
    }
 
-static Value analyze_form(const Value& sexpr, const StaticEnv& senv, bool def_ok)
+static Value analyze_form(const Value& sexpr, const StaticEnv& senv, bool def_ok,
+                          const CompileScope* scope)
    {
    std::call_once(s_init_flag, init_special_forms);
 
@@ -1032,6 +1232,7 @@ static Value analyze_form(const Value& sexpr, const StaticEnv& senv, bool def_ok
          if (free_ref && is_syntax_transformer(lookup_macro(sexpr)))
             throw SchemeSyntaxError(
                 "keyword used as expression: " + name, src_of(sexpr));
+         return ref(sexpr, scope);
          }
       return sexpr;
       }
@@ -1046,8 +1247,7 @@ static Value analyze_form(const Value& sexpr, const StaticEnv& senv, bool def_ok
             throw SchemeSyntaxError(
                 "definition not allowed in an expression context",
                 src_of(sexpr));
-         it->second(sexpr, senv);
-         return sexpr;
+         return it->second(sexpr, senv, scope);
          }
       }
 
@@ -1070,15 +1270,15 @@ static Value analyze_form(const Value& sexpr, const StaticEnv& senv, bool def_ok
                           [&]
    { auto it = senv.find(as_symbol(fn_sexpr));
              return it == senv.end() || it->second.has_value(); }();
+   Value new_fn = fn_sexpr;
    if (!fn_is_global_kw)
-      analyze(fn_sexpr, senv);
-   for (const Value& arg : args)
-      analyze(arg, senv);
+      new_fn = analyze(fn_sexpr, senv, scope);
+   Value new_args = analyze_seq(cdr(sexpr), senv, scope);
    check_app_arity(fn_sexpr, args, senv, sexpr);
-   return sexpr;
+   return rebuild(sexpr, new_fn, new_args);
    }
 
 Value analyze(const Value& sexpr)
    {
-   return analyze(sexpr, primitive_arities());
+   return analyze(sexpr, primitive_arities(), nullptr);
    }
