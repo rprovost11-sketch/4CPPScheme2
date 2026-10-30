@@ -1802,6 +1802,8 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                               ef.list1 = std::move(dl.eval_forms);
                               ef.env = dl.lib_env;
                               ef.depth = 0;
+                              ef.uid = 1; // do_analyze
+                              ef.senv = std::make_shared<StaticEnv>();
                               K.push_back(std::move(ef));
                               // Imports run first (frame-driven, loading library
                               // files on the K stack if needed), before the begin
@@ -2538,10 +2540,10 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                   // Evaluates a list of top-level forms in sequence ON THE MAIN K
                   // STACK (load / library loading), instead of a re-entrant
                   // cek_eval per form.  Each form is expanded and evaluated; its
-                  // result is discarded.  uid (do_analyze) gates the Analyzer pass
-                  // (load analyzes + accumulates defines into senv; define-library's
-                  // begin/decl forms are not analyzed, matching the old
-                  // cek_eval(expand(form)) path).  Yields VOID when the forms are
+                  // result is discarded.  uid (do_analyze) gates the Analyzer pass,
+                  // which accumulates defines into senv.  Every current push site
+                  // analyzes (load, define-library's begin/decl forms, a .sld
+                  // file's top-level forms).  Yields VOID when the forms are
                   // exhausted.
                   size_t ef_i = (size_t)frame.depth;
                   if (ef_i >= frame.list1.size())
@@ -2710,6 +2712,8 @@ static Value cek_loop(const Value& expr, Environment* env, Context* ctx)
                      ef.list1 = std::move(forms);
                      ef.env = fresh_env;
                      ef.depth = 0;
+                     ef.uid = 1; // do_analyze
+                     ef.senv = std::make_shared<StaticEnv>();
                      K.push_back(std::move(ef));
                      }
                   continue;
